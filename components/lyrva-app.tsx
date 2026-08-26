@@ -65,6 +65,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Toaster } from "@/components/ui/sonner";
+import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 
 type View = "dashboard" | "invoices" | "patients" | "import" | "integrations";
 
@@ -140,7 +141,7 @@ const money = (cents = 0) => new Intl.NumberFormat("pt-BR", { style: "currency",
 const digits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 
 function LyvraMark() {
-  return <div className="lyvra-mark" aria-hidden="true"><img src="/lyrva-icon.png" alt="" /></div>;
+  return <div className="lyvra-mark" aria-hidden="true"><img src={LYVRA_ICON_DATA_URL} alt="" /></div>;
 }
 
 function StatusBadge({ tone, children }: { tone: DemoObligation["tone"]; children: React.ReactNode }) {
