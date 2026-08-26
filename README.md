@@ -38,3 +38,8 @@ npm run build
 Next.js/Vinext, React, TypeScript, Tailwind CSS, Cloudflare D1 e Drizzle ORM.
 
 Projeto privado da Casal Odonto. Integrações externas permanecem desativadas até a configuração das credenciais oficiais.
+
+## Deploy
+
+- ChatGPT Sites/Cloudflare: aplicação completa com banco D1;
+- Vercel: interface em modo demonstrativo até a conexão do banco definitivo.

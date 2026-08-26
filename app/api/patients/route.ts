@@ -22,7 +22,10 @@ const clean = (value: unknown) => typeof value === "string" ? value.trim() : "";
 
 export async function GET() {
   try {
-    const result = await getD1().prepare(`
+    const db = await getD1();
+    if (!db) return Response.json({ patients: [], mode: "demo" });
+
+    const result = await db.prepare(`
       SELECT id, clinicorp_id AS clinicorpId, name, cpf, phone, email, unit,
              treatment, payment_method AS paymentMethod,
              plan_amount_cents AS planAmountCents, start_date AS startDate,
@@ -48,7 +51,13 @@ export async function POST(request: Request) {
     const valid = incoming.filter((patient) => clean(patient.name));
     if (!valid.length) return Response.json({ error: "A coluna de nome é obrigatória." }, { status: 400 });
 
-    const db = getD1();
+    const db = await getD1();
+    if (!db) {
+      return Response.json(
+        { error: "A importação será liberada após conectarmos o banco de dados da Vercel." },
+        { status: 503 },
+      );
+    }
     const statements = valid.map((patient) => db.prepare(`
       INSERT INTO patients (
         clinicorp_id, name, cpf, phone, email, unit, treatment, payment_method,
