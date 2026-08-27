@@ -42,4 +42,5 @@ Projeto privado da Casal Odonto. Integrações externas permanecem desativadas a
 ## Deploy
 
 - ChatGPT Sites/Cloudflare: aplicação completa com banco D1;
-- Vercel: interface em modo demonstrativo até a conexão do banco definitivo.
+- Vercel: interface em modo demonstrativo até a conexão do banco definitivo;
+- branch `main`: vinculada ao deploy automático de produção na Vercel.
