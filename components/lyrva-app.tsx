@@ -71,8 +71,9 @@ import {
 } from "@/components/ui/table";
 import { Toaster } from "@/components/ui/sonner";
 import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
+import { CollectionsJourney } from "@/components/collections-journey";
 
-type View = "dashboard" | "invoices" | "patients" | "import" | "integrations";
+type View = "dashboard" | "invoices" | "collections" | "patients" | "import" | "integrations";
 type Role = "financeiro" | "gestora" | "ceo" | "suporte";
 
 type UserAccount = {
@@ -114,6 +115,7 @@ type DemoObligation = {
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
   { id: "invoices", label: "Notas fiscais", icon: FileText, badge: "8" },
+  { id: "collections", label: "Régua de cobrança", icon: WalletCards, badge: "4" },
   { id: "patients", label: "Pacientes", icon: Users },
   { id: "import", label: "Importar planilha", icon: FileSpreadsheet },
   { id: "integrations", label: "Integrações", icon: Link2 },
@@ -139,6 +141,7 @@ const roleLabels: Record<Role, string> = {
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: "Quarta-feira, 26 de agosto", title: "Visão geral" },
   invoices: { eyebrow: "Controle fiscal", title: "Notas fiscais" },
+  collections: { eyebrow: "Jornada do financeiro", title: "Régua de cobrança" },
   patients: { eyebrow: "Base de cadastros", title: "Pacientes" },
   import: { eyebrow: "Carga inicial", title: "Importar planilha" },
   integrations: { eyebrow: "Conexões do sistema", title: "Integrações" },
@@ -345,7 +348,6 @@ export function LyvraApp() {
           <SidebarGroup className="mt-3">
             <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">Aguardando estrutura</SidebarGroupLabel>
             <SidebarGroupContent><SidebarMenu>
-              <SidebarMenuItem><SidebarMenuButton tooltip="Régua de cobrança" className="h-10 rounded-xl px-3 text-white/38"><WalletCards /><span>Régua de cobrança</span></SidebarMenuButton></SidebarMenuItem>
               <SidebarMenuItem><SidebarMenuButton tooltip="Jornada financeira" className="h-10 rounded-xl px-3 text-white/38"><Sparkles /><span>Jornada financeira</span></SidebarMenuButton></SidebarMenuItem>
             </SidebarMenu></SidebarGroupContent>
           </SidebarGroup>
@@ -376,6 +378,7 @@ export function LyvraApp() {
           <div className="mx-auto max-w-[1500px]">
             {view === "dashboard" && <DashboardView unit={unit} obligations={obligations} goTo={setView} />}
             {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
+            {view === "collections" && <CollectionsJourney unit={unit} />}
             {view === "patients" && <PatientsView unit={unit} patients={shownPatients} demo={isDemo} loading={loadingPatients} goTo={setView} />}
             {view === "import" && <ImportView onImported={async () => { await loadPatients(); setView("patients"); }} />}
             {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
