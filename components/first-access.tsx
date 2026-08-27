@@ -184,7 +184,7 @@ export function FirstAccess() {
           )}
 
           <div className="mt-7 rounded-xl border border-[#e7ece8] bg-[#f8faf7] px-4 py-3 text-center">
-            <p className="text-[11px] leading-5 text-[#849087]">Fluxo demonstrativo nesta versão. A validação segura do token será conectada quando o banco de dados for ativado.</p>
+            <p className="text-[11px] leading-5 text-[#849087]">A ativação definitiva do token será conectada quando o banco de dados for habilitado.</p>
           </div>
         </div>
 

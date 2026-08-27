@@ -23,7 +23,7 @@ const clean = (value: unknown) => typeof value === "string" ? value.trim() : "";
 export async function GET() {
   try {
     const db = await getD1();
-    if (!db) return Response.json({ patients: [], mode: "demo" });
+    if (!db) return Response.json({ patients: [], mode: "empty" });
 
     const result = await db.prepare(`
       SELECT id, clinicorp_id AS clinicorpId, name, cpf, phone, email, unit,

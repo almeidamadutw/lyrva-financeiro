@@ -11,7 +11,7 @@ export type D1DatabaseLike = {
 
 export async function getD1(): Promise<D1DatabaseLike | null> {
   // D1 é injetado pelo runtime Cloudflare/Sites. Na Vercel, a interface roda
-  // normalmente em modo demonstrativo até conectarmos o banco definitivo.
+  // Sem binding configurado, a interface permanece vazia até conectarmos o banco definitivo.
   if (process.env.VERCEL) return null;
 
   const cloudflareRuntime = "cloudflare:workers";

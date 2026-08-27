@@ -102,121 +102,7 @@ declare global {
   }
 }
 
-const initialPatients: CollectionPatient[] = [
-  {
-    id: 1,
-    name: "Ana Paula Menezes",
-    initials: "AM",
-    phone: "(15) 9 8124-3077",
-    unit: "Sorocaba",
-    amount: "R$ 780,00",
-    dueDate: "19/08/2026",
-    delay: "6 dias úteis",
-    stage: "call",
-    status: "Ligação inicial",
-    nextAction: "Hoje • 09:30",
-    owner: "Daiane",
-    history: [
-      { id: 1, date: "24 ago • 08:00", author: "LYVRA", channel: "Sistema", text: "Paciente entrou automaticamente na régua após 3 dias úteis do vencimento." },
-    ],
-  },
-  {
-    id: 2,
-    name: "Rogério Alves",
-    initials: "RA",
-    phone: "(15) 9 9432-1180",
-    unit: "Salto de Pirapora",
-    amount: "R$ 460,00",
-    dueDate: "20/08/2026",
-    delay: "5 dias úteis",
-    stage: "call",
-    status: "Nova tentativa",
-    nextAction: "Hoje • 11:00",
-    owner: "Daiane",
-    history: [
-      { id: 1, date: "25 ago • 08:00", author: "LYVRA", channel: "Sistema", text: "Paciente entrou automaticamente na régua após 3 dias úteis do vencimento." },
-      { id: 2, date: "26 ago • 14:22", author: "Daiane", channel: "Ligação", text: "Ligação não atendida. Realizar uma nova tentativa amanhã pela manhã." },
-    ],
-  },
-  {
-    id: 3,
-    name: "Renata Oliveira",
-    initials: "RO",
-    phone: "(15) 9 7664-9201",
-    unit: "Sorocaba",
-    amount: "R$ 1.240,00",
-    dueDate: "13/08/2026",
-    delay: "10 dias úteis",
-    stage: "promise",
-    status: "Pagamento prometido",
-    nextAction: "Hoje • confirmar pagamento",
-    promiseDate: "27/08/2026",
-    owner: "Daiane",
-    history: [
-      { id: 1, date: "18 ago • 08:00", author: "LYVRA", channel: "Sistema", text: "Paciente entrou automaticamente na régua após 3 dias úteis do vencimento." },
-      { id: 2, date: "22 ago • 16:10", author: "Daiane", channel: "Ligação", text: "Paciente informou que aguarda o salário e combinou realizar o pagamento integral no dia 27/08." },
-    ],
-  },
-  {
-    id: 4,
-    name: "Marcos Vinícius Lima",
-    initials: "ML",
-    phone: "(15) 9 8877-2044",
-    unit: "Sorocaba",
-    amount: "R$ 620,00",
-    dueDate: "11/08/2026",
-    delay: "12 dias úteis",
-    stage: "negotiation",
-    status: "Em negociação",
-    nextAction: "28 ago • retorno",
-    promiseDate: "28/08/2026",
-    owner: "Daiane",
-    history: [
-      { id: 1, date: "14 ago • 08:00", author: "LYVRA", channel: "Sistema", text: "Paciente entrou automaticamente na régua após 3 dias úteis do vencimento." },
-      { id: 2, date: "26 ago • 10:42", author: "Daiane", channel: "Ligação", text: "Solicitou dividir o valor em duas vezes. Ficou de confirmar a proposta no dia 28/08." },
-    ],
-  },
-  {
-    id: 5,
-    name: "Carla Ferreira",
-    initials: "CF",
-    phone: "(15) 9 7240-8812",
-    unit: "Salto de Pirapora",
-    amount: "R$ 1.580,00",
-    dueDate: "06/07/2026",
-    delay: "38 dias úteis",
-    stage: "protested",
-    status: "Protestado",
-    nextAction: "Acompanhar regularização",
-    protestedAt: "18/08/2026",
-    owner: "Daiane",
-    history: [
-      { id: 1, date: "10 jul • 08:00", author: "LYVRA", channel: "Sistema", text: "Paciente entrou na régua de cobrança." },
-      { id: 2, date: "14 ago • 15:30", author: "Daiane", channel: "Ligação", text: "Sem retorno após as tentativas registradas. Caso encaminhado para protesto." },
-      { id: 3, date: "18 ago • 09:15", author: "Financeiro", channel: "Protesto", text: "Título protestado. Aguardando contato para regularização." },
-    ],
-  },
-  {
-    id: 6,
-    name: "Paulo Henrique Souza",
-    initials: "PS",
-    phone: "(15) 9 9011-4427",
-    unit: "Sorocaba",
-    amount: "R$ 890,00",
-    dueDate: "28/06/2026",
-    delay: "44 dias úteis",
-    stage: "protested",
-    status: "Protestado",
-    nextAction: "Retorno em 02 set",
-    protestedAt: "11/08/2026",
-    owner: "Daiane",
-    history: [
-      { id: 1, date: "03 jul • 08:00", author: "LYVRA", channel: "Sistema", text: "Paciente entrou na régua de cobrança." },
-      { id: 2, date: "11 ago • 10:20", author: "Financeiro", channel: "Protesto", text: "Título protestado após encerramento das tentativas de negociação." },
-      { id: 3, date: "26 ago • 17:08", author: "Daiane", channel: "Ligação", text: "Paciente pediu demonstrativo atualizado e combinou retorno para 02/09." },
-    ],
-  },
-];
+const initialPatients: CollectionPatient[] = [];
 
 const stageTone: Record<CollectionStage, string> = {
   call: "bg-[#fff1d8] text-[#946614]",
@@ -268,7 +154,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">No dia certo, o LYVRA coloca o paciente na fila da Daiane. Cada tentativa, acordo e retorno fica registrado na jornada.</p>
           </div>
         </div>
-        <Badge variant="outline" className="w-fit border-[#d8e3d8] bg-[#f5f9f3] px-3 py-1.5 text-[#58704f]">DADOS DEMONSTRATIVOS</Badge>
+        <Badge variant="outline" className="w-fit border-[#d8e3d8] bg-[#f5f9f3] px-3 py-1.5 text-[#58704f]">AGUARDANDO INTEGRAÇÃO</Badge>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -299,9 +185,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         <aside className="space-y-5">
           <div className="rounded-[24px] bg-[#10221f] p-6 text-white shadow-[0_18px_45px_rgba(24,59,50,.13)]">
             <div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/45">Avisos da Daiane</p><BellRing className="size-5 text-[#00BF63]" /></div>
-            <p className="font-display mt-5 text-2xl font-semibold">Próxima ligação às 09:30</p>
-            <p className="mt-2 text-sm leading-6 text-white/55">Ana Paula Menezes • boleto vencido há 6 dias úteis.</p>
-            <Button onClick={() => setSelectedId(1)} className="mt-6 h-11 w-full rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">Abrir negociação <ChevronRight /></Button>
+            <p className="font-display mt-5 text-2xl font-semibold">Nenhuma ligação agendada</p>
+            <p className="mt-2 text-sm leading-6 text-white/55">Os avisos aparecerão aqui quando a régua receber os boletos reais.</p>
+            <Button disabled className="mt-6 h-11 w-full rounded-xl bg-white/10 font-semibold text-white/45">Aguardando dados</Button>
           </div>
 
           <div className="surface-card rounded-[24px] p-5 md:p-6">
@@ -353,6 +239,7 @@ function CollectionTable({ patients, onOpen }: { patients: CollectionPatient[]; 
 }
 
 function ProtestedBlock({ patients, onOpen }: { patients: CollectionPatient[]; onOpen: (id: number) => void }) {
+  if (!patients.length) return <div className="grid min-h-56 place-items-center p-6 text-center"><div><div className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#fae8e3] text-[#9b4d3e]"><ShieldAlert className="size-5" /></div><p className="mt-4 font-medium text-[#405148]">Nenhum paciente protestado</p><p className="mt-1 text-sm text-[#87928c]">Os títulos protestados ficarão reunidos neste bloco.</p></div></div>;
   return (
     <div className="grid gap-4 p-5 md:grid-cols-2 md:p-6">
       {patients.map((patient) => (
