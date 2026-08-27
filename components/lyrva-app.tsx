@@ -438,7 +438,7 @@ export function LyvraApp() {
         </SidebarFooter>
       </Sidebar>
 
-      <SidebarInset>
+      <SidebarInset className="min-w-0 overflow-x-hidden">
         <header className="sticky top-0 z-20 flex h-18 items-center justify-between border-b border-[#dfe5df] bg-[#f7f8f4]/92 px-4 backdrop-blur-xl md:px-7">
           <div className="flex min-w-0 items-center gap-3">
             <SidebarTrigger className="size-9 rounded-xl border border-[#dfe5df] bg-white" />
