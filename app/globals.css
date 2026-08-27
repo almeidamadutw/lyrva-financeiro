@@ -27,9 +27,14 @@
 }
 
 * { border-color: var(--border); }
-body { margin: 0; background: var(--background); color: var(--foreground); font-family: "DM Sans", "Segoe UI", Arial, sans-serif; }
+body { margin: 0; overflow-x: hidden; background: var(--background); color: var(--foreground); font-family: "DM Sans", "Segoe UI", Arial, sans-serif; }
 button, input { font: inherit; }
 .font-display { font-family: Georgia, "Times New Roman", serif; }
+.app-density { --lyvra-density: .8; width: calc(100% / var(--lyvra-density)); min-height: calc(100svh / var(--lyvra-density)); zoom: var(--lyvra-density); }
+.app-density [data-slot="sidebar-wrapper"] { min-height: calc(100svh / var(--lyvra-density)); }
+.app-density [data-slot="sidebar-container"] { height: calc(100svh / var(--lyvra-density)); }
+.sidebar-scroll-clean { scrollbar-width: none; -ms-overflow-style: none; }
+.sidebar-scroll-clean::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .lyvra-mark { position: relative; width: 36px; height: 36px; flex: none; overflow: hidden; border-radius: 12px; background: #00bf63; box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); }
 .lyvra-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .login-shell { position:relative; min-height:100svh; overflow:hidden; display:grid; place-items:center; background:radial-gradient(circle at 50% 42%,#ffffff 0%,#f8faf6 48%,#edf4ec 100%); }
@@ -56,4 +61,4 @@ button, input { font: inherit; }
 .status-ready{background:#eaf5df;color:#54752d}.status-waiting{background:#fff2d9;color:#966816}.status-cycle{background:#e9f2f3;color:#3a7374}.status-issue{background:#fae8e3;color:#a95743}.status-done{background:#edf0ed;color:#637068}
 .eyebrow{font-size:10px;font-weight:700;letter-spacing:.15em;color:#87938c}.activity-icon{width:34px;height:34px;border-radius:12px}.activity-icon svg{width:16px;height:16px}
 .activity-emerald{background:#e8f4e6;color:#4d793e}.activity-violet{background:#eeeafb;color:#7766bf}.activity-blue{background:#e4f1f2;color:#3b7775}
-@media(max-width:720px){.hero-panel::after{right:-280px}[data-slot="table-head"]:nth-child(2),[data-slot="table-cell"]:nth-child(2){display:none}.login-access{padding:32px 18px 24px}.login-logo{width:62px;height:62px;border-radius:19px;margin-bottom:16px}.login-ribbon{margin:20px 0 13px;gap:8px;font-size:9px}.login-card{border-radius:22px;padding:28px 21px 24px}.login-glow{width:430px;height:430px}}
+@media(max-width:767px){.app-density{width:100%;min-height:100svh;zoom:1}.app-density [data-slot="sidebar-wrapper"]{min-height:100svh}.app-density [data-slot="sidebar-container"]{height:100svh}.hero-panel::after{right:-280px}[data-slot="table-head"]:nth-child(2),[data-slot="table-cell"]:nth-child(2){display:none}.login-access{padding:32px 18px 24px}.login-logo{width:62px;height:62px;border-radius:19px;margin-bottom:16px}.login-ribbon{margin:20px 0 13px;gap:8px;font-size:9px}.login-card{border-radius:22px;padding:28px 21px 24px}.login-glow{width:430px;height:430px}}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   AlertCircle,
   Bell,
+  BellRing,
   Building2,
   CalendarDays,
   Check,
@@ -37,6 +38,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -112,6 +120,14 @@ type DemoObligation = {
   tone: "ready" | "waiting" | "cycle" | "issue" | "done";
 };
 
+type CollectionReminder = {
+  patientId: number;
+  patient: string;
+  amount: string;
+  time: string;
+  detail: string;
+};
+
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
   { id: "invoices", label: "Notas fiscais", icon: FileText, badge: "8" },
@@ -166,6 +182,11 @@ const activities = [
   { icon: CheckCircle2, title: "Pagamento confirmado", detail: "Boleto de Helena Martins • R$ 680,00", time: "há 12 min", color: "emerald" },
   { icon: MessageCircle, title: "Confirmação enviada", detail: "WhatsApp entregue para Helena Martins", time: "há 11 min", color: "violet" },
   { icon: FileText, title: "Nota fiscal emitida", detail: "NF 2026/00384 • Beatriz Carvalho", time: "há 1h", color: "blue" },
+];
+
+const collectionReminders: CollectionReminder[] = [
+  { patientId: 1, patient: "Ana Paula Menezes", amount: "R$ 780,00", time: "09:30", detail: "Boleto vencido há 6 dias úteis" },
+  { patientId: 2, patient: "Rogério Alves", amount: "R$ 460,00", time: "11:00", detail: "Nova tentativa de contato" },
 ];
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -263,6 +284,9 @@ export function LyvraApp() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [obligations, setObligations] = useState(demoObligations);
+  const [collectionReminder, setCollectionReminder] = useState<CollectionReminder | null>(null);
+  const [collectionPatientId, setCollectionPatientId] = useState<number | null>(null);
+  const reminderSnoozeUntil = useRef(0);
 
   const loadPatients = async () => {
     setLoadingPatients(true);
@@ -283,6 +307,38 @@ export function LyvraApp() {
     setAuthReady(true);
     void loadPatients();
   }, []);
+
+  useEffect(() => {
+    if (currentUser?.email !== "daiane@lyvrafinanceiro.com.br") {
+      setCollectionReminder(null);
+      return;
+    }
+
+    const checkCollectionSchedule = () => {
+      const now = new Date();
+      if (now.getTime() < reminderSnoozeUntil.current) return;
+
+      const reminder = collectionReminders.find((item) => {
+        const [hours, minutes] = item.time.split(":").map(Number);
+        const scheduled = new Date(now);
+        scheduled.setHours(hours, minutes, 0, 0);
+        const distance = now.getTime() - scheduled.getTime();
+        return distance >= -10 * 60_000 && distance <= 20 * 60_000;
+      });
+
+      if (!reminder) return;
+      const dayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+      const storageKey = `lyvra-collection-reminder-${dayKey}-${reminder.patientId}`;
+      if (window.sessionStorage.getItem(storageKey)) return;
+
+      window.sessionStorage.setItem(storageKey, "shown");
+      setCollectionReminder(reminder);
+    };
+
+    checkCollectionSchedule();
+    const timer = window.setInterval(checkCollectionSchedule, 30_000);
+    return () => window.clearInterval(timer);
+  }, [currentUser?.email]);
 
   const shownPatients = patients.length ? patients : demoPatients;
   const isDemo = patients.length === 0;
@@ -307,6 +363,25 @@ export function LyvraApp() {
     setView("dashboard");
   };
 
+  const clearCollectionPatient = useCallback(() => setCollectionPatientId(null), []);
+
+  const openReminderNegotiation = () => {
+    if (!collectionReminder) return;
+    setCollectionPatientId(collectionReminder.patientId);
+    setView("collections");
+    setCollectionReminder(null);
+  };
+
+  const snoozeCollectionReminder = () => {
+    if (!collectionReminder) return;
+    const now = new Date();
+    const dayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    window.sessionStorage.removeItem(`lyvra-collection-reminder-${dayKey}-${collectionReminder.patientId}`);
+    reminderSnoozeUntil.current = now.getTime() + 5 * 60_000;
+    setCollectionReminder(null);
+    toast.info("Tudo certo, Daiane", { description: "Vou lembrar novamente em 5 minutos." });
+  };
+
   if (!authReady) {
     return <main className="login-shell grid place-items-center"><LoaderCircle className="size-7 animate-spin text-[#00BF63]" /><span className="sr-only">Carregando LYVRA</span></main>;
   }
@@ -317,8 +392,10 @@ export function LyvraApp() {
   const userInitials = currentUser.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 
   return (
+    <div className="app-density">
     <SidebarProvider>
       <Toaster position="top-right" richColors />
+      <CollectionReminderDialog reminder={collectionReminder} onClose={() => setCollectionReminder(null)} onOpenNegotiation={openReminderNegotiation} onSnooze={snoozeCollectionReminder} />
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
           <div className="flex items-center gap-3 overflow-hidden px-1">
@@ -329,7 +406,7 @@ export function LyvraApp() {
             </div>
           </div>
         </SidebarHeader>
-        <SidebarContent className="px-2">
+        <SidebarContent className="sidebar-scroll-clean px-2">
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">Operação</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -378,7 +455,7 @@ export function LyvraApp() {
           <div className="mx-auto max-w-[1500px]">
             {view === "dashboard" && <DashboardView unit={unit} obligations={obligations} goTo={setView} />}
             {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
-            {view === "collections" && <CollectionsJourney unit={unit} />}
+            {view === "collections" && <CollectionsJourney unit={unit} openPatientId={collectionPatientId} onPatientOpened={clearCollectionPatient} />}
             {view === "patients" && <PatientsView unit={unit} patients={shownPatients} demo={isDemo} loading={loadingPatients} goTo={setView} />}
             {view === "import" && <ImportView onImported={async () => { await loadPatients(); setView("patients"); }} />}
             {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
@@ -386,6 +463,38 @@ export function LyvraApp() {
         </main>
       </SidebarInset>
     </SidebarProvider>
+    </div>
+  );
+}
+
+function CollectionReminderDialog({ reminder, onClose, onOpenNegotiation, onSnooze }: { reminder: CollectionReminder | null; onClose: () => void; onOpenNegotiation: () => void; onSnooze: () => void }) {
+  return (
+    <Dialog open={Boolean(reminder)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="overflow-hidden border-0 bg-[#10221f] p-0 text-white shadow-[0_30px_90px_rgba(7,22,17,.42)] sm:max-w-[520px] [&>button]:right-5 [&>button]:top-5 [&>button]:text-white/55 [&>button]:hover:text-white">
+        {reminder && <>
+          <div className="h-1.5 bg-[#00BF63]" />
+          <div className="p-6 sm:p-7">
+            <DialogHeader className="text-left">
+              <div className="mb-5 flex items-center justify-between pr-8">
+                <div className="grid size-12 place-items-center rounded-2xl bg-[#00BF63] text-[#10221f]"><BellRing className="size-6 animate-pulse" /></div>
+                <Badge className="border border-white/10 bg-white/8 text-[10px] text-white hover:bg-white/8">LEMBRETE DA RÉGUA</Badge>
+              </div>
+              <DialogTitle className="font-display text-3xl font-semibold leading-tight text-white">Daiane, ligação às {reminder.time}</DialogTitle>
+              <DialogDescription className="mt-2 text-sm leading-6 text-white/55">O horário combinado está chegando. Abra a negociação para registrar o contato.</DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.055] p-4">
+              <div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-white">{reminder.patient}</p><p className="mt-1 text-xs text-white/48">{reminder.detail}</p></div><p className="shrink-0 font-display text-xl font-semibold text-[#68d88a]">{reminder.amount}</p></div>
+            </div>
+
+            <div className="mt-6 grid gap-2 sm:grid-cols-[1fr_auto]">
+              <Button onClick={onOpenNegotiation} className="h-12 rounded-xl bg-[#00BF63] font-bold text-[#10221f] hover:bg-[#00d56e]">Abrir negociação <ChevronRight /></Button>
+              <Button onClick={onSnooze} variant="outline" className="h-12 rounded-xl border-white/12 bg-white/7 px-5 text-white hover:bg-white/12 hover:text-white">Lembrar em 5 min</Button>
+            </div>
+          </div>
+        </>}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -398,7 +507,7 @@ function DashboardView({ unit, obligations, goTo }: { unit: string; obligations:
   return <div className="space-y-5">
     <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-7 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8"><span className="mr-1.5 size-1.5 rounded-full bg-[#00BF63]" />DADOS DEMONSTRATIVOS</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[42px]">O financeiro do mês,<br className="hidden sm:block" /> sem nada escapar.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/58 md:text-base">Agosto fecha com 8 notas prontas e 3 pagamentos que ainda precisam da sua atenção.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="h-11 rounded-xl border-white/15 bg-white/8 px-4 text-white shadow-none hover:bg-white/14 hover:text-white"><CalendarDays /> Agosto de 2026</Button><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Ver notas a emitir <ChevronRight /></Button></div></div></section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value="8" detail="R$ 7.840,00" icon={FileText} accent="lime" /><MetricCard label="Aguardando baixa" value="3" detail="R$ 1.650,00" icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value="34" detail="R$ 24.380,00" icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value="11" detail="Envio às 10h" icon={MessageCircle} accent="violet" /></section>
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências prioritárias" description="Obrigações que pedem uma ação da equipe." obligations={filtered} compact /><div className="space-y-5"><QuarterCard /><ActivityCard /></div></section>
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Acompanhamentos do financeiro" description="Tudo que ainda pede uma ação da equipe." obligations={filtered} compact /><div className="space-y-5"><QuarterCard /><ActivityCard /></div></section>
   </div>;
 }
 

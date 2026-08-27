@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BellRing,
   CalendarClock,
@@ -239,9 +239,15 @@ function CollectionMetric({ icon: Icon, label, value, detail, tone }: { icon: ty
   );
 }
 
-export function CollectionsJourney({ unit }: { unit: string }) {
+export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { unit: string; openPatientId?: number | null; onPatientOpened?: () => void }) {
   const [patients, setPatients] = useState(initialPatients);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!openPatientId) return;
+    setSelectedId(openPatientId);
+    onPatientOpened?.();
+  }, [openPatientId, onPatientOpened]);
 
   const filtered = useMemo(() => patients.filter((patient) => unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")), [patients, unit]);
   const today = filtered.filter((patient) => patient.stage === "call" || patient.stage === "promise");
@@ -276,7 +282,7 @@ export function CollectionsJourney({ unit }: { unit: string }) {
         <div className="surface-card overflow-hidden rounded-[24px]">
           <Tabs defaultValue="today">
             <div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 md:flex-row md:items-center md:justify-between md:px-6">
-              <div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Prioridades, acordos e protestos no mesmo fluxo.</p></div>
+              <div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div>
               <TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 md:w-auto">
                 <TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger>
                 <TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger>
