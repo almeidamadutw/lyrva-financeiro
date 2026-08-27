@@ -420,9 +420,9 @@ export function LyvraApp() {
             <div className="hidden h-7 w-px bg-[#dfe5df] md:block" />
             <div><p className="text-xs font-medium text-[#6b756f]">{view === "dashboard" ? todayLabel() : viewTitles[view].eyebrow}</p><h1 className="font-display text-xl font-semibold tracking-tight text-[#16241f]">{viewTitles[view].title}</h1></div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-3">
             {unitFilter}
-            <Button variant="outline" size="icon" className="relative size-10 rounded-xl border-[#dfe5df] bg-white shadow-none"><Bell className="size-4" /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-[#d56b52]" /><span className="sr-only">Notificações</span></Button>
+            <Button variant="outline" size="icon" className="size-10 shrink-0 rounded-xl border-[#dfe5df] bg-white shadow-none"><Bell className="size-4" /><span className="sr-only">Notificações</span></Button>
           </div>
         </header>
 
@@ -474,7 +474,7 @@ function CollectionReminderDialog({ reminder, onClose, onOpenNegotiation, onSnoo
 }
 
 function UnitSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label="Selecionar unidade" className="h-10 w-10 rounded-xl border-[#dfe5df] bg-white px-0 text-[#25362e] shadow-none sm:min-w-39 sm:px-3"><Building2 className="size-4 text-[#6f7b74]" /><span className="hidden sm:inline"><SelectValue /></span></SelectTrigger><SelectContent><SelectItem value="todas">Todas as unidades</SelectItem><SelectItem value="sorocaba">Sorocaba</SelectItem><SelectItem value="salto">Salto de Pirapora</SelectItem></SelectContent></Select>;
+  return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label="Selecionar unidade" className="!h-10 w-10 shrink-0 rounded-xl border-[#dfe5df] bg-white px-0 text-[#25362e] shadow-none sm:w-[180px] sm:px-3"><Building2 className="size-4 shrink-0 text-[#6f7b74]" /><span className="hidden min-w-0 flex-1 truncate text-left sm:inline"><SelectValue /></span></SelectTrigger><SelectContent><SelectItem value="todas">Todas as unidades</SelectItem><SelectItem value="sorocaba">Sorocaba</SelectItem><SelectItem value="salto">Salto de Pirapora</SelectItem></SelectContent></Select>;
 }
 
 function DashboardView({ unit, obligations, goTo }: { unit: string; obligations: Obligation[]; goTo: (view: View) => void }) {
