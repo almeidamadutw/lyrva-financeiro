@@ -3,7 +3,7 @@ import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LYRVA — Sistema Financeiro",
+  title: "LYVRA",
   description: "Inteligência financeira e controle de notas da Casal Odonto.",
   icons: { icon: LYVRA_ICON_DATA_URL, shortcut: LYVRA_ICON_DATA_URL, apple: LYVRA_ICON_DATA_URL },
 };

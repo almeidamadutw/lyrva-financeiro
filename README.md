@@ -1,4 +1,4 @@
-# LYRVA
+# LYVRA
 
 Sistema financeiro interno para acompanhar pagamentos, lembretes pelo WhatsApp e obrigações de emissão de notas fiscais da Casal Odonto.
 
@@ -16,7 +16,7 @@ Sistema financeiro interno para acompanhar pagamentos, lembretes pelo WhatsApp e
 - não há envio no vencimento ou depois dele;
 - pagamento confirmado entra na fila de nota fiscal;
 - pacientes permanecem recorrentes enquanto o tratamento estiver ativo;
-- cobrança em aberto fica registrada no LYRVA, sem novo envio automático.
+- cobrança em aberto fica registrada no LYVRA, sem novo envio automático.
 
 ## Desenvolvimento
 

@@ -32,6 +32,18 @@ button, input { font: inherit; }
 .font-display { font-family: Georgia, "Times New Roman", serif; }
 .lyvra-mark { position: relative; width: 36px; height: 36px; flex: none; overflow: hidden; border-radius: 12px; background: #00bf63; box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); }
 .lyvra-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.login-shell { position:relative; min-height:100svh; overflow:hidden; display:grid; place-items:center; background:radial-gradient(circle at 50% 42%,#ffffff 0%,#f8faf6 48%,#edf4ec 100%); }
+.login-shell::before { content:""; position:absolute; inset:0 0 auto; height:6px; background:linear-gradient(90deg,#00bf63 0%,#00d770 50%,#00bf63 100%); }
+.login-grid { position:absolute; inset:0; opacity:.5; background-image:linear-gradient(rgba(24,59,50,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(24,59,50,.035) 1px,transparent 1px); background-size:52px 52px; mask-image:radial-gradient(circle at center,black 0%,transparent 72%); }
+.login-glow { position:absolute; left:50%; top:47%; width:720px; height:720px; transform:translate(-50%,-50%); border:1px solid rgba(0,191,99,.08); border-radius:50%; box-shadow:0 0 0 72px rgba(0,191,99,.025),0 0 0 150px rgba(0,191,99,.018); }
+.login-access { position:relative; z-index:1; display:flex; width:100%; max-width:520px; flex-direction:column; align-items:center; padding:44px 24px 28px; }
+.login-brand { display:flex; flex-direction:column; align-items:center; text-align:center; }
+.login-logo { width:72px; height:72px; margin-bottom:20px; overflow:hidden; border-radius:22px; background:#00bf63; box-shadow:0 14px 32px rgba(0,191,99,.24),inset 0 0 0 1px rgba(255,255,255,.35); }
+.login-logo img { width:100%; height:100%; display:block; object-fit:cover; }
+.login-ribbon { display:flex; align-items:center; gap:10px; margin:25px 0 15px; color:#6f7e75; font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+.login-ribbon-dot { width:4px; height:4px; border-radius:50%; background:#00bf63; }
+.login-card { width:100%; border:1px solid rgba(209,220,211,.9); border-radius:26px; background:rgba(255,255,255,.92); padding:36px 38px 30px; box-shadow:0 24px 65px rgba(35,66,49,.11),0 3px 12px rgba(35,66,49,.04); backdrop-filter:blur(18px); }
+.login-footer { margin-top:24px; color:#8b978f; font-size:11px; font-weight:600; letter-spacing:.04em; }
 .hero-panel { position: relative; background: linear-gradient(118deg,#10221f 0%,#173c32 62%,#254b3d 100%); box-shadow: 0 18px 45px rgba(24,59,50,.14); }
 .hero-panel::after { content: ""; position: absolute; width: 420px; height: 420px; right: -120px; top: -245px; border: 1px solid rgba(0,191,99,.26); border-radius: 50%; box-shadow: 0 0 0 50px rgba(0,191,99,.045),0 0 0 105px rgba(0,191,99,.03); }
 .surface-card { border: 1px solid #e3e8e3; background: rgba(255,255,255,.96); box-shadow: 0 10px 35px rgba(30,52,41,.045); }
@@ -44,4 +56,4 @@ button, input { font: inherit; }
 .status-ready{background:#eaf5df;color:#54752d}.status-waiting{background:#fff2d9;color:#966816}.status-cycle{background:#e9f2f3;color:#3a7374}.status-issue{background:#fae8e3;color:#a95743}.status-done{background:#edf0ed;color:#637068}
 .eyebrow{font-size:10px;font-weight:700;letter-spacing:.15em;color:#87938c}.activity-icon{width:34px;height:34px;border-radius:12px}.activity-icon svg{width:16px;height:16px}
 .activity-emerald{background:#e8f4e6;color:#4d793e}.activity-violet{background:#eeeafb;color:#7766bf}.activity-blue{background:#e4f1f2;color:#3b7775}
-@media(max-width:720px){.hero-panel::after{right:-280px}[data-slot="table-head"]:nth-child(2),[data-slot="table-cell"]:nth-child(2){display:none}}
+@media(max-width:720px){.hero-panel::after{right:-280px}[data-slot="table-head"]:nth-child(2),[data-slot="table-cell"]:nth-child(2){display:none}.login-access{padding:32px 18px 24px}.login-logo{width:62px;height:62px;border-radius:19px;margin-bottom:16px}.login-ribbon{margin:20px 0 13px;gap:8px;font-size:9px}.login-card{border-radius:22px;padding:28px 21px 24px}.login-glow{width:430px;height:430px}}

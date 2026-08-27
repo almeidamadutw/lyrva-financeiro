@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import {
   AlertCircle,
   Bell,
@@ -13,14 +14,17 @@ import {
   Database,
   FileSpreadsheet,
   FileText,
+  Eye,
+  EyeOff,
   LayoutDashboard,
   Link2,
   LoaderCircle,
+  LogIn,
+  LogOut,
   MessageCircle,
   MoreHorizontal,
   ReceiptText,
   Search,
-  Settings,
   ShieldCheck,
   Sparkles,
   UploadCloud,
@@ -32,6 +36,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -68,6 +73,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 
 type View = "dashboard" | "invoices" | "patients" | "import" | "integrations";
+type Role = "financeiro" | "gestora" | "ceo" | "suporte";
+
+type UserAccount = {
+  name: string;
+  email: string;
+  role: Role;
+};
 
 type Patient = {
   id?: number;
@@ -107,6 +119,23 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?:
   { id: "integrations", label: "Integrações", icon: Link2 },
 ];
 
+const userAccounts: UserAccount[] = [
+  { name: "Daiane", email: "daiane@lyvrafinanceiro.com.br", role: "financeiro" },
+  { name: "Thaina", email: "thaina@lyvrafinanceiro.com.br", role: "financeiro" },
+  { name: "Luciana", email: "luciana@lyvrafinanceiro.com.br", role: "ceo" },
+  { name: "Mirelen", email: "mirelen@lyvrafinanceiro.com.br", role: "gestora" },
+  { name: "Ana", email: "ana@lyvrafinanceiro.com.br", role: "gestora" },
+  { name: "Maria Almeida", email: "maria.almeida@lyvrafinanceiro.com.br", role: "suporte" },
+  { name: "Maria Eduarda", email: "maria.eduarda@lyvrafinanceiro.com.br", role: "financeiro" },
+];
+
+const roleLabels: Record<Role, string> = {
+  financeiro: "Financeiro",
+  gestora: "Gestora",
+  ceo: "CEO",
+  suporte: "Suporte",
+};
+
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: "Quarta-feira, 26 de agosto", title: "Visão geral" },
   invoices: { eyebrow: "Controle fiscal", title: "Notas fiscais" },
@@ -139,6 +168,7 @@ const activities = [
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const money = (cents = 0) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
 const digits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
+const authSessionKey = "lyvra-dashboard-session";
 
 function LyvraMark() {
   return <div className="lyvra-mark" aria-hidden="true"><img src={LYVRA_ICON_DATA_URL} alt="" /></div>;
@@ -148,7 +178,83 @@ function StatusBadge({ tone, children }: { tone: DemoObligation["tone"]; childre
   return <Badge variant="outline" className={`status-badge status-${tone}`}><span className="status-dot" />{children}</Badge>;
 }
 
+function LoginScreen({ onLogin }: { onLogin: (email: string) => boolean }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!email.trim() || password.length < 6) {
+      setError("Preencha um e-mail válido e uma senha com pelo menos 6 caracteres.");
+      return;
+    }
+    if (!onLogin(email.trim().toLowerCase())) {
+      setError("Este e-mail ainda não possui acesso ao LYVRA.");
+      return;
+    }
+    setError("");
+  };
+
+  return (
+    <main className="login-shell">
+      <div className="login-grid" aria-hidden="true" />
+      <div className="login-glow" aria-hidden="true" />
+      <section className="login-access">
+        <header className="login-brand" aria-label="LYVRA Inteligência Financeira">
+          <div className="login-logo" aria-hidden="true"><img src={LYVRA_ICON_DATA_URL} alt="" /></div>
+          <p className="font-display text-[30px] font-semibold leading-none tracking-[0.24em] text-[#102d23]">LYVRA</p>
+          <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6f7e75]">Inteligência financeira</p>
+        </header>
+
+        <div className="login-ribbon" aria-label="Pagamentos, notas e rotinas">
+          <span>Pagamentos</span><span className="login-ribbon-dot" aria-hidden="true" /><span>Notas</span><span className="login-ribbon-dot" aria-hidden="true" /><span>Rotinas</span>
+        </div>
+
+        <div className="login-card">
+          <div className="text-center">
+            <p className="eyebrow">ACESSO AO FINANCEIRO</p>
+            <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-[#172a21]">Bem-vindo de volta</h1>
+            <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-[#75827a]">Entre com os dados fornecidos pela equipe responsável.</p>
+          </div>
+
+          <form className="mt-8 space-y-5" onSubmit={submit}>
+            <div className="space-y-2">
+              <Label htmlFor="login-email" className="text-sm font-semibold text-[#33473c]">E-mail</Label>
+              <Input id="login-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nome@lyvrafinanceiro.com.br" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 shadow-none focus-visible:ring-[#00BF63]" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="login-password" className="text-sm font-semibold text-[#33473c]">Senha</Label>
+              <div className="relative">
+                <Input id="login-password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 pr-12 shadow-none focus-visible:ring-[#00BF63]" minLength={6} required />
+                <Button type="button" variant="ghost" size="icon-sm" onClick={() => setShowPassword((current) => !current)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg text-[#7d8a82] hover:bg-[#eef4ef] hover:text-[#183b32]" aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>
+                  {showPassword ? <EyeOff /> : <Eye />}
+                </Button>
+              </div>
+            </div>
+            {error && <p className="rounded-xl bg-[#fae8e3] px-4 py-3 text-sm text-[#934e3f]" role="alert">{error}</p>}
+            <Button type="submit" className="h-12 w-full rounded-xl bg-[#00BF63] font-bold text-[#10221f] shadow-none hover:bg-[#00d56e]">Entrar no LYVRA <LogIn /></Button>
+          </form>
+
+          <div className="mt-7 border-t border-[#e8ece8] pt-5 text-center">
+            <a href="/primeiro-acesso" className="inline-flex items-center gap-2 text-sm font-semibold text-[#007d46] transition hover:text-[#00a958] hover:underline hover:underline-offset-4">
+              Primeiro acesso? Ative sua conta
+              <ChevronRight className="size-4" />
+            </a>
+            <p className="mt-3 text-xs leading-5 text-[#8a958e]">Problemas para acessar? Solicite ajuda ao suporte responsável.</p>
+          </div>
+        </div>
+
+        <p className="login-footer">Uso interno • Casal Odonto</p>
+      </section>
+    </main>
+  );
+}
+
 export function LyvraApp() {
+  const [authReady, setAuthReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [view, setView] = useState<View>("dashboard");
   const [unit, setUnit] = useState("todas");
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -168,7 +274,12 @@ export function LyvraApp() {
     }
   };
 
-  useEffect(() => { void loadPatients(); }, []);
+  useEffect(() => {
+    const savedEmail = window.sessionStorage.getItem(authSessionKey);
+    setCurrentUser(userAccounts.find((account) => account.email === savedEmail) ?? null);
+    setAuthReady(true);
+    void loadPatients();
+  }, []);
 
   const shownPatients = patients.length ? patients : demoPatients;
   const isDemo = patients.length === 0;
@@ -179,6 +290,29 @@ export function LyvraApp() {
     toast.success("Nota marcada como emitida", { description: "O histórico desta obrigação foi atualizado." });
   };
 
+  const login = (email: string) => {
+    const account = userAccounts.find((item) => item.email === email);
+    if (!account) return false;
+    window.sessionStorage.setItem(authSessionKey, account.email);
+    setCurrentUser(account);
+    return true;
+  };
+
+  const logout = () => {
+    window.sessionStorage.removeItem(authSessionKey);
+    setCurrentUser(null);
+    setView("dashboard");
+  };
+
+  if (!authReady) {
+    return <main className="login-shell grid place-items-center"><LoaderCircle className="size-7 animate-spin text-[#00BF63]" /><span className="sr-only">Carregando LYVRA</span></main>;
+  }
+
+  if (!currentUser) return <LoginScreen onLogin={login} />;
+
+  const visibleNavItems = navItems.filter((item) => item.id !== "integrations" || currentUser.role === "suporte");
+  const userInitials = currentUser.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+
   return (
     <SidebarProvider>
       <Toaster position="top-right" richColors />
@@ -187,7 +321,7 @@ export function LyvraApp() {
           <div className="flex items-center gap-3 overflow-hidden px-1">
             <LyvraMark />
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="font-display text-[22px] font-semibold leading-none tracking-[0.18em]">LYRVA</p>
+              <p className="font-display text-[22px] font-semibold leading-none tracking-[0.18em]">LYVRA</p>
               <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">inteligência financeira</p>
             </div>
           </div>
@@ -197,7 +331,7 @@ export function LyvraApp() {
             <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">Operação</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navItems.map((item) => (
+                {visibleNavItems.map((item) => (
                   <SidebarMenuItem key={item.id}>
                     <SidebarMenuButton onClick={() => setView(item.id)} isActive={view === item.id} tooltip={item.label} className="h-10 rounded-xl px-3 text-white/62 hover:bg-white/8 hover:text-white data-[active=true]:bg-[#00BF63] data-[active=true]:text-[#10221f]">
                       <item.icon /><span>{item.label}</span>
@@ -218,9 +352,9 @@ export function LyvraApp() {
         </SidebarContent>
         <SidebarFooter className="p-3">
           <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.045] p-3 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#00BF63] text-xs font-bold text-[#10221f]">CO</div>
-            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium text-white">Equipe Financeira</p><p className="truncate text-xs text-white/42">Casal Odonto</p></div>
-            <Settings className="size-4 text-white/35 group-data-[collapsible=icon]:hidden" />
+            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#00BF63] text-xs font-bold text-[#10221f]">{userInitials}</div>
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium text-white">{currentUser.name}</p><p className="truncate text-xs text-white/42">{roleLabels[currentUser.role]}</p></div>
+            <Button onClick={logout} variant="ghost" size="icon-sm" className="rounded-lg text-white/35 hover:bg-white/10 hover:text-white" aria-label="Sair do LYVRA"><LogOut /></Button>
           </div>
         </SidebarFooter>
       </Sidebar>
@@ -244,7 +378,7 @@ export function LyvraApp() {
             {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "patients" && <PatientsView unit={unit} patients={shownPatients} demo={isDemo} loading={loadingPatients} goTo={setView} />}
             {view === "import" && <ImportView onImported={async () => { await loadPatients(); setView("patients"); }} />}
-            {view === "integrations" && <IntegrationsView />}
+            {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
           </div>
         </main>
       </SidebarInset>
@@ -271,7 +405,7 @@ function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligatio
   return <div className="space-y-5">
     <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">AGOSTO DE 2026</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Fila de emissão</h2><p className="mt-2 text-sm text-[#718078]">O paciente permanece aqui até a emissão ser concluída.</p></div><div className="flex flex-wrap gap-2"><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Quadrimestre</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select><Button className="h-10 rounded-xl" onClick={() => toast.info("A emissão automática entra após definirmos o emissor fiscal.") }><ReceiptText /> Emitir selecionadas</Button></div></section>
     <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registros encontrados`} obligations={filtered} onIssued={onIssued} />
-    <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Sorocaba" label="Emissão mensal" description="A nota é liberada após a baixa e considera o total pago no mês." /><RuleCard title="Salto de Pirapora" label="Emissão quadrimestral" description="O LYRVA acumula quatro meses pagos e cria uma única obrigação no fechamento." /></div>
+    <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Sorocaba" label="Emissão mensal" description="A nota é liberada após a baixa e considera o total pago no mês." /><RuleCard title="Salto de Pirapora" label="Emissão quadrimestral" description="O LYVRA acumula quatro meses pagos e cria uma única obrigação no fechamento." /></div>
   </div>;
 }
 
@@ -343,7 +477,7 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
       const response = await fetch("/api/patients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fileName, patients: valid }) });
       const data = await response.json() as { imported?: number; error?: string };
       if (!response.ok) throw new Error(data.error || "Falha ao importar.");
-      toast.success(`${data.imported ?? valid.length} pacientes importados`, { description: "A base do LYRVA foi atualizada com sucesso." });
+      toast.success(`${data.imported ?? valid.length} pacientes importados`, { description: "A base do LYVRA foi atualizada com sucesso." });
       await onImported();
     } catch (error) {
       toast.error("Importação não concluída", { description: error instanceof Error ? error.message : "Tente novamente." });
@@ -351,7 +485,7 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
   };
 
   const invalid = rows.filter((row) => !row.name).length;
-  return <div className="space-y-5"><section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]"><div className="surface-card rounded-[24px] p-5 md:p-7"><p className="eyebrow">ETAPA 1</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Envie sua planilha</h2><p className="mt-2 text-sm leading-6 text-[#718078]">O LYRVA aceita Excel ou CSV, lê a primeira aba e mostra uma conferência antes de cadastrar.</p><input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.xls,.csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parseFile(file); }} /><button type="button" onClick={() => inputRef.current?.click()} className="mt-6 flex min-h-56 w-full flex-col items-center justify-center rounded-[22px] border border-dashed border-[#b7c4ba] bg-[#fafbf8] px-6 text-center transition hover:border-[#00BF63] hover:bg-[#f2fbf7]"><div className="grid size-14 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><UploadCloud className="size-6" /></div><p className="mt-4 font-medium text-[#26382e]">{fileName || "Clique para escolher a planilha"}</p><p className="mt-1 text-xs text-[#87928c]">XLSX, XLS ou CSV • até 1.000 pacientes por vez</p></button><div className="mt-5 space-y-3 text-sm text-[#65736b]"><CheckLine>Prévia antes do cadastro</CheckLine><CheckLine>Detecção de CPF e Clinicorp ID</CheckLine><CheckLine>Periodicidade definida pela unidade</CheckLine></div></div>
+  return <div className="space-y-5"><section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]"><div className="surface-card rounded-[24px] p-5 md:p-7"><p className="eyebrow">ETAPA 1</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Envie sua planilha</h2><p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA aceita Excel ou CSV, lê a primeira aba e mostra uma conferência antes de cadastrar.</p><input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.xls,.csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parseFile(file); }} /><button type="button" onClick={() => inputRef.current?.click()} className="mt-6 flex min-h-56 w-full flex-col items-center justify-center rounded-[22px] border border-dashed border-[#b7c4ba] bg-[#fafbf8] px-6 text-center transition hover:border-[#00BF63] hover:bg-[#f2fbf7]"><div className="grid size-14 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><UploadCloud className="size-6" /></div><p className="mt-4 font-medium text-[#26382e]">{fileName || "Clique para escolher a planilha"}</p><p className="mt-1 text-xs text-[#87928c]">XLSX, XLS ou CSV • até 1.000 pacientes por vez</p></button><div className="mt-5 space-y-3 text-sm text-[#65736b]"><CheckLine>Prévia antes do cadastro</CheckLine><CheckLine>Detecção de CPF e Clinicorp ID</CheckLine><CheckLine>Periodicidade definida pela unidade</CheckLine></div></div>
       <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex items-center justify-between border-b border-[#e7ebe7] p-5 md:px-6"><div><p className="eyebrow">ETAPA 2</p><h2 className="font-display mt-2 text-xl font-semibold text-[#192820]">Conferência dos dados</h2></div>{rows.length > 0 && <Badge variant="secondary">{rows.length} linhas encontradas</Badge>}</div>{parseError ? <div className="m-6 flex gap-3 rounded-2xl bg-[#fae8e3] p-4 text-sm text-[#934e3f]"><AlertCircle className="mt-0.5 size-4 shrink-0" />{parseError}</div> : rows.length ? <><Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>IR</TableHead></TableRow></TableHeader><TableBody>{rows.slice(0, 6).map((row, index) => <TableRow key={`${row.name}-${index}`} className={!row.name ? "bg-[#fff7f4]" : ""}><TableCell className="py-4 pl-6"><p className="font-medium">{row.name || "Nome não identificado"}</p><p className="mt-1 text-xs text-[#839087]">{row.cpf || "CPF não informado"}</p></TableCell><TableCell>{row.unit}</TableCell><TableCell>{row.paymentMethod || "—"}</TableCell><TableCell>{row.taxReceiptIr ? "Sim" : "Não"}</TableCell></TableRow>)}</TableBody></Table>{rows.length > 6 && <p className="border-t p-4 text-center text-xs text-[#7d8982]">Mais {rows.length - 6} linhas serão incluídas na importação.</p>}<div className="flex flex-col gap-3 border-t border-[#e7ebe7] bg-[#fafbf8] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><p className="text-sm text-[#65736b]">{invalid ? `${invalid} linha(s) com erro serão ignoradas.` : "Tudo certo para continuar."}</p><Button disabled={importing || rows.length === invalid} onClick={() => void submit()} className="h-11 rounded-xl bg-[#183b32] px-5">{importing ? <LoaderCircle className="animate-spin" /> : <Database />} Importar {rows.length - invalid} pacientes</Button></div></> : <div className="grid min-h-96 place-items-center px-6 text-center"><div><FileSpreadsheet className="mx-auto size-10 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">A prévia aparecerá aqui</p><p className="mt-1 text-sm text-[#8a958e]">Nenhum dado será salvo sem sua confirmação.</p></div></div>}</div>
     </section><section className="rounded-[22px] border border-[#dfe5df] bg-[#eef4e9] p-5"><div className="flex gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#51713d]" /><div><p className="font-medium text-[#2c432f]">Importação protegida contra duplicidades</p><p className="mt-1 text-sm leading-6 text-[#657a66]">O CPF é a chave principal. Quando um CPF já existir, o cadastro será atualizado em vez de duplicado.</p></div></div></section></div>;
 }
@@ -360,7 +494,7 @@ function IntegrationsView() {
   const cards = [
     { name: "Clinicorp", icon: Database, status: "Aguardando credenciais", description: "Pacientes, boletos, parcelas e baixas de pagamento.", accent: "#e7f2e8", color: "#39704a", next: "Usuário e token da API" },
     { name: "WhatsApp Business", icon: MessageCircle, status: "Aguardando configuração", description: "Lembrete D-1 e confirmação automática de pagamento.", accent: "#e6f4ef", color: "#26735d", next: "Conta Meta e número oficial" },
-    { name: "Emissor de NFS-e", icon: ReceiptText, status: "Planejado", description: "Na primeira fase, o LYRVA controla a emissão manual.", accent: "#eeeafb", color: "#7261b9", next: "Definir emissor e certificado" },
+    { name: "Emissor de NFS-e", icon: ReceiptText, status: "Planejado", description: "Na primeira fase, o LYVRA controla a emissão manual.", accent: "#eeeafb", color: "#7261b9", next: "Definir emissor e certificado" },
   ];
   return <div className="space-y-5"><section className="hero-panel overflow-hidden rounded-[28px] p-6 text-white md:p-8"><div className="relative z-10 max-w-2xl"><Badge className="border border-white/12 bg-white/8 text-white hover:bg-white/8">MAPA DE CONEXÕES</Badge><h2 className="font-display mt-4 text-3xl font-medium md:text-4xl">A base está pronta para conversar com o financeiro real.</h2><p className="mt-3 text-sm leading-6 text-white/60">As conexões ficam desligadas até recebermos os acessos oficiais. Assim nenhum dado real é movimentado antes da hora.</p></div></section><section className="grid gap-4 lg:grid-cols-3">{cards.map((item) => <article key={item.name} className="surface-card rounded-[24px] p-6"><div className="flex items-start justify-between gap-4"><div className="grid size-12 place-items-center rounded-2xl" style={{ background: item.accent, color: item.color }}><item.icon className="size-5" /></div><Badge variant="outline" className="text-[10px]">{item.status}</Badge></div><h3 className="font-display mt-6 text-xl font-semibold text-[#1c2c23]">{item.name}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-[#718078]">{item.description}</p><div className="mt-6 border-t border-[#edf0ed] pt-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909a94]">Próximo passo</p><p className="mt-2 text-sm font-medium text-[#405148]">{item.next}</p></div></article>)}</section><section className="surface-card rounded-[24px] p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#fff2d9] text-[#946814]"><ShieldCheck /></div><div><h3 className="font-display text-lg font-semibold">Ordem segura de ativação</h3><p className="mt-1 text-sm text-[#718078]">1. Conectar em modo leitura → 2. Validar baixas → 3. Aprovar modelos do WhatsApp → 4. Ativar mensagens → 5. Integrar emissão fiscal.</p></div></div></section></div>;
 }
