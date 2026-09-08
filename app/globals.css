@@ -33,6 +33,7 @@ button, input { font: inherit; }
 .app-density { min-height: 100svh; width: 100%; }
 .sidebar-scroll-clean { scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar-scroll-clean::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.scrollbar-thin-stable { scrollbar-width: thin; scrollbar-gutter: stable; }
 .lyvra-mark { position: relative; width: 36px; height: 36px; flex: none; overflow: hidden; border-radius: 12px; background: #00bf63; box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); }
 .lyvra-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .login-shell { position:relative; min-height:100svh; overflow:hidden; display:grid; place-items:center; background:radial-gradient(circle at 50% 42%,#ffffff 0%,#f8faf6 48%,#edf4ec 100%); }

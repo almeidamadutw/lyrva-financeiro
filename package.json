@@ -11,18 +11,17 @@
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
+    "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.7.1",
     "@shadcn/react": "^0.3.0",
+    "@supabase/supabase-js": "2.113.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
-    "drizzle-orm": "0.45.2",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^1.31.0",
@@ -49,7 +48,6 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
-    "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "react-server-dom-webpack": "19.2.6",

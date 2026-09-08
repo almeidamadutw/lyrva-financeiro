@@ -8,7 +8,8 @@ Sistema financeiro interno para acompanhar pagamentos, lembretes pelo WhatsApp e
 - controle mensal para Sorocaba e quadrimestral para Salto de Pirapora;
 - cadastro único de pacientes por planilha Excel ou CSV;
 - preparação para integração com Clinicorp e WhatsApp Business;
-- banco de dados D1 para os pacientes importados.
+- banco PostgreSQL no Supabase com autenticação, perfis, unidades, RLS e auditoria;
+- importação transacional de pacientes e planos, sem dados financeiros fictícios.
 
 ## Regras principais
 
@@ -35,11 +36,21 @@ npm run build
 
 ## Tecnologias
 
-Next.js/Vinext, React, TypeScript, Tailwind CSS, Cloudflare D1 e Drizzle ORM.
+Next.js/Vinext, React, TypeScript, Tailwind CSS e Supabase (PostgreSQL + Auth).
 
 Projeto privado da Casal Odonto. Integrações externas permanecem desativadas até a configuração das credenciais oficiais.
 
+As migrações versionadas estão em `supabase/migrations`. O cliente usa somente a chave publicável; todas as permissões de dados são aplicadas pelo RLS.
+
+## Clinicorp
+
+A primeira fase usa a Edge Function `clinicorp-sync` em modo somente leitura. Cada assinatura possui seu próprio Usuário API e Token API, armazenados apenas como segredos do servidor:
+
+- `CLINICORP_SOROCABA_USERNAME` e `CLINICORP_SOROCABA_TOKEN`;
+- `CLINICORP_SALTO_USERNAME` e `CLINICORP_SALTO_TOKEN`.
+
+A função identifica o assinante e a clínica, mantém Sorocaba e Salto de Pirapora separadas e lê uma amostra de pagamentos sem persistir pacientes, parcelas ou baixas. A gravação automática só deve ser ativada depois da validação dos status reais retornados pela API.
+
 ## Deploy
 
-- ChatGPT Sites/Cloudflare: aplicação completa com banco D1;
-- Vercel: interface vazia e pronta para receber dados após a conexão do banco definitivo.
+- ChatGPT Sites/Cloudflare e Vercel: aplicação conectada ao mesmo projeto oficial do Supabase.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   AlertCircle,
@@ -37,7 +37,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -72,11 +71,13 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type View = "dashboard" | "invoices" | "collections" | "patients" | "import" | "integrations";
-type Role = "financeiro" | "gestora" | "ceo" | "suporte";
+type Role = "membro" | "gestora" | "ceo" | "suporte";
 
 type UserAccount = {
+  id: string;
   name: string;
   email: string;
   role: Role;
@@ -101,45 +102,72 @@ type Patient = {
   notes?: string | null;
 };
 
-type DemoObligation = {
+type InvoiceObligation = {
   id: number;
   patient: string;
   initials: string;
   unit: string;
   reference: string;
   amount: string;
+  amountValue: number;
   status: string;
   tone: "ready" | "waiting" | "cycle" | "issue" | "done";
+  rawStatus: string;
+  frequency: string;
+};
+
+type ClinicorpUnitCode = "sorocaba" | "salto_de_pirapora";
+
+type ClinicorpPaymentSummary = {
+  totalRows: number;
+  uniquePatients: number;
+  totalAmount: number;
+  rowsWithDueDate: number;
+  rowsWithReceivedDate: number;
+  rowsWithConfirmedDate: number;
+  paymentReceivedValues: string[];
+  paymentConfirmedValues: string[];
+  paymentForms: string[];
+  fieldNames: string[];
+};
+
+type ClinicorpFunctionResponse = {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  credentialsConfigured?: boolean;
+  connection?: {
+    status: string;
+    subscriberId?: string | null;
+    businessId?: string | null;
+    businessName?: string | null;
+    lastSyncAt?: string | null;
+    lastError?: string | null;
+  } | null;
+  preview?: {
+    posted: ClinicorpPaymentSummary;
+    received: ClinicorpPaymentSummary;
+  };
 };
 
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
-  { id: "invoices", label: "Notas fiscais", icon: FileText, badge: "8" },
-  { id: "collections", label: "Régua de cobrança", icon: WalletCards, badge: "4" },
+  { id: "invoices", label: "Notas fiscais", icon: FileText },
+  { id: "collections", label: "Régua de cobrança", icon: WalletCards },
   { id: "patients", label: "Pacientes", icon: Users },
   { id: "import", label: "Importar planilha", icon: FileSpreadsheet },
   { id: "integrations", label: "Integrações", icon: Link2 },
 ];
 
-const userAccounts: UserAccount[] = [
-  { name: "Daiane", email: "daiane@lyvrafinanceiro.com.br", role: "financeiro" },
-  { name: "Thaina", email: "thaina@lyvrafinanceiro.com.br", role: "financeiro" },
-  { name: "Luciana", email: "luciana@lyvrafinanceiro.com.br", role: "ceo" },
-  { name: "Mirelen", email: "mirelen@lyvrafinanceiro.com.br", role: "gestora" },
-  { name: "Ana", email: "ana@lyvrafinanceiro.com.br", role: "gestora" },
-  { name: "Maria Almeida", email: "maria.almeida@lyvrafinanceiro.com.br", role: "suporte" },
-  { name: "Maria Eduarda", email: "maria.eduarda@lyvrafinanceiro.com.br", role: "financeiro" },
-];
-
 const roleLabels: Record<Role, string> = {
-  financeiro: "Financeiro",
+  membro: "Membro",
   gestora: "Gestora",
   ceo: "CEO",
   suporte: "Suporte",
 };
 
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
-  dashboard: { eyebrow: "Quarta-feira, 26 de agosto", title: "Visão geral" },
+  dashboard: { eyebrow: "Operação financeira", title: "Visão geral" },
   invoices: { eyebrow: "Controle fiscal", title: "Notas fiscais" },
   collections: { eyebrow: "Jornada do financeiro", title: "Régua de cobrança" },
   patients: { eyebrow: "Base de cadastros", title: "Pacientes" },
@@ -147,57 +175,98 @@ const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   integrations: { eyebrow: "Conexões do sistema", title: "Integrações" },
 };
 
-const demoObligations: DemoObligation[] = [
-  { id: 1, patient: "Helena Martins", initials: "HM", unit: "Sorocaba", reference: "Ago/26", amount: "R$ 680,00", status: "Pronta para emissão", tone: "ready" },
-  { id: 2, patient: "Lucas Ribeiro", initials: "LR", unit: "Sorocaba", reference: "Ago/26", amount: "R$ 450,00", status: "Aguardando baixa", tone: "waiting" },
-  { id: 3, patient: "Camila Nunes", initials: "CN", unit: "Salto de Pirapora", reference: "Mai–Ago/26", amount: "R$ 1.920,00", status: "Quadrimestre em andamento", tone: "cycle" },
-  { id: 4, patient: "Rafael Azevedo", initials: "RA", unit: "Sorocaba", reference: "Ago/26", amount: "R$ 520,00", status: "Dados incompletos", tone: "issue" },
-  { id: 5, patient: "Beatriz Carvalho", initials: "BC", unit: "Sorocaba", reference: "Ago/26", amount: "R$ 790,00", status: "Emitida", tone: "done" },
-];
-
-const demoPatients: Patient[] = [
-  { id: 1, name: "Helena Martins", cpf: "347.***.***-10", phone: "(15) 9****-2041", unit: "Sorocaba", treatment: "Ortodontia", paymentMethod: "Boleto", planAmountCents: 68000, taxReceiptIr: true, invoiceFrequency: "Mensal" },
-  { id: 2, name: "Lucas Ribeiro", cpf: "421.***.***-07", phone: "(15) 9****-8830", unit: "Sorocaba", treatment: "Implante", paymentMethod: "Boleto", planAmountCents: 45000, taxReceiptIr: true, invoiceFrequency: "Mensal" },
-  { id: 3, name: "Camila Nunes", cpf: "286.***.***-44", phone: "(15) 9****-1162", unit: "Salto de Pirapora", treatment: "Prótese", paymentMethod: "Cartão", planAmountCents: 48000, taxReceiptIr: true, invoiceFrequency: "Quadrimestral" },
-  { id: 4, name: "Rafael Azevedo", cpf: null, phone: "(15) 9****-5521", unit: "Sorocaba", treatment: "Ortodontia", paymentMethod: "Boleto", planAmountCents: 52000, taxReceiptIr: true, invoiceFrequency: "Mensal" },
-];
-
-const activities = [
-  { icon: CheckCircle2, title: "Pagamento confirmado", detail: "Boleto de Helena Martins • R$ 680,00", time: "há 12 min", color: "emerald" },
-  { icon: MessageCircle, title: "Confirmação enviada", detail: "WhatsApp entregue para Helena Martins", time: "há 11 min", color: "violet" },
-  { icon: FileText, title: "Nota fiscal emitida", detail: "NF 2026/00384 • Beatriz Carvalho", time: "há 1h", color: "blue" },
-];
-
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const money = (cents = 0) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+const moneyValue = (value = 0) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const digits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
-const authSessionKey = "lyvra-dashboard-session";
+
+const clinicorpUnits: { code: ClinicorpUnitCode; name: string }[] = [
+  { code: "sorocaba", name: "Sorocaba" },
+  { code: "salto_de_pirapora", name: "Salto de Pirapora" },
+];
+
+const clinicorpStatusLabel = (response?: ClinicorpFunctionResponse | null) => {
+  if (!response) return "Consultando";
+  if (response.connection?.status === "connected") return "Conectado";
+  if (response.connection?.status === "error") return "Atenção necessária";
+  if (response.credentialsConfigured) return "Pronto para validar";
+  return "Aguardando credenciais";
+};
+
+const saoPauloDate = (date: Date) => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Sao_Paulo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(date);
+
+async function clinicorpErrorMessage(error: unknown) {
+  if (error && typeof error === "object" && "context" in error) {
+    const context = (error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      try {
+        const payload = await context.clone().json() as { message?: string };
+        if (payload.message) return payload.message;
+      } catch {
+        // Mantém a mensagem genérica quando a resposta não contém JSON.
+      }
+    }
+  }
+  return error instanceof Error ? error.message : "Não foi possível falar com a integração.";
+}
+
+async function invokeClinicorp(body: Record<string, unknown>) {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase.functions.invoke<ClinicorpFunctionResponse>("clinicorp-sync", { body });
+  if (error) throw new Error(await clinicorpErrorMessage(error));
+  if (!data?.ok) throw new Error(data?.message ?? "A integração não concluiu a solicitação.");
+  return data;
+}
+
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+
+const invoiceStatus = (status: string): Pick<InvoiceObligation, "status" | "tone"> => {
+  const statuses: Record<string, Pick<InvoiceObligation, "status" | "tone">> = {
+    forecast: { status: "Prevista", tone: "waiting" },
+    awaiting_payment: { status: "Aguardando pagamento", tone: "waiting" },
+    payment_unconfirmed: { status: "Pagamento não confirmado", tone: "waiting" },
+    ready: { status: "Pronta para emissão", tone: "ready" },
+    missing_data: { status: "Dados incompletos", tone: "issue" },
+    open: { status: "Em aberto", tone: "waiting" },
+    issued: { status: "Emitida", tone: "done" },
+    divergence: { status: "Com divergência", tone: "issue" },
+    cycle_in_progress: { status: "Quadrimestre em andamento", tone: "cycle" },
+    cancelled: { status: "Cancelada", tone: "done" },
+  };
+  return statuses[status] ?? { status: status || "Sem situação", tone: "waiting" };
+};
 
 function LyvraMark() {
   return <div className="lyvra-mark" aria-hidden="true"><img src={LYVRA_ICON_DATA_URL} alt="" /></div>;
 }
 
-function StatusBadge({ tone, children }: { tone: DemoObligation["tone"]; children: React.ReactNode }) {
+function StatusBadge({ tone, children }: { tone: InvoiceObligation["tone"]; children: React.ReactNode }) {
   return <Badge variant="outline" className={`status-badge status-${tone}`}><span className="status-dot" />{children}</Badge>;
 }
 
-function LoginScreen({ onLogin }: { onLogin: (email: string) => boolean }) {
+function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<string | null> }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim() || password.length < 6) {
-      setError("Preencha um e-mail válido e uma senha com pelo menos 6 caracteres.");
+    if (!email.trim() || password.length < 8) {
+      setError("Preencha seu e-mail e uma senha com pelo menos 8 caracteres.");
       return;
     }
-    if (!onLogin(email.trim().toLowerCase())) {
-      setError("Este e-mail ainda não possui acesso ao LYVRA.");
-      return;
-    }
+    setLoading(true);
     setError("");
+    const loginError = await onLogin(email.trim().toLowerCase(), password);
+    setError(loginError ?? "");
+    setLoading(false);
   };
 
   return (
@@ -230,14 +299,14 @@ function LoginScreen({ onLogin }: { onLogin: (email: string) => boolean }) {
             <div className="space-y-2">
               <Label htmlFor="login-password" className="text-sm font-semibold text-[#33473c]">Senha</Label>
               <div className="relative">
-                <Input id="login-password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 pr-12 shadow-none focus-visible:ring-[#00BF63]" minLength={6} required />
+              <Input id="login-password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Digite sua senha" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 pr-12 shadow-none focus-visible:ring-[#00BF63]" minLength={8} required />
                 <Button type="button" variant="ghost" size="icon-sm" onClick={() => setShowPassword((current) => !current)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg text-[#7d8a82] hover:bg-[#eef4ef] hover:text-[#183b32]" aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>
                   {showPassword ? <EyeOff /> : <Eye />}
                 </Button>
               </div>
             </div>
             {error && <p className="rounded-xl bg-[#fae8e3] px-4 py-3 text-sm text-[#934e3f]" role="alert">{error}</p>}
-            <Button type="submit" className="h-12 w-full rounded-xl bg-[#00BF63] font-bold text-[#10221f] shadow-none hover:bg-[#00d56e]">Entrar no LYVRA <LogIn /></Button>
+            <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-[#00BF63] font-bold text-[#10221f] shadow-none hover:bg-[#00d56e]">{loading ? <LoaderCircle className="animate-spin" /> : <LogIn />} {loading ? "Entrando…" : "Entrar no LYVRA"}</Button>
           </form>
 
           <div className="mt-7 border-t border-[#e8ece8] pt-5 text-center">
@@ -262,48 +331,192 @@ export function LyvraApp() {
   const [unit, setUnit] = useState("todas");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(true);
-  const [obligations, setObligations] = useState(demoObligations);
+  const [obligations, setObligations] = useState<InvoiceObligation[]>([]);
+  const [reminderCount, setReminderCount] = useState(0);
 
-  const loadPatients = async () => {
+  const loadProfile = useCallback(async (userId: string): Promise<UserAccount | null> => {
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("user_id, full_name, email, role, is_active")
+      .eq("user_id", userId)
+      .single();
+
+    if (error || !data?.is_active) return null;
+    return {
+      id: data.user_id,
+      name: data.full_name,
+      email: data.email,
+      role: data.role as Role,
+    };
+  }, []);
+
+  const loadFinancialData = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
     setLoadingPatients(true);
     try {
-      const response = await fetch("/api/patients");
-      const data = await response.json() as { patients?: Patient[] };
-      if (response.ok) setPatients(data.patients ?? []);
-    } catch {
+      const tomorrow = new Date();
+      tomorrow.setHours(0, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const afterTomorrow = new Date(tomorrow);
+      afterTomorrow.setDate(afterTomorrow.getDate() + 1);
+
+      const [patientResult, obligationResult, reminderResult] = await Promise.all([
+        supabase.from("patient_directory").select("*").order("full_name"),
+        supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
+        supabase
+          .from("message_events")
+          .select("id", { count: "exact", head: true })
+          .eq("kind", "boleto_reminder")
+          .gte("scheduled_for", tomorrow.toISOString())
+          .lt("scheduled_for", afterTomorrow.toISOString())
+          .in("status", ["scheduled", "processing"]),
+      ]);
+
+      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error;
+      if (firstError) throw firstError;
+
+      const paymentLabels: Record<string, string> = {
+        boleto: "Boleto",
+        card: "Cartão",
+        pix: "Pix",
+        cash: "Dinheiro",
+        transfer: "Transferência",
+        other: "Outro",
+      };
+
+      setPatients((patientResult.data ?? []).map((row) => ({
+        id: row.patient_id,
+        clinicorpId: row.clinicorp_patient_id,
+        name: row.full_name,
+        cpf: row.cpf,
+        phone: row.phone,
+        email: row.email,
+        unit: row.unit_name,
+        treatment: row.treatment,
+        paymentMethod: row.payment_method ? paymentLabels[row.payment_method] ?? row.payment_method : null,
+        planAmountCents: Math.round(Number(row.plan_amount ?? 0) * 100),
+        startDate: row.start_date,
+        installments: row.installment_count,
+        dueDay: row.due_day,
+        taxReceiptIr: row.tax_receipt_ir,
+        invoiceFrequency: row.invoice_frequency === "four_monthly" ? "Quadrimestral" : "Mensal",
+        notes: row.notes,
+      })));
+
+      setObligations((obligationResult.data ?? []).map((row) => {
+        const meta = invoiceStatus(row.status);
+        const amountValue = Number(row.paid_amount || row.expected_amount || 0);
+        return {
+          id: row.id,
+          patient: row.patient_name,
+          initials: initials(row.patient_name),
+          unit: row.unit_name,
+          reference: row.competence,
+          amount: moneyValue(amountValue),
+          amountValue,
+          status: meta.status,
+          tone: meta.tone,
+          rawStatus: row.status,
+          frequency: row.frequency,
+        };
+      }));
+      setReminderCount(reminderResult.count ?? 0);
+    } catch (error) {
       setPatients([]);
+      setObligations([]);
+      setReminderCount(0);
+      throw error;
     } finally {
       setLoadingPatients(false);
     }
-  };
-
-  useEffect(() => {
-    const savedEmail = window.sessionStorage.getItem(authSessionKey);
-    setCurrentUser(userAccounts.find((account) => account.email === savedEmail) ?? null);
-    setAuthReady(true);
-    void loadPatients();
   }, []);
 
-  const shownPatients = patients.length ? patients : demoPatients;
-  const isDemo = patients.length === 0;
+  useEffect(() => {
+    let active = true;
+    const supabase = getSupabaseBrowserClient();
+
+    const initialize = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        if (active) setAuthReady(true);
+        return;
+      }
+
+      const account = await loadProfile(data.session.user.id);
+      if (!account) {
+        await supabase.auth.signOut();
+        if (active) setAuthReady(true);
+        return;
+      }
+
+      if (active) setCurrentUser(account);
+      try {
+        await loadFinancialData();
+      } catch {
+        if (active) toast.error("Não foi possível carregar a base financeira.");
+      } finally {
+        if (active) setAuthReady(true);
+      }
+    };
+
+    void initialize();
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT" && active) setCurrentUser(null);
+    });
+
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [loadFinancialData, loadProfile]);
+
   const unitFilter = <UnitSelect value={unit} onChange={setUnit} />;
 
-  const markIssued = (id: number) => {
-    setObligations((current) => current.map((item) => item.id === id ? { ...item, status: "Emitida", tone: "done" } : item));
-    toast.success("Nota marcada como emitida", { description: "O histórico desta obrigação foi atualizado." });
+  const markIssued = async (id: number) => {
+    const supabase = getSupabaseBrowserClient();
+    const timestamp = new Date().toISOString();
+    const { error } = await supabase
+      .from("invoice_obligations")
+      .update({ status: "issued", invoice_issued_at: timestamp, completed_at: timestamp })
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Não foi possível atualizar a nota", { description: error.message });
+      return;
+    }
+    await loadFinancialData();
+    toast.success("Nota marcada como emitida", { description: "O histórico real desta obrigação foi atualizado." });
   };
 
-  const login = (email: string) => {
-    const account = userAccounts.find((item) => item.email === email);
-    if (!account) return false;
-    window.sessionStorage.setItem(authSessionKey, account.email);
+  const login = async (email: string, password: string) => {
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.user) {
+      if (error?.message.toLowerCase().includes("confirm")) return "Confirme seu e-mail antes de entrar.";
+      return "E-mail ou senha inválidos.";
+    }
+
+    const account = await loadProfile(data.user.id);
+    if (!account) {
+      await supabase.auth.signOut();
+      return "Este acesso não está ativo no LYVRA.";
+    }
+
     setCurrentUser(account);
-    return true;
+    try {
+      await loadFinancialData();
+    } catch {
+      return "A conta entrou, mas a base financeira não pôde ser carregada.";
+    }
+    return null;
   };
 
-  const logout = () => {
-    window.sessionStorage.removeItem(authSessionKey);
+  const logout = async () => {
+    await getSupabaseBrowserClient().auth.signOut();
     setCurrentUser(null);
+    setPatients([]);
+    setObligations([]);
     setView("dashboard");
   };
 
@@ -314,7 +527,7 @@ export function LyvraApp() {
   if (!currentUser) return <LoginScreen onLogin={login} />;
 
   const visibleNavItems = navItems.filter((item) => item.id !== "integrations" || currentUser.role === "suporte");
-  const userInitials = currentUser.name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+  const userInitials = initials(currentUser.name);
 
   return (
     <SidebarProvider>
@@ -376,11 +589,11 @@ export function LyvraApp() {
 
         <main className="min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4] p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
-            {view === "dashboard" && <DashboardView unit={unit} obligations={obligations} goTo={setView} />}
+            {view === "dashboard" && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
             {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && <CollectionsJourney unit={unit} />}
-            {view === "patients" && <PatientsView unit={unit} patients={shownPatients} demo={isDemo} loading={loadingPatients} goTo={setView} />}
-            {view === "import" && <ImportView onImported={async () => { await loadPatients(); setView("patients"); }} />}
+            {view === "patients" && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} />}
+            {view === "import" && <ImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
             {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
           </div>
         </main>
@@ -393,32 +606,36 @@ function UnitSelect({ value, onChange }: { value: string; onChange: (value: stri
   return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label="Selecionar unidade" className="h-10 w-10 rounded-xl border-[#dfe5df] bg-white px-0 text-[#25362e] shadow-none sm:min-w-39 sm:px-3"><Building2 className="size-4 text-[#6f7b74]" /><span className="hidden sm:inline"><SelectValue /></span></SelectTrigger><SelectContent><SelectItem value="todas">Todas as unidades</SelectItem><SelectItem value="sorocaba">Sorocaba</SelectItem><SelectItem value="salto">Salto de Pirapora</SelectItem></SelectContent></Select>;
 }
 
-function DashboardView({ unit, obligations, goTo }: { unit: string; obligations: DemoObligation[]; goTo: (view: View) => void }) {
-  const filtered = obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")).slice(0, 4);
+function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: string; obligations: InvoiceObligation[]; reminderCount: number; goTo: (view: View) => void }) {
+  const allFiltered = obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora"));
+  const pending = allFiltered.filter((item) => item.rawStatus !== "issued" && item.rawStatus !== "cancelled").slice(0, 4);
+  const ready = allFiltered.filter((item) => item.rawStatus === "ready");
+  const waiting = allFiltered.filter((item) => ["forecast", "awaiting_payment", "payment_unconfirmed", "open"].includes(item.rawStatus));
+  const issued = allFiltered.filter((item) => item.rawStatus === "issued");
+  const total = (items: InvoiceObligation[]) => moneyValue(items.reduce((sum, item) => sum + item.amountValue, 0));
   return <div className="space-y-5">
-    <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-7 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8"><span className="mr-1.5 size-1.5 rounded-full bg-[#00BF63]" />DADOS DEMONSTRATIVOS</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[42px]">O financeiro do mês,<br className="hidden sm:block" /> sem nada escapar.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/58 md:text-base">Agosto fecha com 8 notas prontas e 3 pagamentos que ainda precisam da sua atenção.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="h-11 rounded-xl border-white/15 bg-white/8 px-4 text-white shadow-none hover:bg-white/14 hover:text-white"><CalendarDays /> Agosto de 2026</Button><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Ver notas a emitir <ChevronRight /></Button></div></div></section>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value="8" detail="R$ 7.840,00" icon={FileText} accent="lime" /><MetricCard label="Aguardando baixa" value="3" detail="R$ 1.650,00" icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value="34" detail="R$ 24.380,00" icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value="11" detail="Envio às 10h" icon={MessageCircle} accent="violet" /></section>
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências prioritárias" description="Obrigações que pedem uma ação da equipe." obligations={filtered} compact /><div className="space-y-5"><QuarterCard /><ActivityCard /></div></section>
+    <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-7 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8"><span className="mr-1.5 size-1.5 rounded-full bg-[#00BF63]" />BASE REAL CONECTADA</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[42px]">O financeiro organizado,<br className="hidden sm:block" /> sem nada escapar.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/58 md:text-base">{allFiltered.length ? `${allFiltered.length} obrigação(ões) fiscal(is) carregada(s) da base.` : "A estrutura está pronta e aguarda a primeira importação de pacientes e pagamentos."}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="h-11 rounded-xl border-white/15 bg-white/8 px-4 text-white shadow-none hover:bg-white/14 hover:text-white"><CalendarDays /> Dados em tempo real</Button><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Ver notas a emitir <ChevronRight /></Button></div></div></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Aguardando baixa" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências operacionais" description="Obrigações que pedem uma ação da equipe." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
   </div>;
 }
 
-function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligations: DemoObligation[]; onIssued: (id: number) => void }) {
+function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligations: InvoiceObligation[]; onIssued: (id: number) => void | Promise<void> }) {
   const [status, setStatus] = useState("todos");
   const filtered = obligations.filter((item) => (unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")) && (status === "todos" || item.tone === status));
   return <div className="space-y-5">
-    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">AGOSTO DE 2026</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Fila de emissão</h2><p className="mt-2 text-sm text-[#718078]">O paciente permanece aqui até a emissão ser concluída.</p></div><div className="flex flex-wrap gap-2"><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Quadrimestre</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select><Button className="h-10 rounded-xl" onClick={() => toast.info("A emissão automática entra após definirmos o emissor fiscal.") }><ReceiptText /> Emitir selecionadas</Button></div></section>
+    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">OBRIGAÇÕES REAIS</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Fila de emissão</h2><p className="mt-2 text-sm text-[#718078]">O paciente permanece aqui até a emissão ser concluída.</p></div><div className="flex flex-wrap gap-2"><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Quadrimestre</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select><Button className="h-10 rounded-xl" onClick={() => toast.info("A emissão automática entra após definirmos o emissor fiscal.") }><ReceiptText /> Emitir selecionadas</Button></div></section>
     <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registros encontrados`} obligations={filtered} onIssued={onIssued} />
     <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Sorocaba" label="Emissão mensal" description="A nota é liberada após a baixa e considera o total pago no mês." /><RuleCard title="Salto de Pirapora" label="Emissão quadrimestral" description="O LYVRA acumula quatro meses pagos e cria uma única obrigação no fechamento." /></div>
   </div>;
 }
 
-function PatientsView({ unit, patients, demo, loading, goTo }: { unit: string; patients: Patient[]; demo: boolean; loading: boolean; goTo: (view: View) => void }) {
+function PatientsView({ unit, patients, loading, goTo }: { unit: string; patients: Patient[]; loading: boolean; goTo: (view: View) => void }) {
   const [query, setQuery] = useState("");
   const filtered = patients.filter((patient) => (unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")) && patient.name.toLowerCase().includes(query.toLowerCase()));
   return <div className="space-y-5">
-    {demo && <DemoBanner />}
     <section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Somente quem estiver marcado para IR entra na rotina de notas.</p></div><div className="flex gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9 shadow-none" /></div><Button onClick={() => goTo("import")} className="h-10 rounded-xl"><UploadCloud /> Importar</Button></div></div>
-      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceFrequency || (patient.unit === "Sorocaba" ? "Mensal" : "Quadrimestral")}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table>}
+      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : filtered.length ? <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceFrequency || (patient.unit === "Sorocaba" ? "Mensal" : "Quadrimestral")}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center"><div><Users className="mx-auto size-9 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">Nenhum paciente cadastrado</p><p className="mt-1 text-sm text-[#8a958e]">Importe a planilha oficial para iniciar a base real.</p><Button onClick={() => goTo("import")} variant="outline" className="mt-5 rounded-xl"><UploadCloud /> Importar planilha</Button></div></div>}
     </section>
   </div>;
 }
@@ -447,6 +664,12 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
         const valueRaw = pick("valor", "valor mensal", "valor parcela", "mensalidade");
         const amount = typeof valueRaw === "number" ? Math.round(valueRaw * 100) : Math.round(Number(String(valueRaw ?? "0").replace(/[^0-9,-]/g, "").replace(".", "").replace(",", ".")) * 100) || 0;
         const irRaw = normalize(String(pick("emitir nota para ir", "nota ir", "emite nf", "nota fiscal", "ir") ?? "nao"));
+        const startRaw = pick("data de inicio", "inicio");
+        const startDate = startRaw instanceof Date
+          ? startRaw.toISOString().slice(0, 10)
+          : String(startRaw ?? "").match(/^\d{2}\/\d{2}\/\d{4}$/)
+            ? String(startRaw).replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, "$3-$2-$1")
+            : String(startRaw ?? "") || null;
         return {
           clinicorpId: String(pick("id clinicorp", "clinicorp id", "codigo clinicorp") ?? "") || null,
           name: String(pick("nome", "nome completo", "paciente") ?? "").trim(),
@@ -457,7 +680,7 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
           treatment: String(pick("tratamento", "servico", "procedimento") ?? "") || null,
           paymentMethod: String(pick("forma de pagamento", "pagamento") ?? "") || null,
           planAmountCents: amount,
-          startDate: String(pick("data de inicio", "inicio") ?? "") || null,
+          startDate,
           installments: Number(pick("parcelas", "quantidade de parcelas")) || null,
           dueDay: Number(pick("dia do vencimento", "vencimento") ?? 0) || null,
           taxReceiptIr: ["sim", "s", "true", "1", "x"].includes(irRaw),
@@ -477,10 +700,35 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
     if (!valid.length) return;
     setImporting(true);
     try {
-      const response = await fetch("/api/patients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fileName, patients: valid }) });
-      const data = await response.json() as { imported?: number; error?: string };
-      if (!response.ok) throw new Error(data.error || "Falha ao importar.");
-      toast.success(`${data.imported ?? valid.length} pacientes importados`, { description: "A base do LYVRA foi atualizada com sucesso." });
+      const supabase = getSupabaseBrowserClient();
+      const grouped = new Map<string, Patient[]>();
+      for (const patient of valid) {
+        const unitCode = patient.unit === "Salto de Pirapora" ? "salto_de_pirapora" : "sorocaba";
+        grouped.set(unitCode, [...(grouped.get(unitCode) ?? []), patient]);
+      }
+
+      let created = 0;
+      let updated = 0;
+      let errors = 0;
+      for (const [unitCode, unitRows] of grouped) {
+        const { data, error } = await supabase.rpc("import_patients", {
+          p_unit_code: unitCode,
+          p_file_name: fileName || "planilha",
+          p_rows: JSON.parse(JSON.stringify(unitRows)),
+        });
+        if (error) throw error;
+        const result = data?.[0];
+        created += result?.imported_count ?? 0;
+        updated += result?.updated_count ?? 0;
+        errors += result?.error_count ?? 0;
+      }
+
+      const processed = created + updated;
+      if (errors) {
+        toast.warning(`${processed} pacientes processados`, { description: `${errors} linha(s) ficaram no relatório para revisão.` });
+      } else {
+        toast.success(`${processed} pacientes processados`, { description: `${created} novo(s) e ${updated} atualizado(s) na base real.` });
+      }
       await onImported();
     } catch (error) {
       toast.error("Importação não concluída", { description: error instanceof Error ? error.message : "Tente novamente." });
@@ -494,36 +742,125 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
 }
 
 function IntegrationsView() {
-  const cards = [
-    { name: "Clinicorp", icon: Database, status: "Aguardando credenciais", description: "Pacientes, boletos, parcelas e baixas de pagamento.", accent: "#e7f2e8", color: "#39704a", next: "Usuário e token da API" },
+  const [statuses, setStatuses] = useState<Partial<Record<ClinicorpUnitCode, ClinicorpFunctionResponse>>>({});
+  const [busyUnit, setBusyUnit] = useState<ClinicorpUnitCode | null>(null);
+  const [preview, setPreview] = useState<Partial<Record<ClinicorpUnitCode, ClinicorpFunctionResponse["preview"]>>>({});
+
+  const loadStatuses = useCallback(async () => {
+    const results = await Promise.all(clinicorpUnits.map(async (item) => {
+      try {
+        const result = await invokeClinicorp({ action: "status", unitCode: item.code });
+        return [item.code, result] as const;
+      } catch (error) {
+        return [item.code, {
+          ok: false,
+          message: await clinicorpErrorMessage(error),
+          credentialsConfigured: false,
+          connection: null,
+        }] as const;
+      }
+    }));
+    setStatuses(Object.fromEntries(results));
+  }, []);
+
+  useEffect(() => {
+    const pendingLoad = window.setTimeout(() => {
+      void loadStatuses();
+    }, 0);
+    return () => window.clearTimeout(pendingLoad);
+  }, [loadStatuses]);
+
+  const discover = async (unitCode: ClinicorpUnitCode) => {
+    setBusyUnit(unitCode);
+    try {
+      const result = await invokeClinicorp({ action: "discover", unitCode });
+      toast.success("Conexão Clinicorp validada", {
+        description: result.connection?.businessName ?? "A unidade foi identificada e separada na base.",
+      });
+      await loadStatuses();
+    } catch (error) {
+      toast.error("Não foi possível validar o Clinicorp", { description: await clinicorpErrorMessage(error) });
+    } finally {
+      setBusyUnit(null);
+    }
+  };
+
+  const readPreview = async (unitCode: ClinicorpUnitCode) => {
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 6);
+    setBusyUnit(unitCode);
+    try {
+      const result = await invokeClinicorp({
+        action: "preview_payments",
+        unitCode,
+        from: saoPauloDate(from),
+        to: saoPauloDate(to),
+      });
+      setPreview((current) => ({ ...current, [unitCode]: result.preview }));
+      toast.success("Leitura real concluída", {
+        description: "A amostra foi analisada sem cadastrar pacientes ou pagamentos.",
+      });
+      await loadStatuses();
+    } catch (error) {
+      toast.error("A leitura não foi concluída", { description: await clinicorpErrorMessage(error) });
+    } finally {
+      setBusyUnit(null);
+    }
+  };
+
+  const secondaryCards = [
     { name: "WhatsApp Business", icon: MessageCircle, status: "Aguardando configuração", description: "Lembrete D-1 e confirmação automática de pagamento.", accent: "#e6f4ef", color: "#26735d", next: "Conta Meta e número oficial" },
     { name: "Emissor de NFS-e", icon: ReceiptText, status: "Planejado", description: "Na primeira fase, o LYVRA controla a emissão manual.", accent: "#eeeafb", color: "#7261b9", next: "Definir emissor e certificado" },
   ];
-  return <div className="space-y-5"><section className="hero-panel overflow-hidden rounded-[28px] p-6 text-white md:p-8"><div className="relative z-10 max-w-2xl"><Badge className="border border-white/12 bg-white/8 text-white hover:bg-white/8">MAPA DE CONEXÕES</Badge><h2 className="font-display mt-4 text-3xl font-medium md:text-4xl">A base está pronta para conversar com o financeiro real.</h2><p className="mt-3 text-sm leading-6 text-white/60">As conexões ficam desligadas até recebermos os acessos oficiais. Assim nenhum dado real é movimentado antes da hora.</p></div></section><section className="grid gap-4 lg:grid-cols-3">{cards.map((item) => <article key={item.name} className="surface-card rounded-[24px] p-6"><div className="flex items-start justify-between gap-4"><div className="grid size-12 place-items-center rounded-2xl" style={{ background: item.accent, color: item.color }}><item.icon className="size-5" /></div><Badge variant="outline" className="text-[10px]">{item.status}</Badge></div><h3 className="font-display mt-6 text-xl font-semibold text-[#1c2c23]">{item.name}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-[#718078]">{item.description}</p><div className="mt-6 border-t border-[#edf0ed] pt-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909a94]">Próximo passo</p><p className="mt-2 text-sm font-medium text-[#405148]">{item.next}</p></div></article>)}</section><section className="surface-card rounded-[24px] p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#fff2d9] text-[#946814]"><ShieldCheck /></div><div><h3 className="font-display text-lg font-semibold">Ordem segura de ativação</h3><p className="mt-1 text-sm text-[#718078]">1. Conectar em modo leitura → 2. Validar baixas → 3. Aprovar modelos do WhatsApp → 4. Ativar mensagens → 5. Integrar emissão fiscal.</p></div></div></section></div>;
+
+  return <div className="space-y-5">
+    <section className="hero-panel overflow-hidden rounded-[28px] p-6 text-white md:p-8"><div className="relative z-10 max-w-3xl"><Badge className="border border-white/12 bg-white/8 text-white hover:bg-white/8">CLINICORP • FASE DE LEITURA</Badge><h2 className="font-display mt-4 text-3xl font-medium md:text-4xl">Cada clínica conectada no seu próprio acesso.</h2><p className="mt-3 text-sm leading-6 text-white/60">Primeiro validamos Sorocaba e Salto separadamente. A leitura inicial identifica os campos e as baixas reais, mas ainda não cadastra nem altera nenhum pagamento.</p></div></section>
+
+    <section className="grid gap-4 xl:grid-cols-2">
+      {clinicorpUnits.map((item) => {
+        const response = statuses[item.code];
+        const connection = response?.connection;
+        const summary = preview[item.code];
+        const busy = busyUnit === item.code;
+        const connected = connection?.status === "connected";
+        return <article key={item.code} className="surface-card rounded-[24px] p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div className="flex items-center gap-3"><div className="grid size-12 place-items-center rounded-2xl bg-[#e7f2e8] text-[#39704a]"><Database className="size-5" /></div><div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8a958e]">Clinicorp</p><h3 className="font-display mt-1 text-xl font-semibold text-[#1c2c23]">{item.name}</h3></div></div><Badge variant="outline" className={connected ? "border-[#b8dbc7] bg-[#edf8f1] text-[#27704b]" : "text-[#6f7d75]"}>{clinicorpStatusLabel(response)}</Badge></div>
+          <div className="mt-6 grid gap-3 rounded-2xl bg-[#fafbf8] p-4 text-sm text-[#65736b] sm:grid-cols-2"><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#929c96]">Assinante</p><p className="mt-1 font-medium text-[#405148]">{connection?.subscriberId ?? "A identificar"}</p></div><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#929c96]">Clínica</p><p className="mt-1 font-medium text-[#405148]">{connection?.businessId ?? "A identificar"}</p></div></div>
+          {response?.message && !response.ok && <p className="mt-4 rounded-xl bg-[#fff6ee] px-4 py-3 text-sm text-[#8a5b35]">{response.message}</p>}
+          {connection?.lastError && <p className="mt-4 rounded-xl bg-[#fae8e3] px-4 py-3 text-sm text-[#934e3f]">{connection.lastError}</p>}
+          {summary && <div className="mt-4 rounded-2xl border border-[#dfe7df] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#86918a]">Amostra dos últimos 7 dias</p><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><p className="text-[#7c8981]">Parcelas lançadas</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.posted.totalRows}</p></div><div><p className="text-[#7c8981]">Recebimentos</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.received.totalRows}</p></div><div><p className="text-[#7c8981]">Pacientes localizados</p><p className="mt-1 font-semibold text-[#26372e]">{summary.posted.uniquePatients}</p></div><div><p className="text-[#7c8981]">Valor recebido</p><p className="mt-1 font-semibold text-[#26372e]">{moneyValue(summary.received.totalAmount)}</p></div></div></div>}
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row"><Button disabled={busy || !response?.credentialsConfigured} onClick={() => void discover(item.code)} className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Validar conexão</Button><Button disabled={busy || !connected} onClick={() => void readPreview(item.code)} variant="outline" className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <Eye />} Ler últimos 7 dias</Button></div>
+          {!response?.credentialsConfigured && <p className="mt-3 text-xs leading-5 text-[#87928c]">Aguardando o Usuário API e o Token API desta assinatura nos segredos protegidos do servidor.</p>}
+        </article>;
+      })}
+    </section>
+
+    <section className="grid gap-4 lg:grid-cols-2">{secondaryCards.map((item) => <article key={item.name} className="surface-card rounded-[24px] p-6"><div className="flex items-start justify-between gap-4"><div className="grid size-12 place-items-center rounded-2xl" style={{ background: item.accent, color: item.color }}><item.icon className="size-5" /></div><Badge variant="outline" className="text-[10px]">{item.status}</Badge></div><h3 className="font-display mt-6 text-xl font-semibold text-[#1c2c23]">{item.name}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-[#718078]">{item.description}</p><div className="mt-6 border-t border-[#edf0ed] pt-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909a94]">Próximo passo</p><p className="mt-2 text-sm font-medium text-[#405148]">{item.next}</p></div></article>)}</section>
+    <section className="surface-card rounded-[24px] p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#fff2d9] text-[#946814]"><ShieldCheck /></div><div><h3 className="font-display text-lg font-semibold">Ordem segura de ativação</h3><p className="mt-1 text-sm leading-6 text-[#718078]">1. Cadastrar os dois acessos em segredo → 2. Validar cada assinatura → 3. Ler uma amostra sem gravar → 4. Aprovar o mapeamento → 5. Ativar a sincronização automática.</p></div></div></section>
+  </div>;
 }
 
-function ObligationsTable({ title, description, obligations, compact = false, onIssued }: { title: string; description: string; obligations: DemoObligation[]; compact?: boolean; onIssued?: (id: number) => void }) {
+function ObligationsTable({ title, description, obligations, compact = false, onIssued }: { title: string; description: string; obligations: InvoiceObligation[]; compact?: boolean; onIssued?: (id: number) => void | Promise<void> }) {
   return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact && <div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9 shadow-none" /></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="h-11 pl-5 text-[11px] uppercase tracking-[.08em] text-[#829087] md:pl-6">Paciente</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Referência</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Valor</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Situação</TableHead><TableHead className="w-20" /></TableRow></TableHeader><TableBody>{obligations.map((item) => <TableRow key={item.id}><TableCell className="py-4 pl-5 md:pl-6"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{item.initials}</div><div><p className="font-medium text-[#213128]">{item.patient}</p><p className="mt-0.5 text-xs text-[#849087]">{item.unit}</p></div></div></TableCell><TableCell>{item.reference}</TableCell><TableCell className="font-semibold tabular-nums">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued && item.tone === "ready" ? <Button onClick={() => onIssued(item.id)} variant="outline" size="sm" className="rounded-lg">Emitir</Button> : <Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Mais opções</span></Button>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length && <div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
 }
 
 function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string; detail: string; icon: typeof FileText; accent: string }) {
-  return <article className="surface-card metric-card rounded-[22px] p-5"><div className="flex items-start justify-between"><div className={`metric-icon metric-${accent}`}><Icon /></div><span className="text-xs font-medium text-[#87928c]">AGO/26</span></div><div className="mt-5 flex items-end justify-between gap-3"><div><p className="font-display text-[32px] font-semibold leading-none tracking-tight text-[#1a2b22]">{value}</p><p className="mt-2 text-sm text-[#68766e]">{label}</p></div><p className="mb-0.5 text-xs font-semibold tabular-nums text-[#506158]">{detail}</p></div></article>;
+  return <article className="surface-card metric-card rounded-[22px] p-5"><div className="flex items-start justify-between"><div className={`metric-icon metric-${accent}`}><Icon /></div><span className="text-xs font-medium text-[#87928c]">BASE REAL</span></div><div className="mt-5 flex items-end justify-between gap-3"><div><p className="font-display text-[32px] font-semibold leading-none tracking-tight text-[#1a2b22]">{value}</p><p className="mt-2 text-sm text-[#68766e]">{label}</p></div><p className="mb-0.5 text-xs font-semibold tabular-nums text-[#506158]">{detail}</p></div></article>;
 }
 
-function QuarterCard() {
-  return <div className="surface-card rounded-[24px] p-5 md:p-6"><div className="flex items-start justify-between"><div><p className="eyebrow">SALTO DE PIRAPORA</p><h3 className="font-display mt-2 text-xl font-semibold">Quadrimestre atual</h3></div><div className="grid size-10 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><CalendarDays className="size-5" /></div></div><div className="mt-6 flex items-end justify-between"><div><p className="text-sm text-[#78857e]">Maio — Agosto</p><p className="font-display mt-1 text-3xl font-semibold tracking-tight">R$ 18.420</p></div><p className="mb-1 text-sm font-semibold text-[#007a43]">82%</p></div><Progress value={82} className="mt-4 h-2 bg-[#e9eee7] [&_[data-slot=progress-indicator]]:bg-[#00BF63]" /><div className="mt-4 flex justify-between text-xs text-[#849087]"><span>26 pacientes</span><span>Fecha em 5 dias</span></div></div>;
+function QuarterCard({ obligations }: { obligations: InvoiceObligation[] }) {
+  const quarter = obligations.filter((item) => item.unit === "Salto de Pirapora" && item.frequency === "four_monthly" && item.rawStatus !== "cancelled");
+  const amount = quarter.reduce((sum, item) => sum + item.amountValue, 0);
+  return <div className="surface-card rounded-[24px] p-5 md:p-6"><div className="flex items-start justify-between"><div><p className="eyebrow">SALTO DE PIRAPORA</p><h3 className="font-display mt-2 text-xl font-semibold">Acompanhamento quadrimestral</h3></div><div className="grid size-10 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><CalendarDays className="size-5" /></div></div><div className="mt-6"><p className="text-sm text-[#78857e]">Valor registrado nas obrigações abertas</p><p className="font-display mt-1 text-3xl font-semibold tracking-tight">{moneyValue(amount)}</p></div><div className="mt-5 flex justify-between border-t border-[#e9eee7] pt-4 text-xs text-[#849087]"><span>{quarter.length} obrigação(ões)</span><span>Ciclo pendente de definição</span></div></div>;
 }
 
 function ActivityCard() {
-  return <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">ATIVIDADE</p><h3 className="font-display mt-2 text-lg font-semibold">O que acabou de acontecer</h3><div className="mt-5 space-y-5">{activities.map((item) => <div key={item.title} className="flex gap-3"><div className={`activity-icon activity-${item.color}`}><item.icon /></div><div className="min-w-0 flex-1"><p className="text-sm font-medium">{item.title}</p><p className="mt-1 truncate text-xs text-[#7d8982]">{item.detail}</p></div><span className="shrink-0 text-[11px] text-[#9aa39e]">{item.time}</span></div>)}</div></div>;
+  return <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">ATIVIDADE</p><h3 className="font-display mt-2 text-lg font-semibold">Movimentações recentes</h3><div className="mt-5 grid min-h-24 place-items-center rounded-2xl border border-dashed border-[#dfe6df] px-4 text-center"><p className="text-sm leading-6 text-[#7d8982]">Nenhuma movimentação financeira registrada.</p></div></div>;
 }
 
 function RuleCard({ title, label, description }: { title: string; label: string; description: string }) {
   return <article className="surface-card flex items-start gap-4 rounded-[22px] p-5"><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#edf4e7] text-[#5e793f]"><Building2 className="size-5" /></div><div><p className="text-sm font-semibold text-[#26372e]">{title}</p><p className="mt-1 text-xs font-semibold uppercase tracking-[.08em] text-[#77905e]">{label}</p><p className="mt-2 text-sm leading-6 text-[#718078]">{description}</p></div></article>;
-}
-
-function DemoBanner() {
-  return <div className="flex flex-col justify-between gap-3 rounded-[20px] border border-[#dce8d3] bg-[#f1f7ea] px-5 py-4 sm:flex-row sm:items-center"><div className="flex items-center gap-3"><Sparkles className="size-5 text-[#648143]" /><div><p className="text-sm font-semibold text-[#38502b]">Você está vendo cadastros demonstrativos</p><p className="mt-0.5 text-xs text-[#6f8067]">Importe a planilha para substituir esta visualização pela base real.</p></div></div><Badge className="bg-[#dcebc8] text-[#49642f] hover:bg-[#dcebc8]">DEMONSTRAÇÃO</Badge></div>;
 }
 
 function CheckLine({ children }: { children: React.ReactNode }) {

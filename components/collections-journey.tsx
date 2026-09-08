@@ -127,11 +127,10 @@ function CollectionMetric({ icon: Icon, label, value, detail, tone }: { icon: ty
 
 export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { unit: string; openPatientId?: number | null; onPatientOpened?: () => void }) {
   const [patients, setPatients] = useState(initialPatients);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [internalSelectedId, setSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!openPatientId) return;
-    setSelectedId(openPatientId);
     onPatientOpened?.();
   }, [openPatientId, onPatientOpened]);
 
@@ -139,6 +138,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const today = filtered.filter((patient) => patient.stage === "call" || patient.stage === "promise");
   const negotiating = filtered.filter((patient) => patient.stage === "negotiation" || patient.stage === "promise");
   const protested = filtered.filter((patient) => patient.stage === "protested");
+  const selectedId = openPatientId ?? internalSelectedId;
   const selected = patients.find((patient) => patient.id === selectedId) ?? null;
 
   const updatePatient = (patient: CollectionPatient) => setPatients((current) => current.map((item) => item.id === patient.id ? patient : item));
