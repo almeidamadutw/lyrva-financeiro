@@ -191,12 +191,24 @@ Deno.serve(withSupabase({
 
   if (action === "discover") {
     try {
-      const subscriberPayload = await clinicorpGet(
-        "/group/list_subscribers",
-        {},
-        credentials,
-      );
-      const subscribers = extractSubscriberCandidates(subscriberPayload);
+      // Contas separadas do Clinicorp podem não aparecer em /group/list_subscribers,
+      // pois esse endpoint é voltado principalmente a agrupamentos/franquias.
+      // Primeiro consultamos assinante+clínicas e a lista de clínicas da própria credencial.
+      const [subscriberClinicPayload, directBusinessPayload] = await Promise.all([
+        clinicorpGet("/group/list_subscribers_clinics", {}, credentials),
+        clinicorpGet("/business/list", {}, credentials),
+      ]);
+
+      let subscribers = [
+        ...extractSubscriberCandidates(subscriberClinicPayload),
+        ...extractSubscriberCandidates(directBusinessPayload),
+      ].filter((candidate, index, all) => all.findIndex((item) => item.id === candidate.id) === index);
+
+      // Fallback para contas organizadas como grupo/franquia.
+      if (!subscribers.length) {
+        const franchisePayload = await clinicorpGet("/group/list_subscribers", {}, credentials);
+        subscribers = extractSubscriberCandidates(franchisePayload);
+      }
       const requestedSubscriberId = body.subscriberId?.trim();
       const subscriber = requestedSubscriberId
         ? subscribers.find((candidate) => candidate.id === requestedSubscriberId)
@@ -214,12 +226,20 @@ Deno.serve(withSupabase({
         }, 409);
       }
 
-      const businessPayload = await clinicorpGet(
-        "/business/list",
-        { subscriber_id: subscriber.id },
-        credentials,
-      );
-      const businesses = extractBusinessCandidates(businessPayload);
+      let businesses = [
+        ...extractBusinessCandidates(directBusinessPayload),
+        ...extractBusinessCandidates(subscriberClinicPayload),
+      ].filter((candidate, index, all) => all.findIndex((item) => item.id === candidate.id) === index);
+
+      // Algumas contas só retornam a clínica quando o subscriber_id é enviado.
+      if (!businesses.length) {
+        const scopedBusinessPayload = await clinicorpGet(
+          "/business/list",
+          { subscriber_id: subscriber.id },
+          credentials,
+        );
+        businesses = extractBusinessCandidates(scopedBusinessPayload);
+      }
       const business = selectBusiness(businesses, unit.name, body.businessId?.trim() ?? null);
 
       if (!business) {
