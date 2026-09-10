@@ -78,6 +78,9 @@ import { Toaster } from "@/components/ui/sonner";
 import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
 import { FinancialJourney } from "@/components/financial-journey";
+import { FinancialNotifications } from "@/components/financial-notifications";
+import { ManualPatientDialog } from "@/components/manual-patient-dialog";
+import { NfWorkbookImportView } from "@/components/nf-workbook-import";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type View = "dashboard" | "journey" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
@@ -101,11 +104,19 @@ type Patient = {
   treatment?: string | null;
   paymentMethod?: string | null;
   planAmountCents?: number;
+  installmentAmountCents?: number;
   startDate?: string | null;
+  endDate?: string | null;
   installments?: number | null;
   dueDay?: number | null;
   taxReceiptIr?: boolean | number;
   invoiceFrequency?: string;
+  invoiceScheduleMode?: string | null;
+  firstInvoiceDate?: string | null;
+  invoiceIntervalMonths?: number | null;
+  invoiceRecipientName?: string | null;
+  invoiceDisabled?: boolean;
+  invoiceDisabledReason?: string | null;
   notes?: string | null;
 };
 
@@ -121,6 +132,9 @@ type InvoiceObligation = {
   tone: "ready" | "waiting" | "cycle" | "issue" | "done";
   rawStatus: string;
   frequency: string;
+  scheduledIssueDate?: string | null;
+  ruleCode?: string | null;
+  issuedAmount?: number;
 };
 
 type ClinicorpUnitCode = "sorocaba" | "salto_de_pirapora";
@@ -191,6 +205,7 @@ const viewTitles: Record<View, { eyebrow: string; title: string }> = {
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const money = (cents = 0) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
 const moneyValue = (value = 0) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+const formatIsoDate = (value?: string | null) => value ? new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`)) : "—";
 const digits = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 
 const clinicorpUnits: { code: ClinicorpUnitCode; name: string }[] = [
@@ -408,18 +423,26 @@ export function LyvraApp() {
         treatment: row.treatment,
         paymentMethod: row.payment_method ? paymentLabels[row.payment_method] ?? row.payment_method : null,
         planAmountCents: Math.round(Number(row.plan_amount ?? 0) * 100),
+        installmentAmountCents: Math.round(Number(row.installment_amount ?? 0) * 100),
         startDate: row.start_date,
+        endDate: row.end_date,
         installments: row.installment_count,
         dueDay: row.due_day,
         taxReceiptIr: row.tax_receipt_ir ?? undefined,
-        invoiceFrequency: row.invoice_frequency === "four_monthly" ? "Quadrimestral" : "Mensal",
+        invoiceFrequency: row.invoice_frequency === "yearly" ? "Anual" : row.invoice_frequency === "four_monthly" ? "Quadrimestral" : row.invoice_frequency === "monthly" ? "Mensal" : row.invoice_frequency === "custom" ? "Personalizada" : "Regra automática",
+        invoiceScheduleMode: row.invoice_schedule_mode,
+        firstInvoiceDate: row.first_invoice_date,
+        invoiceIntervalMonths: row.invoice_interval_months,
+        invoiceRecipientName: row.invoice_recipient_name,
+        invoiceDisabled: Boolean(row.invoice_disabled),
+        invoiceDisabledReason: row.invoice_disabled_reason,
         notes: row.notes,
       }); }));
 
       setObligations((obligationResult.data ?? []).map((row) => {
         if (row.id === null || row.patient_name === null || row.unit_name === null || row.competence === null || row.status === null || row.frequency === null) throw new Error("Obrigação financeira incompleta no banco.");
         const meta = invoiceStatus(row.status);
-        const amountValue = Number(row.paid_amount || row.expected_amount || 0);
+        const amountValue = Number(row.status === "issued" ? (row.issued_amount || row.expected_amount || 0) : (row.expected_amount || row.paid_amount || 0));
         return {
           id: row.id,
           patient: row.patient_name,
@@ -432,6 +455,9 @@ export function LyvraApp() {
           tone: meta.tone,
           rawStatus: row.status,
           frequency: row.frequency,
+          scheduledIssueDate: row.scheduled_issue_date,
+          ruleCode: row.rule_code,
+          issuedAmount: Number(row.issued_amount ?? 0),
         };
       }));
       setReminderCount(reminderResult.count ?? 0);
@@ -489,9 +515,10 @@ export function LyvraApp() {
   const markIssued = async (id: number) => {
     const supabase = getSupabaseBrowserClient();
     const timestamp = new Date().toISOString();
+    const obligation = obligations.find((item) => item.id === id);
     const { error } = await supabase
       .from("invoice_obligations")
-      .update({ status: "issued", invoice_issued_at: timestamp, completed_at: timestamp })
+      .update({ status: "issued", invoice_issued_at: timestamp, completed_at: timestamp, issued_amount: obligation?.amountValue ?? 0 })
       .eq("id", id);
 
     if (error) {
@@ -598,7 +625,7 @@ export function LyvraApp() {
           </div>
           <div className="flex items-center gap-2">
             {unitFilter}
-            <Button variant="outline" size="icon" className="relative size-10 rounded-xl border-[#dfe5df] bg-white shadow-none"><Bell className="size-4" /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-[#d56b52]" /><span className="sr-only">Notificações</span></Button>
+            <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => setView("journey")} />
           </div>
         </header>
 
@@ -608,8 +635,8 @@ export function LyvraApp() {
             {view === "journey" && <FinancialJourney unit={unit} />}
             {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && <CollectionsJourney unit={unit} />}
-            {view === "patients" && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} />}
-            {view === "import" && <ImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
+            {view === "patients" && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} />}
+            {view === "import" && <NfWorkbookImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
             {view === "access" && ["gestora", "ceo", "suporte"].includes(currentUser.role) && <AccessManagementView currentRole={currentUser.role} />}
             {view === "support" && currentUser.role === "suporte" && <SupportView goTo={setView} />}
             {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
@@ -633,7 +660,7 @@ function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: strin
   const total = (items: InvoiceObligation[]) => moneyValue(items.reduce((sum, item) => sum + item.amountValue, 0));
   return <div className="space-y-5">
     <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-7 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8"><span className="mr-1.5 size-1.5 rounded-full bg-[#00BF63]" />BASE REAL CONECTADA</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[42px]">O financeiro organizado,<br className="hidden sm:block" /> sem nada escapar.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/58 md:text-base">{allFiltered.length ? `${allFiltered.length} obrigação(ões) fiscal(is) carregada(s) da base.` : "A estrutura está pronta e aguarda a primeira importação de pacientes e pagamentos."}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="h-11 rounded-xl border-white/15 bg-white/8 px-4 text-white shadow-none hover:bg-white/14 hover:text-white"><CalendarDays /> Dados em tempo real</Button><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Ver notas a emitir <ChevronRight /></Button></div></div></section>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Aguardando baixa" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências operacionais" description="Obrigações que pedem uma ação da equipe." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
   </div>;
 }
@@ -642,18 +669,18 @@ function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligatio
   const [status, setStatus] = useState("todos");
   const filtered = obligations.filter((item) => (unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")) && (status === "todos" || item.tone === status));
   return <div className="space-y-5">
-    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">OBRIGAÇÕES REAIS</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Fila de emissão</h2><p className="mt-2 text-sm text-[#718078]">O paciente permanece aqui até a emissão ser concluída.</p></div><div className="flex flex-wrap gap-2"><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Quadrimestre</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select><Button className="h-10 rounded-xl" onClick={() => toast.info("A emissão automática entra após definirmos o emissor fiscal.") }><ReceiptText /> Emitir selecionadas</Button></div></section>
+    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">OBRIGAÇÕES REAIS</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Fila de emissão</h2><p className="mt-2 text-sm text-[#718078]">O paciente permanece aqui até a emissão ser concluída.</p></div><div className="flex flex-wrap gap-2"><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Ciclo anterior</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select><Button className="h-10 rounded-xl" onClick={() => toast.info("A emissão automática entra após definirmos o emissor fiscal.") }><ReceiptText /> Emitir selecionadas</Button></div></section>
     <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registros encontrados`} obligations={filtered} onIssued={onIssued} />
-    <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Sorocaba" label="Emissão mensal" description="A nota é liberada após a baixa e considera o total pago no mês." /><RuleCard title="Salto de Pirapora" label="Emissão quadrimestral" description="O LYVRA acumula quatro meses pagos e cria uma única obrigação no fechamento." /></div>
+    <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Cartão" label="1 NF por ano" description="A NF é prevista no primeiro recebimento do ano e considera as parcelas daquele ano-calendário." /><RuleCard title="Boleto" label="Fim do parcelamento ou 31/12" description="A NF é prevista no término do parcelamento ou em 31 de dezembro, o que acontecer primeiro. O restante segue para o ano seguinte." /></div>
   </div>;
 }
 
-function PatientsView({ unit, patients, loading, goTo }: { unit: string; patients: Patient[]; loading: boolean; goTo: (view: View) => void }) {
+function PatientsView({ unit, patients, loading, goTo, onSaved }: { unit: string; patients: Patient[]; loading: boolean; goTo: (view: View) => void; onSaved: () => Promise<void> }) {
   const [query, setQuery] = useState("");
   const filtered = patients.filter((patient) => (unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")) && patient.name.toLowerCase().includes(query.toLowerCase()));
   return <div className="space-y-5">
-    <section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Somente quem estiver marcado para IR entra na rotina de notas.</p></div><div className="flex gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9 shadow-none" /></div><Button onClick={() => goTo("import")} className="h-10 rounded-xl"><UploadCloud /> Importar</Button></div></div>
-      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : filtered.length ? <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceFrequency || (patient.unit === "Sorocaba" ? "Mensal" : "Quadrimestral")}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center"><div><Users className="mx-auto size-9 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">Nenhum paciente cadastrado</p><p className="mt-1 text-sm text-[#8a958e]">Importe a planilha oficial para iniciar a base real.</p><Button onClick={() => goTo("import")} variant="outline" className="mt-5 rounded-xl"><UploadCloud /> Importar planilha</Button></div></div>}
+    <section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Somente quem estiver marcado para IR entra na rotina de notas.</p></div><div className="flex flex-wrap gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9 shadow-none" /></div><ManualPatientDialog onSaved={onSaved} /><Button onClick={() => goTo("import")} variant="outline" className="h-10 rounded-xl"><UploadCloud /> Importar</Button></div></div>
+      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : filtered.length ? <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled ? <span className="text-[#a05a48]">Não emitir</span> : patient.invoiceFrequency || "Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center"><div><Users className="mx-auto size-9 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">Nenhum paciente cadastrado</p><p className="mt-1 text-sm text-[#8a958e]">Importe a planilha oficial para iniciar a base real.</p><Button onClick={() => goTo("import")} variant="outline" className="mt-5 rounded-xl"><UploadCloud /> Importar planilha</Button></div></div>}
     </section>
   </div>;
 }
@@ -958,7 +985,7 @@ function IntegrationsView() {
 }
 
 function ObligationsTable({ title, description, obligations, compact = false, onIssued }: { title: string; description: string; obligations: InvoiceObligation[]; compact?: boolean; onIssued?: (id: number) => void | Promise<void> }) {
-  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact && <div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9 shadow-none" /></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="h-11 pl-5 text-[11px] uppercase tracking-[.08em] text-[#829087] md:pl-6">Paciente</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Referência</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Valor</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Situação</TableHead><TableHead className="w-20" /></TableRow></TableHeader><TableBody>{obligations.map((item) => <TableRow key={item.id}><TableCell className="py-4 pl-5 md:pl-6"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{item.initials}</div><div><p className="font-medium text-[#213128]">{item.patient}</p><p className="mt-0.5 text-xs text-[#849087]">{item.unit}</p></div></div></TableCell><TableCell>{item.reference}</TableCell><TableCell className="font-semibold tabular-nums">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued && item.tone === "ready" ? <Button onClick={() => onIssued(item.id)} variant="outline" size="sm" className="rounded-lg">Emitir</Button> : <Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Mais opções</span></Button>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length && <div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
+  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact && <div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9 shadow-none" /></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="h-11 pl-5 text-[11px] uppercase tracking-[.08em] text-[#829087] md:pl-6">Paciente</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Referência</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Valor</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Situação</TableHead><TableHead className="w-20" /></TableRow></TableHeader><TableBody>{obligations.map((item) => <TableRow key={item.id}><TableCell className="py-4 pl-5 md:pl-6"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{item.initials}</div><div><p className="font-medium text-[#213128]">{item.patient}</p><p className="mt-0.5 text-xs text-[#849087]">{item.unit}</p></div></div></TableCell><TableCell><p>{item.reference}</p>{item.scheduledIssueDate && <p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>}</TableCell><TableCell className="font-semibold tabular-nums">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued && item.tone === "ready" ? <Button onClick={() => onIssued(item.id)} variant="outline" size="sm" className="rounded-lg">Emitir</Button> : <Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Mais opções</span></Button>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length && <div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
 }
 
 function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string; detail: string; icon: typeof FileText; accent: string }) {
@@ -966,9 +993,10 @@ function MetricCard({ label, value, detail, icon: Icon, accent }: { label: strin
 }
 
 function QuarterCard({ obligations }: { obligations: InvoiceObligation[] }) {
-  const quarter = obligations.filter((item) => item.unit === "Salto de Pirapora" && item.frequency === "four_monthly" && item.rawStatus !== "cancelled");
-  const amount = quarter.reduce((sum, item) => sum + item.amountValue, 0);
-  return <div className="surface-card rounded-[24px] p-5 md:p-6"><div className="flex items-start justify-between"><div><p className="eyebrow">SALTO DE PIRAPORA</p><h3 className="font-display mt-2 text-xl font-semibold">Acompanhamento quadrimestral</h3></div><div className="grid size-10 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><CalendarDays className="size-5" /></div></div><div className="mt-6"><p className="text-sm text-[#78857e]">Valor registrado nas obrigações abertas</p><p className="font-display mt-1 text-3xl font-semibold tracking-tight">{moneyValue(amount)}</p></div><div className="mt-5 flex justify-between border-t border-[#e9eee7] pt-4 text-xs text-[#849087]"><span>{quarter.length} obrigação(ões)</span><span>Ciclo pendente de definição</span></div></div>;
+  const open = obligations.filter((item) => !["issued", "cancelled"].includes(item.rawStatus));
+  const amount = open.reduce((sum, item) => sum + item.amountValue, 0);
+  const next = [...open].filter((item) => item.scheduledIssueDate).sort((a, b) => String(a.scheduledIssueDate).localeCompare(String(b.scheduledIssueDate)))[0];
+  return <div className="surface-card rounded-[24px] p-5 md:p-6"><div className="flex items-start justify-between"><div><p className="eyebrow">AGENDA FISCAL</p><h3 className="font-display mt-2 text-xl font-semibold">Próximas emissões</h3></div><div className="grid size-10 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><CalendarDays className="size-5" /></div></div><div className="mt-6"><p className="text-sm text-[#78857e]">Valor previsto nas obrigações abertas</p><p className="font-display mt-1 text-3xl font-semibold tracking-tight">{moneyValue(amount)}</p></div><div className="mt-5 flex justify-between gap-3 border-t border-[#e9eee7] pt-4 text-xs text-[#849087]"><span>{open.length} obrigação(ões)</span><span>{next?.scheduledIssueDate ? `Próxima: ${formatIsoDate(next.scheduledIssueDate)}` : "Sem emissão prevista"}</span></div></div>;
 }
 
 function ActivityCard() {
