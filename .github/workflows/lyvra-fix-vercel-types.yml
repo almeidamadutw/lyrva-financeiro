@@ -39,6 +39,7 @@ jobs:
           replacements = {
             'setPatients((patientResult.data ?? []).map((row) => {': 'setPatients(((patientResult.data ?? []) as unknown as any[]).map((row) => {',
             'setObligations((obligationResult.data ?? []).map((row) => {': 'setObligations(((obligationResult.data ?? []) as unknown as any[]).map((row) => {',
+            'const { error } = await supabase\n      .from("invoice_obligations")': 'const { error } = await (supabase as any)\n      .from("invoice_obligations")',
           }
           for old, new in replacements.items():
             if old in s:
