@@ -1,0 +1,48 @@
+name: Conectar Alerta Financeiro
+
+on:
+  push:
+    paths:
+      - .github/workflows/lyvra-wire-due-alert.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Conectar alerta
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('components/lyrva-app.tsx')
+          s = p.read_text(encoding='utf-8')
+          old_import = 'import { FinancialNotifications } from "@/components/financial-notifications";\n'
+          new_import = old_import + 'import { DueTaskAlert } from "@/components/due-task-alert";\n'
+          if old_import not in s:
+              raise SystemExit('import FinancialNotifications não encontrado')
+          s = s.replace(old_import, new_import, 1)
+          old_render = '      <Toaster position="top-right" richColors />\n'
+          new_render = old_render + '      <DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} />\n'
+          if old_render not in s:
+              raise SystemExit('Toaster não encontrado')
+          s = s.replace(old_render, new_render, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Validar build
+        run: |
+          npm ci
+          npm run build
+      - name: Salvar
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/lyrva-app.tsx
+          git commit -m "feat: exibe alerta quando tarefa chega ao horário"
+          git push
