@@ -1,0 +1,47 @@
+name: Corrigir Tipagem LYVRA
+
+on:
+  push:
+    paths:
+      - .github/workflows/lyvra-fix-vercel-types.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Corrigir casts da base real
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('components/collections-journey-real.tsx')
+          s = p.read_text(encoding='utf-8')
+          replacements = {
+            'setQueue((queueResult.data ?? []) as QueueRow[]);': 'setQueue((queueResult.data ?? []) as unknown as QueueRow[]);',
+            'setInteractions((interactionResult.data ?? []) as InteractionRow[]);': 'setInteractions((interactionResult.data ?? []) as unknown as InteractionRow[]);',
+            'setProfiles((profileResult.data ?? []) as ProfileRow[]);': 'setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);',
+          }
+          for old, new in replacements.items():
+            if old not in s:
+              raise SystemExit(f'Trecho não encontrado: {old}')
+            s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Validar build exatamente como a Vercel
+        run: |
+          npm ci
+          npx next build
+      - name: Salvar correção
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/collections-journey-real.tsx
+          git commit -m "fix: atualiza tipagem da régua de cobrança"
+          git push
