@@ -41,6 +41,35 @@ function asFiniteNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizedField(row, aliases) {
+  const fields = new Map(
+    Object.entries(row).map(([key, value]) => [normalizeForMatch(key), value]),
+  );
+  for (const alias of aliases) {
+    const value = fields.get(normalizeForMatch(alias));
+    if (value !== undefined && value !== null) return value;
+  }
+  return null;
+}
+
+function nestedRecords(value, depth = 0) {
+  if (depth > 6) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => nestedRecords(item, depth + 1));
+  }
+  if (!isRecord(value)) return [];
+  return [
+    value,
+    ...Object.values(value).flatMap((item) => (
+      Array.isArray(item) || isRecord(item) ? nestedRecords(item, depth + 1) : []
+    )),
+  ];
+}
+
+function isLeafRecord(row) {
+  return !Object.values(row).some((value) => Array.isArray(value) || isRecord(value));
+}
+
 export function normalizeClinicorpRows(payload) {
   if (Array.isArray(payload)) return payload.filter(isRecord);
   if (!isRecord(payload)) return [];
@@ -83,16 +112,28 @@ export function validateDateRange(from, to, maxDays = 31) {
 }
 
 export function extractSubscriberCandidates(payload) {
-  const rows = normalizeClinicorpRows(payload);
+  const rows = nestedRecords(payload);
   const candidates = rows.flatMap((row) => {
-    const id = asSafeString(
-      row.SubscriberBussinessUID
-      ?? row.SubscriberBusinessUID
-      ?? row.SubscriberId
-      ?? row.subscriber_id,
-    );
+    const explicitId = normalizedField(row, [
+      "SubscriberBussinessUID",
+      "SubscriberBusinessUID",
+      "SubscriberBusinessId",
+      "SubscriberUID",
+      "SubscriberId",
+      "subscriber_id",
+    ]);
+    const name = asSafeString(normalizedField(row, [
+      "SubscriberName",
+      "SubscriberNamespace",
+      "Namespace",
+      "Name",
+    ]));
+    const fallbackId = name && isLeafRecord(row)
+      ? normalizedField(row, ["id", "uid"])
+      : null;
+    const id = asSafeString(explicitId ?? fallbackId);
     if (!id) return [];
-    return [{ id, name: asSafeString(row.Namespace ?? row.Name) }];
+    return [{ id, name }];
   });
 
   return candidates.filter(
@@ -101,14 +142,34 @@ export function extractSubscriberCandidates(payload) {
 }
 
 export function extractBusinessCandidates(payload) {
-  return normalizeClinicorpRows(payload).flatMap((row) => {
-    const id = asSafeString(row.id ?? row.BusinessId ?? row.CompanyId);
+  const candidates = nestedRecords(payload).flatMap((row) => {
+    const name = asSafeString(normalizedField(row, [
+      "BusinessName",
+      "CompanyName",
+      "FantasyName",
+      "Name",
+    ]));
+    const explicitId = normalizedField(row, [
+      "BusinessUID",
+      "BusinessId",
+      "CompanyUID",
+      "CompanyId",
+      "business_id",
+    ]);
+    const fallbackId = name && isLeafRecord(row)
+      ? normalizedField(row, ["id", "uid"])
+      : null;
+    const id = asSafeString(explicitId ?? fallbackId);
     if (!id) return [];
     return [{
       id,
-      name: asSafeString(row.Name ?? row.BusinessName) ?? `Clínica ${id}`,
+      name: name ?? `Clínica ${id}`,
     }];
   });
+
+  return candidates.filter(
+    (candidate, index) => candidates.findIndex((item) => item.id === candidate.id) === index,
+  );
 }
 
 export function selectBusiness(candidates, unitName, requestedBusinessId = null) {
