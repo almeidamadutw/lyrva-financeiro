@@ -1,5 +1,8 @@
 "use client";
 
+import { accessAuth } from "@/lib/access-auth";
+import { AboveframeBrand } from "@/components/password-recovery";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -21,13 +24,16 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
+  Mail,
   MessageCircle,
   MoreHorizontal,
   ReceiptText,
   Search,
+  Settings,
   ShieldCheck,
   Sparkles,
   UploadCloud,
+  UserCog,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -73,7 +79,7 @@ import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "invoices" | "collections" | "patients" | "import" | "integrations";
+type View = "dashboard" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 
 type UserAccount = {
@@ -156,6 +162,8 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?:
   { id: "collections", label: "Régua de cobrança", icon: WalletCards },
   { id: "patients", label: "Pacientes", icon: Users },
   { id: "import", label: "Importar planilha", icon: FileSpreadsheet },
+  { id: "access", label: "Gerenciar acessos", icon: UserCog },
+  { id: "support", label: "Central de suporte", icon: Settings },
   { id: "integrations", label: "Integrações", icon: Link2 },
 ];
 
@@ -172,6 +180,8 @@ const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   collections: { eyebrow: "Jornada do financeiro", title: "Régua de cobrança" },
   patients: { eyebrow: "Base de cadastros", title: "Pacientes" },
   import: { eyebrow: "Carga inicial", title: "Importar planilha" },
+  access: { eyebrow: "Equipe e segurança", title: "Gerenciar acessos" },
+  support: { eyebrow: "Administração técnica", title: "Central de suporte" },
   integrations: { eyebrow: "Conexões do sistema", title: "Integrações" },
 };
 
@@ -249,8 +259,8 @@ function StatusBadge({ tone, children }: { tone: InvoiceObligation["tone"]; chil
   return <Badge variant="outline" className={`status-badge status-${tone}`}><span className="status-dot" />{children}</Badge>;
 }
 
-function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) => Promise<string | null> }) {
-  const [email, setEmail] = useState("");
+function LoginScreen({ onLogin }: { onLogin: (username: string, password: string) => Promise<string | null> }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -258,13 +268,13 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim() || password.length < 8) {
-      setError("Preencha seu e-mail e uma senha com pelo menos 8 caracteres.");
+    if (!username.trim() || password.length < 8) {
+      setError("Preencha seu usuário e uma senha com pelo menos 8 caracteres.");
       return;
     }
     setLoading(true);
     setError("");
-    const loginError = await onLogin(email.trim().toLowerCase(), password);
+    const loginError = await onLogin(username.trim().toLowerCase(), password);
     setError(loginError ?? "");
     setLoading(false);
   };
@@ -293,8 +303,8 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
 
           <form className="mt-8 space-y-5" onSubmit={submit}>
             <div className="space-y-2">
-              <Label htmlFor="login-email" className="text-sm font-semibold text-[#33473c]">E-mail</Label>
-              <Input id="login-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nome@lyvrafinanceiro.com.br" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 shadow-none focus-visible:ring-[#00BF63]" required />
+              <Label htmlFor="login-username" className="text-sm font-semibold text-[#33473c]">Usuário</Label>
+              <Input id="login-username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase())} placeholder="Ex.: daiane@lyvrafinanceiro" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 shadow-none focus-visible:ring-[#00BF63]" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="login-password" className="text-sm font-semibold text-[#33473c]">Senha</Label>
@@ -310,11 +320,8 @@ function LoginScreen({ onLogin }: { onLogin: (email: string, password: string) =
           </form>
 
           <div className="mt-7 border-t border-[#e8ece8] pt-5 text-center">
-            <a href="/primeiro-acesso" className="inline-flex items-center gap-2 text-sm font-semibold text-[#007d46] transition hover:text-[#00a958] hover:underline hover:underline-offset-4">
-              Primeiro acesso? Ative sua conta
-              <ChevronRight className="size-4" />
-            </a>
-            <p className="mt-3 text-xs leading-5 text-[#8a958e]">Problemas para acessar? Solicite ajuda ao suporte responsável.</p>
+            <a href="/ativar-acesso" className="inline-flex items-center gap-2 text-sm font-semibold text-[#007d46] transition hover:text-[#00a958] hover:underline hover:underline-offset-4">Recebi meu código de primeiro acesso <ChevronRight className="size-4" /></a>
+            <a href="/nova-senha" className="mt-3 block text-sm text-[#537060] hover:underline">Esqueceu a senha? Recuperar acesso</a>
           </div>
         </div>
 
@@ -385,7 +392,9 @@ export function LyvraApp() {
         other: "Outro",
       };
 
-      setPatients((patientResult.data ?? []).map((row) => ({
+      setPatients((patientResult.data ?? []).map((row) => {
+        if (row.patient_id === null || row.full_name === null || row.unit_name === null) throw new Error("Cadastro de paciente incompleto no banco.");
+        return ({
         id: row.patient_id,
         clinicorpId: row.clinicorp_patient_id,
         name: row.full_name,
@@ -399,12 +408,13 @@ export function LyvraApp() {
         startDate: row.start_date,
         installments: row.installment_count,
         dueDay: row.due_day,
-        taxReceiptIr: row.tax_receipt_ir,
+        taxReceiptIr: row.tax_receipt_ir ?? undefined,
         invoiceFrequency: row.invoice_frequency === "four_monthly" ? "Quadrimestral" : "Mensal",
         notes: row.notes,
-      })));
+      }); }));
 
       setObligations((obligationResult.data ?? []).map((row) => {
+        if (row.id === null || row.patient_name === null || row.unit_name === null || row.competence === null || row.status === null || row.frequency === null) throw new Error("Obrigação financeira incompleta no banco.");
         const meta = invoiceStatus(row.status);
         const amountValue = Number(row.paid_amount || row.expected_amount || 0);
         return {
@@ -489,13 +499,16 @@ export function LyvraApp() {
     toast.success("Nota marcada como emitida", { description: "O histórico real desta obrigação foi atualizado." });
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (username: string, password: string) => {
     const supabase = getSupabaseBrowserClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error || !data.user) {
-      if (error?.message.toLowerCase().includes("confirm")) return "Confirme seu e-mail antes de entrar.";
-      return "E-mail ou senha inválidos.";
-    }
+    let session;
+    try {
+      const result = await accessAuth({ action: "login", username, password });
+      session = result.session;
+    } catch (error) { return error instanceof Error ? error.message : "Não foi possível entrar agora."; }
+    if (!session) return "Usuário ou senha inválidos.";
+    const { data, error } = await supabase.auth.setSession(session);
+    if (error || !data.user) return "Não foi possível iniciar sua sessão.";
 
     const account = await loadProfile(data.user.id);
     if (!account) {
@@ -526,7 +539,12 @@ export function LyvraApp() {
 
   if (!currentUser) return <LoginScreen onLogin={login} />;
 
-  const visibleNavItems = navItems.filter((item) => item.id !== "integrations" || currentUser.role === "suporte");
+  const visibleNavItems = navItems.filter((item) => {
+    if (item.id === "integrations") return currentUser.role === "suporte";
+    if (item.id === "support") return currentUser.role === "suporte";
+    if (item.id === "access") return ["gestora", "ceo", "suporte"].includes(currentUser.role);
+    return true;
+  });
   const userInitials = initials(currentUser.name);
 
   return (
@@ -594,6 +612,8 @@ export function LyvraApp() {
             {view === "collections" && <CollectionsJourney unit={unit} />}
             {view === "patients" && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} />}
             {view === "import" && <ImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
+            {view === "access" && ["gestora", "ceo", "suporte"].includes(currentUser.role) && <AccessManagementView currentRole={currentUser.role} />}
+            {view === "support" && currentUser.role === "suporte" && <SupportView goTo={setView} />}
             {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
           </div>
         </main>
@@ -739,6 +759,104 @@ function ImportView({ onImported }: { onImported: () => Promise<void> }) {
   return <div className="space-y-5"><section className="grid gap-5 xl:grid-cols-[.8fr_1.2fr]"><div className="surface-card rounded-[24px] p-5 md:p-7"><p className="eyebrow">ETAPA 1</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Envie sua planilha</h2><p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA aceita Excel ou CSV, lê a primeira aba e mostra uma conferência antes de cadastrar.</p><input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.xls,.csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parseFile(file); }} /><button type="button" onClick={() => inputRef.current?.click()} className="mt-6 flex min-h-56 w-full flex-col items-center justify-center rounded-[22px] border border-dashed border-[#b7c4ba] bg-[#fafbf8] px-6 text-center transition hover:border-[#00BF63] hover:bg-[#f2fbf7]"><div className="grid size-14 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><UploadCloud className="size-6" /></div><p className="mt-4 font-medium text-[#26382e]">{fileName || "Clique para escolher a planilha"}</p><p className="mt-1 text-xs text-[#87928c]">XLSX, XLS ou CSV • até 1.000 pacientes por vez</p></button><div className="mt-5 space-y-3 text-sm text-[#65736b]"><CheckLine>Prévia antes do cadastro</CheckLine><CheckLine>Detecção de CPF e Clinicorp ID</CheckLine><CheckLine>Periodicidade definida pela unidade</CheckLine></div></div>
       <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex items-center justify-between border-b border-[#e7ebe7] p-5 md:px-6"><div><p className="eyebrow">ETAPA 2</p><h2 className="font-display mt-2 text-xl font-semibold text-[#192820]">Conferência dos dados</h2></div>{rows.length > 0 && <Badge variant="secondary">{rows.length} linhas encontradas</Badge>}</div>{parseError ? <div className="m-6 flex gap-3 rounded-2xl bg-[#fae8e3] p-4 text-sm text-[#934e3f]"><AlertCircle className="mt-0.5 size-4 shrink-0" />{parseError}</div> : rows.length ? <><Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>IR</TableHead></TableRow></TableHeader><TableBody>{rows.slice(0, 6).map((row, index) => <TableRow key={`${row.name}-${index}`} className={!row.name ? "bg-[#fff7f4]" : ""}><TableCell className="py-4 pl-6"><p className="font-medium">{row.name || "Nome não identificado"}</p><p className="mt-1 text-xs text-[#839087]">{row.cpf || "CPF não informado"}</p></TableCell><TableCell>{row.unit}</TableCell><TableCell>{row.paymentMethod || "—"}</TableCell><TableCell>{row.taxReceiptIr ? "Sim" : "Não"}</TableCell></TableRow>)}</TableBody></Table>{rows.length > 6 && <p className="border-t p-4 text-center text-xs text-[#7d8982]">Mais {rows.length - 6} linhas serão incluídas na importação.</p>}<div className="flex flex-col gap-3 border-t border-[#e7ebe7] bg-[#fafbf8] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><p className="text-sm text-[#65736b]">{invalid ? `${invalid} linha(s) com erro serão ignoradas.` : "Tudo certo para continuar."}</p><Button disabled={importing || rows.length === invalid} onClick={() => void submit()} className="h-11 rounded-xl bg-[#183b32] px-5">{importing ? <LoaderCircle className="animate-spin" /> : <Database />} Importar {rows.length - invalid} pacientes</Button></div></> : <div className="grid min-h-96 place-items-center px-6 text-center"><div><FileSpreadsheet className="mx-auto size-10 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">A prévia aparecerá aqui</p><p className="mt-1 text-sm text-[#8a958e]">Nenhum dado será salvo sem sua confirmação.</p></div></div>}</div>
     </section><section className="rounded-[22px] border border-[#dfe5df] bg-[#eef4e9] p-5"><div className="flex gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#51713d]" /><div><p className="font-medium text-[#2c432f]">Importação protegida contra duplicidades</p><p className="mt-1 text-sm leading-6 text-[#657a66]">O CPF é a chave principal. Quando um CPF já existir, o cadastro será atualizado em vez de duplicado.</p></div></div></section></div>;
+}
+
+type AccessUnit = { id: number; code: string; name: string; access_recovery_email: string };
+type ManagedProfile = {
+  user_id: string;
+  username: string;
+  full_name: string;
+  role: Role;
+  is_active: boolean;
+  recovery_unit_id: number;
+  profile_units: { unit_id: number }[];
+};
+type AccessAdminResponse = { ok: boolean; message?: string; units?: AccessUnit[]; profiles?: ManagedProfile[] };
+
+async function invokeAccessAdmin(body: Record<string, unknown>) {
+  const { data, error } = await getSupabaseBrowserClient().functions.invoke<AccessAdminResponse>("access-admin", { body });
+  if (error) throw new Error(await clinicorpErrorMessage(error));
+  if (!data?.ok) throw new Error(data?.message ?? "A operação de acesso não foi concluída.");
+  return data;
+}
+
+function AccessManagementView({ currentRole }: { currentRole: Role }) {
+  const [units, setUnits] = useState<AccessUnit[]>([]);
+  const [profiles, setProfiles] = useState<ManagedProfile[]>([]);
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [role, setRole] = useState<Role>("membro");
+  const [recoveryUnit, setRecoveryUnit] = useState("");
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [recovering, setRecovering] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await invokeAccessAdmin({ action: "list" });
+      setUnits(result.units ?? []);
+      setProfiles(result.profiles ?? []);
+      if (result.units?.[0]) {
+        setRecoveryUnit((current) => current || result.units![0].code);
+        setSelectedUnits((current) => current.length ? current : [result.units![0].code]);
+      }
+    } catch (error) {
+      toast.error("Não foi possível carregar os acessos", { description: error instanceof Error ? error.message : undefined });
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    const task = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(task);
+  }, [load]);
+
+  const createAccess = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setSaving(true);
+    try {
+      const result = await invokeAccessAdmin({ action: "invite", fullName, username, role, unitCode: recoveryUnit, unitCodes: selectedUnits });
+      toast.success("Acesso criado", { description: result.message });
+      setFullName(""); setUsername(""); setRole("membro");
+      await load();
+    } catch (error) {
+      toast.error("Acesso não criado", { description: error instanceof Error ? error.message : undefined });
+    } finally { setSaving(false); }
+  };
+
+  const requestRecovery = async (profile: ManagedProfile) => {
+    const unit = units.find((item) => item.id === profile.recovery_unit_id);
+    if (!unit && profile.role !== "suporte") return;
+    setRecovering(profile.user_id);
+    try {
+      const result = await invokeAccessAdmin({ action: "recover", username: profile.username, unitCode: unit?.code });
+      toast.success("Recuperação enviada", { description: result.message });
+    } catch (error) {
+      toast.error("Não foi possível enviar", { description: error instanceof Error ? error.message : undefined });
+    } finally { setRecovering(null); }
+  };
+
+  const toggleUnit = (code: string) => setSelectedUnits((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code]);
+
+  return <div className="grid gap-5 xl:grid-cols-[.72fr_1.28fr]">
+    <section className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">NOVO ACESSO</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Cadastrar integrante</h2><p className="mt-2 text-sm leading-6 text-[#718078]">O convite será enviado para a caixa responsável escolhida abaixo.</p>
+      <form className="mt-6 space-y-4" onSubmit={createAccess}>
+        <div className="space-y-2"><Label htmlFor="access-name">Nome completo</Label><Input id="access-name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nome da pessoa" required /></div>
+        <div className="space-y-2"><Label htmlFor="access-username">Usuário de entrada</Label><div className="flex items-center rounded-md border border-input bg-transparent"><Input id="access-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/@lyvrafinanceiro$/, "").replace(/[^a-z0-9._-]/g, "").slice(0, 40))} placeholder="daiane" minLength={3} required className="border-0 shadow-none focus-visible:ring-0" /><span className="pr-3 text-sm text-[#718078]">@lyvrafinanceiro</span></div><p className="text-xs text-[#87928c]">Este será o login da pessoa no sistema.</p></div>
+        <div className="space-y-2"><Label>Tipo de acesso</Label><Select value={role} onValueChange={(value) => setRole(value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="membro">Membro</SelectItem>{currentRole !== "gestora" && <><SelectItem value="gestora">Gestora</SelectItem><SelectItem value="ceo">CEO</SelectItem></>}</SelectContent></Select></div>
+        <div className="space-y-2"><Label>Caixa de recuperação</Label><Select value={recoveryUnit} onValueChange={setRecoveryUnit}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{units.map((unit) => <SelectItem key={unit.code} value={unit.code}>{unit.name}</SelectItem>)}</SelectContent></Select></div>
+        <div className="space-y-2"><Label>Unidades liberadas</Label><div className="grid gap-2 sm:grid-cols-2">{units.map((unit) => <Button key={unit.code} type="button" variant={selectedUnits.includes(unit.code) ? "default" : "outline"} onClick={() => toggleUnit(unit.code)} className="justify-start rounded-xl">{selectedUnits.includes(unit.code) && <Check />}{unit.name}</Button>)}</div></div>
+        <Button disabled={saving || !selectedUnits.length} className="h-11 w-full rounded-xl bg-[#183b32]">{saving ? <LoaderCircle className="animate-spin" /> : <UserCog />} Criar acesso e enviar código</Button>
+      </form>
+    </section>
+    <section className="surface-card overflow-hidden rounded-[24px]"><div className="border-b border-[#e7ebe7] p-5 md:px-6"><p className="eyebrow">EQUIPE</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Acessos cadastrados</h2><p className="mt-2 text-sm text-[#718078]">A senha nunca fica visível. A recuperação vai para a caixa central.</p></div>
+      {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-[#00BF63]" /></div> : profiles.length ? <Table><TableHeader><TableRow><TableHead className="pl-6">Pessoa</TableHead><TableHead>Função</TableHead><TableHead>Recuperação</TableHead><TableHead /></TableRow></TableHeader><TableBody>{profiles.map((profile) => { const box = units.find((item) => item.id === profile.recovery_unit_id); return <TableRow key={profile.user_id}><TableCell className="py-4 pl-6"><p className="font-medium text-[#213128]">{profile.full_name}</p><p className="mt-1 text-xs text-[#839087]">{profile.username}@lyvrafinanceiro</p></TableCell><TableCell><Badge variant="secondary">{roleLabels[profile.role]}</Badge></TableCell><TableCell>{profile.role === "suporte" ? "E-mail pessoal" : box?.name ?? "—"}</TableCell><TableCell className="text-right"><Button variant="outline" size="sm" disabled={recovering === profile.user_id} onClick={() => void requestRecovery(profile)} className="rounded-xl">{recovering === profile.user_id ? <LoaderCircle className="animate-spin" /> : <Mail />} Recuperar senha</Button></TableCell></TableRow>; })}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center text-sm text-[#718078]">Nenhum acesso ativado ainda.</div>}
+    </section>
+  </div>;
+}
+
+function SupportView({ goTo }: { goTo: (view: View) => void }) {
+  return <div className="space-y-5"><section className="hero-panel overflow-hidden rounded-[28px] px-6 py-7 text-white md:px-8"><AboveframeBrand /><p className="eyebrow mt-6 text-[#7deeb4]">SUPORTE LYRVA</p><h2 className="font-display mt-3 text-3xl font-medium">Controle técnico em um só lugar.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Gerencie acessos, envie recuperação de senha, acompanhe as conexões das unidades.</p></section><section className="grid gap-4 md:grid-cols-2"><button type="button" onClick={() => goTo("access")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><UserCog className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Usuários e senhas</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Criar acessos, escolher unidades e solicitar recuperação pela caixa central.</p></button><button type="button" onClick={() => goTo("integrations")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><Link2 className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Integrações</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Validar Clinicorp por unidade e acompanhar a saúde das conexões.</p></button></section></div>;
 }
 
 function IntegrationsView() {
