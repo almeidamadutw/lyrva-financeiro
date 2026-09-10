@@ -77,9 +77,10 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
+import { FinancialJourney } from "@/components/financial-journey";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
+type View = "dashboard" | "journey" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 
 type UserAccount = {
@@ -158,6 +159,7 @@ type ClinicorpFunctionResponse = {
 
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
+  { id: "journey", label: "Jornada financeira", icon: Sparkles },
   { id: "invoices", label: "Notas fiscais", icon: FileText },
   { id: "collections", label: "Régua de cobrança", icon: WalletCards },
   { id: "patients", label: "Pacientes", icon: Users },
@@ -176,6 +178,7 @@ const roleLabels: Record<Role, string> = {
 
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: "Operação financeira", title: "Visão geral" },
+  journey: { eyebrow: "Operação financeira", title: "Jornada financeira" },
   invoices: { eyebrow: "Controle fiscal", title: "Notas fiscais" },
   collections: { eyebrow: "Jornada do financeiro", title: "Régua de cobrança" },
   patients: { eyebrow: "Base de cadastros", title: "Pacientes" },
@@ -372,12 +375,12 @@ export function LyvraApp() {
         supabase.from("patient_directory").select("*").order("full_name"),
         supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
         supabase
-          .from("message_events")
+          .from("financial_tasks")
           .select("id", { count: "exact", head: true })
-          .eq("kind", "boleto_reminder")
-          .gte("scheduled_for", tomorrow.toISOString())
-          .lt("scheduled_for", afterTomorrow.toISOString())
-          .in("status", ["scheduled", "processing"]),
+          .eq("kind", "payment_reminder")
+          .gte("due_at", tomorrow.toISOString())
+          .lt("due_at", afterTomorrow.toISOString())
+          .in("status", ["pending", "in_progress"]),
       ]);
 
       const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error;
@@ -548,7 +551,7 @@ export function LyvraApp() {
   const userInitials = initials(currentUser.name);
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="app-density">
       <Toaster position="top-right" richColors />
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
@@ -576,12 +579,6 @@ export function LyvraApp() {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-          <SidebarGroup className="mt-3">
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">Aguardando estrutura</SidebarGroupLabel>
-            <SidebarGroupContent><SidebarMenu>
-              <SidebarMenuItem><SidebarMenuButton tooltip="Jornada financeira" className="h-10 rounded-xl px-3 text-white/38"><Sparkles /><span>Jornada financeira</span></SidebarMenuButton></SidebarMenuItem>
-            </SidebarMenu></SidebarGroupContent>
-          </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="p-3">
           <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.045] p-3 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1">
@@ -608,6 +605,7 @@ export function LyvraApp() {
         <main className="min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4] p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
             {view === "dashboard" && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
+            {view === "journey" && <FinancialJourney unit={unit} />}
             {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && <CollectionsJourney unit={unit} />}
             {view === "patients" && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} />}
