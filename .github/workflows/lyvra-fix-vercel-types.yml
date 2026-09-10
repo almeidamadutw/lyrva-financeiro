@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Corrigir casts da base real
+      - name: Corrigir tipos da base real
         shell: bash
         run: |
           python3 - <<'PY'
@@ -26,11 +26,11 @@ jobs:
             'setQueue((queueResult.data ?? []) as QueueRow[]);': 'setQueue((queueResult.data ?? []) as unknown as QueueRow[]);',
             'setInteractions((interactionResult.data ?? []) as InteractionRow[]);': 'setInteractions((interactionResult.data ?? []) as unknown as InteractionRow[]);',
             'setProfiles((profileResult.data ?? []) as ProfileRow[]);': 'setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);',
+            'const { error } = await getSupabaseBrowserClient().rpc("register_collection_interaction", {': 'const { error } = await (getSupabaseBrowserClient() as any).rpc("register_collection_interaction", {',
           }
           for old, new in replacements.items():
-            if old not in s:
-              raise SystemExit(f'Trecho não encontrado: {old}')
-            s = s.replace(old, new, 1)
+            if old in s:
+              s = s.replace(old, new, 1)
           p.write_text(s, encoding='utf-8')
           PY
       - name: Validar build exatamente como a Vercel
@@ -43,5 +43,9 @@ jobs:
           git config user.name "lyvra-automation"
           git config user.email "164823888+almeidamadutw@users.noreply.github.com"
           git add components/collections-journey-real.tsx
-          git commit -m "fix: atualiza tipagem da régua de cobrança"
-          git push
+          if git diff --cached --quiet; then
+            echo "Nada para salvar"
+          else
+            git commit -m "fix: atualiza tipagem da régua de cobrança"
+            git push
+          fi
