@@ -1,0 +1,50 @@
+name: Corrigir descoberta Clinicorp
+
+on:
+  push:
+    paths:
+      - .github/workflows/lyvra-fix-clinicorp-discovery.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ajustar descoberta para contas separadas
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('supabase/functions/clinicorp-sync/index.ts')
+          s = p.read_text(encoding='utf-8')
+
+          old = '''      const subscriberPayload = await clinicorpGet(\n        "/group/list_subscribers",\n        {},\n        credentials,\n      );\n      const subscribers = extractSubscriberCandidates(subscriberPayload);'''
+          new = '''      // Contas separadas do Clinicorp podem não aparecer em /group/list_subscribers,\n      // pois esse endpoint é voltado principalmente a agrupamentos/franquias.\n      // Primeiro consultamos assinante+clínicas e a lista de clínicas da própria credencial.\n      const [subscriberClinicPayload, directBusinessPayload] = await Promise.all([\n        clinicorpGet("/group/list_subscribers_clinics", {}, credentials),\n        clinicorpGet("/business/list", {}, credentials),\n      ]);\n\n      let subscribers = [\n        ...extractSubscriberCandidates(subscriberClinicPayload),\n        ...extractSubscriberCandidates(directBusinessPayload),\n      ].filter((candidate, index, all) => all.findIndex((item) => item.id === candidate.id) === index);\n\n      // Fallback para contas organizadas como grupo/franquia.\n      if (!subscribers.length) {\n        const franchisePayload = await clinicorpGet("/group/list_subscribers", {}, credentials);\n        subscribers = extractSubscriberCandidates(franchisePayload);\n      }'''
+          if old not in s:
+              raise SystemExit('Trecho inicial de descoberta não encontrado')
+          s = s.replace(old, new, 1)
+
+          old2 = '''      const businessPayload = await clinicorpGet(\n        "/business/list",\n        { subscriber_id: subscriber.id },\n        credentials,\n      );\n      const businesses = extractBusinessCandidates(businessPayload);'''
+          new2 = '''      let businesses = [\n        ...extractBusinessCandidates(directBusinessPayload),\n        ...extractBusinessCandidates(subscriberClinicPayload),\n      ].filter((candidate, index, all) => all.findIndex((item) => item.id === candidate.id) === index);\n\n      // Algumas contas só retornam a clínica quando o subscriber_id é enviado.\n      if (!businesses.length) {\n        const scopedBusinessPayload = await clinicorpGet(\n          "/business/list",\n          { subscriber_id: subscriber.id },\n          credentials,\n        );\n        businesses = extractBusinessCandidates(scopedBusinessPayload);\n      }'''
+          if old2 not in s:
+              raise SystemExit('Trecho de clínicas não encontrado')
+          s = s.replace(old2, new2, 1)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Validar código
+        run: |
+          npm ci
+          npx next build
+      - name: Salvar correção
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add supabase/functions/clinicorp-sync/index.ts
+          git commit -m "fix: descobre Clinicorp em contas separadas"
+          git push
