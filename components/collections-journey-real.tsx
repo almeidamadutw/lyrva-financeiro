@@ -206,9 +206,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       ]);
       const firstError = queueResult.error ?? interactionResult.error ?? profileResult.error;
       if (firstError) throw firstError;
-      setQueue((queueResult.data ?? []) as QueueRow[]);
-      setInteractions((interactionResult.data ?? []) as InteractionRow[]);
-      setProfiles((profileResult.data ?? []) as ProfileRow[]);
+      setQueue((queueResult.data ?? []) as unknown as QueueRow[]);
+      setInteractions((interactionResult.data ?? []) as unknown as InteractionRow[]);
+      setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
     } catch (error) {
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
@@ -371,7 +371,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     setSaving(true);
     try {
       const nextActionAt = nextDate ? new Date(`${nextDate}T09:00:00-03:00`).toISOString() : null;
-      const { error } = await getSupabaseBrowserClient().rpc("register_collection_interaction", {
+      const { error } = await (getSupabaseBrowserClient() as any).rpc("register_collection_interaction", {
         p_case_id: patient.id,
         p_outcome: outcome === "no-contact" ? "no_contact" : outcome,
         p_notes: note.trim(),

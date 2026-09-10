@@ -411,7 +411,7 @@ export function LyvraApp() {
         other: "Outro",
       };
 
-      setPatients((patientResult.data ?? []).map((row) => {
+      setPatients(((patientResult.data ?? []) as unknown as any[]).map((row) => {
         if (row.patient_id === null || row.full_name === null || row.unit_name === null) throw new Error("Cadastro de paciente incompleto no banco.");
         return ({
         id: row.patient_id,
@@ -440,7 +440,7 @@ export function LyvraApp() {
         notes: row.notes,
       }); }));
 
-      setObligations((obligationResult.data ?? []).map((row) => {
+      setObligations(((obligationResult.data ?? []) as unknown as any[]).map((row) => {
         if (row.id === null || row.patient_name === null || row.unit_name === null || row.competence === null || row.status === null || row.frequency === null) throw new Error("Obrigação financeira incompleta no banco.");
         const meta = invoiceStatus(row.status);
         const amountValue = Number(row.status === "issued" ? (row.issued_amount || row.expected_amount || 0) : (row.expected_amount || row.paid_amount || 0));
@@ -517,7 +517,7 @@ export function LyvraApp() {
     const supabase = getSupabaseBrowserClient();
     const timestamp = new Date().toISOString();
     const obligation = obligations.find((item) => item.id === id);
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("invoice_obligations")
       .update({ status: "issued", invoice_issued_at: timestamp, completed_at: timestamp, issued_amount: obligation?.amountValue ?? 0 })
       .eq("id", id);
