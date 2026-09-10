@@ -79,6 +79,7 @@ import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
 import { FinancialJourney } from "@/components/financial-journey";
 import { FinancialNotifications } from "@/components/financial-notifications";
+import { DueTaskAlert } from "@/components/due-task-alert";
 import { ManualPatientDialog } from "@/components/manual-patient-dialog";
 import { NfWorkbookImportView } from "@/components/nf-workbook-import";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -580,6 +581,7 @@ export function LyvraApp() {
   return (
     <SidebarProvider className="app-density">
       <Toaster position="top-right" richColors />
+      <DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} />
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
           <div className="flex items-center gap-3 overflow-hidden px-1">
