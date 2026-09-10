@@ -1,0 +1,2 @@
+-- Produção recebeu esta etapa como hotfix da função de cobrança.
+-- A definição final já está consolidada na migration 20260910174223 para novos ambientes.
