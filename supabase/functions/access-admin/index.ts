@@ -21,7 +21,7 @@ Deno.serve(async (request) => {
     const { data: actorUnits, error: actorUnitsError } = await admin.from("profile_units").select("unit_id").eq("user_id", user.id);
     if (actorUnitsError) throw actorUnitsError;
     const allowedIds = new Set<number>((actorUnits ?? []).map(row => row.unit_id));
-    const { data: allUnits, error: unitsError } = await admin.from("units").select("id,code,name,access_recovery_email").eq("is_active", true).order("name");
+    const { data: allUnits, error: unitsError } = await admin.from("units").select("id,code,name,access_recovery_email,collection_assignee_user_id").eq("is_active", true).order("name");
     if (unitsError) throw unitsError;
     const units = actor.role === "gestora" ? (allUnits ?? []).filter(unit => allowedIds.has(unit.id)) : (allUnits ?? []);
     const body = await request.json();
