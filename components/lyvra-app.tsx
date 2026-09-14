@@ -153,6 +153,18 @@ type ClinicorpPaymentSummary = {
   fieldNames: string[];
 };
 
+type ClinicorpMappingSummary = {
+  supportedMethods: string[];
+  eligiblePlans: number;
+  eligiblePatients: number;
+  eligibleInstallments: number;
+  eligibleReceipts: number;
+  skippedInstallments: number;
+  skippedReceipts: number;
+  postedByMethod: { boleto: number; card: number; ignored: number };
+  receivedByMethod: { boleto: number; card: number; ignored: number };
+};
+
 type ClinicorpFunctionResponse = {
   ok: boolean;
   code?: string;
@@ -169,6 +181,7 @@ type ClinicorpFunctionResponse = {
   preview?: {
     posted: ClinicorpPaymentSummary;
     received: ClinicorpPaymentSummary;
+    mapping: ClinicorpMappingSummary;
   };
 };
 
@@ -974,7 +987,7 @@ function IntegrationsView() {
           <div className="mt-6 grid gap-3 rounded-2xl bg-[#fafbf8] p-4 text-sm text-[#65736b] sm:grid-cols-2"><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#929c96]">Assinante</p><p className="mt-1 font-medium text-[#405148]">{connection?.subscriberId ?? "A identificar"}</p></div><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#929c96]">Clínica</p><p className="mt-1 font-medium text-[#405148]">{connection?.businessId ?? "A identificar"}</p></div></div>
           {response?.message && !response.ok && <p className="mt-4 rounded-xl bg-[#fff6ee] px-4 py-3 text-sm text-[#8a5b35]">{response.message}</p>}
           {connection?.lastError && <p className="mt-4 rounded-xl bg-[#fae8e3] px-4 py-3 text-sm text-[#934e3f]">{connection.lastError}</p>}
-          {summary && <div className="mt-4 rounded-2xl border border-[#dfe7df] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#86918a]">Amostra dos últimos 7 dias</p><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><p className="text-[#7c8981]">Parcelas lançadas</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.posted.totalRows}</p></div><div><p className="text-[#7c8981]">Recebimentos</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.received.totalRows}</p></div><div><p className="text-[#7c8981]">Pacientes localizados</p><p className="mt-1 font-semibold text-[#26372e]">{summary.posted.uniquePatients}</p></div><div><p className="text-[#7c8981]">Valor recebido</p><p className="mt-1 font-semibold text-[#26372e]">{moneyValue(summary.received.totalAmount)}</p></div></div></div>}
+          {summary && <div className="mt-4 space-y-3 rounded-2xl border border-[#dfe7df] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#86918a]">Amostra dos últimos 7 dias</p><div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-[#7c8981]">Parcelas lançadas</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.posted.totalRows}</p></div><div><p className="text-[#7c8981]">Recebimentos</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.received.totalRows}</p></div><div><p className="text-[#7c8981]">Pacientes com novos acordos</p><p className="mt-1 font-semibold text-[#26372e]">{summary.posted.uniquePatients}</p></div><div><p className="text-[#7c8981]">Pacientes com baixas</p><p className="mt-1 font-semibold text-[#26372e]">{summary.received.uniquePatients}</p></div><div><p className="text-[#7c8981]">Valor recebido</p><p className="mt-1 font-semibold text-[#26372e]">{moneyValue(summary.received.totalAmount)}</p></div></div><div className="rounded-xl bg-[#edf8f1] px-3 py-3 text-xs leading-5 text-[#326249]"><strong>Mapeamento financeiro pronto:</strong> {summary.mapping.eligibleInstallments} parcelas e {summary.mapping.eligibleReceipts} baixas de boleto/cartão. {summary.mapping.skippedInstallments + summary.mapping.skippedReceipts} movimentações de Pix, dinheiro ou transferência ficarão fora do LYVRA.</div></div>}
           <div className="mt-6 flex flex-col gap-2 sm:flex-row"><Button disabled={busy || !response?.credentialsConfigured} onClick={() => void discover(item.code)} className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Validar conexão</Button><Button disabled={busy || !connected} onClick={() => void readPreview(item.code)} variant="outline" className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <Eye />} Ler últimos 7 dias</Button></div>
           {!response?.credentialsConfigured && <p className="mt-3 text-xs leading-5 text-[#87928c]">Aguardando o Usuário API e o Token API desta assinatura nos segredos protegidos do servidor.</p>}
         </article>;

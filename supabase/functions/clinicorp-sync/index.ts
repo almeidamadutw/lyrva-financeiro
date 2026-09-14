@@ -9,6 +9,7 @@ import {
   extractBusinessCandidates,
   extractSubscriberCandidates,
   selectBusiness,
+  summarizePaymentMapping,
   summarizePayments,
   validateDateRange,
 } from "./clinicorp.mjs";
@@ -403,6 +404,7 @@ Deno.serve(withSupabase({
     ]);
     const posted = summarizePayments(postedPayload);
     const received = summarizePayments(receivedPayload);
+    const mapping = summarizePaymentMapping(postedPayload, receivedPayload);
     const completedAt = new Date().toISOString();
 
     const [{ error: runUpdateError }, { error: connectionUpdateError }] = await Promise.all([
@@ -417,6 +419,7 @@ Deno.serve(withSupabase({
             endpoint: "/payment/list",
             posted,
             received,
+            mapping,
             patient_data_persisted: false,
           },
           completed_at: completedAt,
@@ -437,7 +440,7 @@ Deno.serve(withSupabase({
       action,
       unit: { code: unit.code, name: unit.name },
       dateRange,
-      preview: { posted, received },
+      preview: { posted, received, mapping },
       persisted: false,
     });
   } catch (error) {

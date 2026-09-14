@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   extractSubscriberCandidates,
   selectBusiness,
+  summarizePaymentMapping,
   summarizePayments,
   validateDateRange,
 } from "../supabase/functions/clinicorp-sync/clinicorp.mjs";
@@ -58,4 +59,26 @@ test("limits the diagnostic window to 31 days", () => {
     () => validateDateRange("2026-08-01", "2026-09-30"),
     /no máximo 31 dias/,
   );
+});
+
+test("maps only boleto and card movements for LYVRA", () => {
+  const mapping = summarizePaymentMapping(
+    [
+      { id: 1, PatientId: 10, PaymentHeaderId: 100, PaymentForm: "Boleto" },
+      { id: 2, PatientId: 11, PaymentHeaderId: 101, PaymentForm: "Cartão de Crédito" },
+      { id: 3, PatientId: 12, PaymentHeaderId: 102, PaymentForm: "Pix" },
+    ],
+    [
+      { id: 1, PatientId: 10, PaymentHeaderId: 100, PaymentForm: "Boleto" },
+      { id: 4, PatientId: 13, PaymentHeaderId: 103, PaymentForm: "Dinheiro" },
+    ],
+  );
+
+  assert.equal(mapping.eligiblePlans, 2);
+  assert.equal(mapping.eligiblePatients, 2);
+  assert.equal(mapping.eligibleInstallments, 2);
+  assert.equal(mapping.eligibleReceipts, 1);
+  assert.equal(mapping.skippedInstallments, 1);
+  assert.equal(mapping.skippedReceipts, 1);
+  assert.deepEqual(mapping.postedByMethod, { boleto: 1, card: 1, ignored: 1 });
 });

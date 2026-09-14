@@ -238,6 +238,49 @@ export function summarizePayments(payload) {
   };
 }
 
+export function classifyPaymentMethod(value) {
+  const normalized = normalizeForMatch(value);
+  if (normalized.includes("boleto")) return "boleto";
+  if (normalized.includes("cartao")) return "card";
+  return null;
+}
+
+function countMappedForms(rows) {
+  return rows.reduce((counts, row) => {
+    const method = classifyPaymentMethod(row.PaymentForm) ?? "ignored";
+    counts[method] += 1;
+    return counts;
+  }, { boleto: 0, card: 0, ignored: 0 });
+}
+
+export function summarizePaymentMapping(postedPayload, receivedPayload) {
+  const postedRows = normalizeClinicorpRows(postedPayload);
+  const receivedRows = normalizeClinicorpRows(receivedPayload);
+  const eligiblePosted = postedRows.filter((row) => classifyPaymentMethod(row.PaymentForm));
+  const eligibleReceived = receivedRows.filter((row) => classifyPaymentMethod(row.PaymentForm));
+  const planIds = new Set();
+  const patientIds = new Set();
+
+  for (const row of [...eligiblePosted, ...eligibleReceived]) {
+    const patientId = asSafeString(row.PatientId);
+    const planId = asSafeString(row.PaymentHeaderId ?? row.TreatmentId ?? row.id);
+    if (patientId) patientIds.add(patientId);
+    if (planId) planIds.add(planId);
+  }
+
+  return {
+    supportedMethods: ["boleto", "card"],
+    eligiblePlans: planIds.size,
+    eligiblePatients: patientIds.size,
+    eligibleInstallments: eligiblePosted.length,
+    eligibleReceipts: eligibleReceived.length,
+    skippedInstallments: postedRows.length - eligiblePosted.length,
+    skippedReceipts: receivedRows.length - eligibleReceived.length,
+    postedByMethod: countMappedForms(postedRows),
+    receivedByMethod: countMappedForms(receivedRows),
+  };
+}
+
 export async function clinicorpGet(path, query, credentials, fetchImpl = fetch) {
   const url = new URL(`${CLINICORP_API_BASE}${path}`);
   for (const [key, value] of Object.entries(query)) {
