@@ -1,0 +1,89 @@
+name: Finalizar acesso Daiane cobrança
+
+on:
+  push:
+    paths:
+      - .github/workflows/lyvra-fix-daiane-collections-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ajustar shell do LYVRA
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('components/lyvra-app.tsx')
+          s = path.read_text(encoding='utf-8')
+
+          if 'canManageCollections: boolean;' not in s:
+              s = s.replace(
+                  '''type UserAccount = {\n  id: string;\n  name: string;\n  email: string;\n  role: Role;\n};''',
+                  '''type UserAccount = {\n  id: string;\n  name: string;\n  email: string;\n  role: Role;\n  canManageCollections: boolean;\n};''',
+                  1,
+              )
+
+          if '.eq("collection_assignee_user_id", userId)' not in s:
+              old = '''    if (error || !data?.is_active) return null;\n    return {\n      id: data.user_id,\n      name: data.full_name,\n      email: data.email,\n      role: data.role as Role,\n    };'''
+              new = '''    if (error || !data?.is_active) return null;\n\n    const { data: collectionUnits, error: collectionUnitsError } = await supabase\n      .from("units")\n      .select("id")\n      .eq("collection_assignee_user_id", userId)\n      .eq("is_active", true)\n      .limit(1);\n\n    if (collectionUnitsError) return null;\n\n    return {\n      id: data.user_id,\n      name: data.full_name,\n      email: data.email,\n      role: data.role as Role,\n      canManageCollections: Boolean(collectionUnits?.length),\n    };'''
+              if old not in s:
+                  raise SystemExit('loadProfile não encontrado')
+              s = s.replace(old, new, 1)
+
+          if 'item.id === "collections"' not in s:
+              s = s.replace(
+                  '''  const visibleNavItems = navItems.filter((item) => {\n    if (item.id === "integrations") return currentUser.role === "suporte";''',
+                  '''  const visibleNavItems = navItems.filter((item) => {\n    if (item.id === "collections") return currentUser.canManageCollections || ["gestora", "ceo", "suporte"].includes(currentUser.role);\n    if (item.id === "integrations") return currentUser.role === "suporte";''',
+                  1,
+              )
+
+          if 'onOpenCollections={() => setView("collections")}' not in s:
+              s = s.replace(
+                  '<DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} />',
+                  '<DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} onOpenCollections={() => setView("collections")} />',
+                  1,
+              )
+              s = s.replace(
+                  '<FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => setView("journey")} />',
+                  '<FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => setView("journey")} onOpenCollections={() => setView("collections")} />',
+                  1,
+              )
+
+          old_label = '<p className="truncate text-xs text-white/42">{roleLabels[currentUser.role]}</p>'
+          if old_label in s:
+              s = s.replace(
+                  old_label,
+                  '<p className="truncate text-xs text-white/42">{currentUser.role === "membro" && currentUser.canManageCollections ? "Cobrança" : roleLabels[currentUser.role]}</p>',
+                  1,
+              )
+
+          path.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validar release
+        run: |
+          npm ci
+          npm test
+
+      - name: Salvar alteração
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/lyvra-app.tsx
+          if git diff --cached --quiet; then
+            echo "Shell já estava atualizado."
+            exit 0
+          fi
+          git commit -m "fix: scope collection access to Daiane and leadership"
+          git pull --rebase origin main
+          git push
