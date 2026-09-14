@@ -306,6 +306,7 @@ export type Database = {
           patient_id: number | null
           seen_at: string | null
           status: string
+          task_key: string | null
           title: string
           unit_id: number
           updated_at: string
@@ -325,6 +326,7 @@ export type Database = {
           patient_id?: number | null
           seen_at?: string | null
           status?: string
+          task_key?: string | null
           title: string
           unit_id: number
           updated_at?: string
@@ -344,6 +346,7 @@ export type Database = {
           patient_id?: number | null
           seen_at?: string | null
           status?: string
+          task_key?: string | null
           title?: string
           unit_id?: number
           updated_at?: string
@@ -1689,41 +1692,56 @@ export type Database = {
       }
       units: {
         Row: {
+          access_recovery_email: string | null
           city: string
           clinicorp_business_id: string | null
           code: string
+          collection_assignee_user_id: string | null
+          collection_start_business_days: number
           created_at: string
           id: number
           invoice_cycle_mode: string
           invoice_frequency: string
           is_active: boolean
           name: string
+          payment_reminder_assignee_user_id: string | null
+          payment_reminder_days_before: number
           state: string
           updated_at: string
         }
         Insert: {
+          access_recovery_email?: string | null
           city: string
           clinicorp_business_id?: string | null
           code: string
+          collection_assignee_user_id?: string | null
+          collection_start_business_days?: number
           created_at?: string
           id?: never
           invoice_cycle_mode: string
           invoice_frequency: string
           is_active?: boolean
           name: string
+          payment_reminder_assignee_user_id?: string | null
+          payment_reminder_days_before?: number
           state?: string
           updated_at?: string
         }
         Update: {
+          access_recovery_email?: string | null
           city?: string
           clinicorp_business_id?: string | null
           code?: string
+          collection_assignee_user_id?: string | null
+          collection_start_business_days?: number
           created_at?: string
           id?: never
           invoice_cycle_mode?: string
           invoice_frequency?: string
           is_active?: boolean
           name?: string
+          payment_reminder_assignee_user_id?: string | null
+          payment_reminder_days_before?: number
           state?: string
           updated_at?: string
         }
