@@ -92,6 +92,7 @@ type UserAccount = {
   name: string;
   email: string;
   role: Role;
+  canManageCollections: boolean;
 };
 
 type Patient = {
@@ -390,11 +391,22 @@ export function LyvraApp() {
       .single();
 
     if (error || !data?.is_active) return null;
+
+    const { data: collectionUnits, error: collectionUnitsError } = await supabase
+      .from("units")
+      .select("id")
+      .eq("collection_assignee_user_id", userId)
+      .eq("is_active", true)
+      .limit(1);
+
+    if (collectionUnitsError) return null;
+
     return {
       id: data.user_id,
       name: data.full_name,
       email: data.email,
       role: data.role as Role,
+      canManageCollections: Boolean(collectionUnits?.length),
     };
   }, []);
 
@@ -592,6 +604,7 @@ export function LyvraApp() {
   if (!currentUser) return <LoginScreen onLogin={login} />;
 
   const visibleNavItems = navItems.filter((item) => {
+    if (item.id === "collections") return currentUser.canManageCollections || ["gestora", "ceo", "suporte"].includes(currentUser.role);
     if (item.id === "integrations") return currentUser.role === "suporte";
     if (item.id === "support") return currentUser.role === "suporte";
     if (item.id === "access") return ["gestora", "ceo", "suporte"].includes(currentUser.role);
@@ -602,7 +615,7 @@ export function LyvraApp() {
   return (
     <SidebarProvider className="app-density">
       <Toaster position="top-right" richColors />
-      <DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} />
+      <DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} onOpenCollections={() => setView("collections")} />
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
           <div className="flex items-center gap-3 overflow-hidden px-1">
@@ -633,7 +646,7 @@ export function LyvraApp() {
         <SidebarFooter className="p-3">
           <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.045] p-3 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1">
             <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#00BF63] text-xs font-bold text-[#10221f]">{userInitials}</div>
-            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium text-white">{currentUser.name}</p><p className="truncate text-xs text-white/42">{roleLabels[currentUser.role]}</p></div>
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium text-white">{currentUser.name}</p><p className="truncate text-xs text-white/42">{currentUser.role === "membro" && currentUser.canManageCollections ? "Cobrança" : roleLabels[currentUser.role]}</p></div>
             <Button onClick={logout} variant="ghost" size="icon-sm" className="rounded-lg text-white/35 hover:bg-white/10 hover:text-white" aria-label="Sair do LYVRA"><LogOut /></Button>
           </div>
         </SidebarFooter>
@@ -648,7 +661,7 @@ export function LyvraApp() {
           </div>
           <div className="flex items-center gap-2">
             {unitFilter}
-            <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => setView("journey")} />
+            <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => setView("journey")} onOpenCollections={() => setView("collections")} />
           </div>
         </header>
 
