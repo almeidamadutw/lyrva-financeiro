@@ -1,0 +1,82 @@
+name: Corrigir tipos Supabase para Vercel
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-stale-supabase-types.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Atualizar tipos locais
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('lib/supabase/database.types.ts')
+          s = p.read_text(encoding='utf-8')
+
+          def once(old, new):
+              global s
+              if old in s:
+                  s = s.replace(old, new, 1)
+
+          once(
+              '      units: {\n        Row: {\n          city: string',
+              '      units: {\n        Row: {\n          access_recovery_email: string | null\n          city: string',
+          )
+          once(
+              '          code: string\n          created_at: string\n          id: number\n          invoice_cycle_mode: string\n          invoice_frequency: string\n          is_active: boolean\n          name: string\n          state: string',
+              '          code: string\n          collection_assignee_user_id: string | null\n          collection_start_business_days: number\n          created_at: string\n          id: number\n          invoice_cycle_mode: string\n          invoice_frequency: string\n          is_active: boolean\n          name: string\n          payment_reminder_assignee_user_id: string | null\n          payment_reminder_days_before: number\n          state: string',
+          )
+          once(
+              '        Insert: {\n          city: string',
+              '        Insert: {\n          access_recovery_email?: string | null\n          city: string',
+          )
+          once(
+              '          code: string\n          created_at?: string\n          id?: never\n          invoice_cycle_mode: string\n          invoice_frequency: string\n          is_active?: boolean\n          name: string\n          state?: string',
+              '          code: string\n          collection_assignee_user_id?: string | null\n          collection_start_business_days?: number\n          created_at?: string\n          id?: never\n          invoice_cycle_mode: string\n          invoice_frequency: string\n          is_active?: boolean\n          name: string\n          payment_reminder_assignee_user_id?: string | null\n          payment_reminder_days_before?: number\n          state?: string',
+          )
+          once(
+              '        Update: {\n          city?: string',
+              '        Update: {\n          access_recovery_email?: string | null\n          city?: string',
+          )
+          once(
+              '          code?: string\n          created_at?: string\n          id?: never\n          invoice_cycle_mode?: string\n          invoice_frequency?: string\n          is_active?: boolean\n          name?: string\n          state?: string',
+              '          code?: string\n          collection_assignee_user_id?: string | null\n          collection_start_business_days?: number\n          created_at?: string\n          id?: never\n          invoice_cycle_mode?: string\n          invoice_frequency?: string\n          is_active?: boolean\n          name?: string\n          payment_reminder_assignee_user_id?: string | null\n          payment_reminder_days_before?: number\n          state?: string',
+          )
+
+          # financial_tasks.task_key was added after the original generated file.
+          for marker in [
+              '          status: string\n          title: string',
+              '          status?: string\n          title: string',
+              '          status?: string\n          title?: string',
+          ]:
+              if marker in s:
+                  replacement = marker.replace('          title', '          task_key' + ('?: string | null\n' if 'status?:' in marker else ': string | null\n') + '          title')
+                  s = s.replace(marker, replacement, 1)
+
+          p.write_text(s, encoding='utf-8')
+          PY
+      - run: npm ci
+      - name: Reproduzir build da Vercel
+        run: npx next build
+      - name: Salvar tipos corrigidos
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add lib/supabase/database.types.ts
+          git commit -m "fix: sync Supabase types for collection permissions"
+          git push
