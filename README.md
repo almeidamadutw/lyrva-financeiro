@@ -1,24 +1,63 @@
 # LYVRA
 
-Sistema financeiro interno para acompanhar pagamentos, lembretes pelo WhatsApp e obrigações de emissão de notas fiscais da Casal Odonto.
+Sistema financeiro interno da Casal Odonto para acompanhar pacientes, parcelas, baixas, cobrança, tarefas financeiras e obrigações de nota fiscal das unidades de Sorocaba e Salto de Pirapora.
 
 ## Escopo atual
 
-- painel mensal de pagamentos e notas a emitir;
-- controle mensal para Sorocaba e quadrimestral para Salto de Pirapora;
-- cadastro único de pacientes por planilha Excel ou CSV;
-- preparação para integração com Clinicorp e WhatsApp Business;
-- banco PostgreSQL no Supabase com autenticação, perfis, unidades, RLS e auditoria;
-- importação transacional de pacientes e planos, sem dados financeiros fictícios.
-- ativação e recuperação por código temporário do Supabase Auth, com identidade Aboveframe Suporte e envio SMTP pelo Gmail.
+- dashboard e Jornada Financeira alimentados por tarefas reais do banco;
+- cadastro manual de pacientes e importação de planilha Excel com conferência antes da gravação;
+- separação obrigatória de Sorocaba e Salto de Pirapora por paciente;
+- geração automática de parcelas a partir do plano financeiro;
+- controle de nota fiscal conforme forma de pagamento e cronograma do plano;
+- lembrete D-1 de boleto atribuído à Maria Eduarda do financeiro;
+- régua de cobrança de boleto em aberto iniciada em D+3 dias úteis e atribuída à Daiane;
+- integração Clinicorp separada por unidade para leitura e baixa de pagamentos confirmados;
+- banco PostgreSQL no Supabase com autenticação, perfis, RLS, auditoria e histórico de sincronização;
+- integração com WhatsApp Business preparada como próxima fase, sem disparos automáticos antes da aprovação do roteiro e da configuração oficial da Meta.
 
 ## Regras principais
 
-- o lembrete do boleto é enviado somente um dia antes do vencimento;
-- não há envio no vencimento ou depois dele;
-- pagamento confirmado entra na fila de nota fiscal;
-- pacientes permanecem recorrentes enquanto o tratamento estiver ativo;
-- cobrança em aberto fica registrada no LYVRA, sem novo envio automático.
+- boleto gera um único lembrete D-1;
+- não há lembrete automático no dia do vencimento;
+- se o boleto continuar em aberto, entra na régua da Daiane em D+3 dias úteis;
+- o Clinicorp só considera uma baixa efetiva quando `PaymentConfirmed = X` e existe data de confirmação;
+- a sincronização do Clinicorp não cria pacientes novos: ela vincula e atualiza apenas pacientes, planos e parcelas já existentes no LYVRA;
+- nesta fase, a baixa automática do Clinicorp contempla boleto e cartão; outras formas são ignoradas e registradas no histórico da sincronização;
+- quando uma parcela fica paga, lembretes D-1 e tarefas futuras de cobrança daquela parcela são cancelados;
+- a emissão de NF é controlada pelo LYVRA, mas a emissão fiscal automática ainda não está ativa;
+- não existe prioridade manual entre tarefas: a ordem operacional é determinada pelo prazo.
+
+## Cadastro e importação
+
+A planilha oficial pode conter pacientes de Sorocaba e Salto misturados. O importador lê as abas de cartão e boleto, reconhece `Paciente` como nome e recalcula os campos derivados no LYVRA em vez de confiar em fórmulas do Excel.
+
+Quando a unidade não puder ser identificada de forma segura, o usuário deve selecionar Sorocaba ou Salto de Pirapora na conferência. O botão de importação permanece bloqueado enquanto houver paciente financeiramente válido sem unidade definida.
+
+O CPF é a principal chave de duplicidade quando disponível. O sistema também usa identificadores do Clinicorp e dados do cadastro para impedir duplicações.
+
+## Clinicorp
+
+Cada unidade utiliza sua própria assinatura, Usuário API e Token API, armazenados somente nos segredos da Edge Function:
+
+- `CLINICORP_SOROCABA_USERNAME` e `CLINICORP_SOROCABA_TOKEN`;
+- `CLINICORP_SALTO_USERNAME` e `CLINICORP_SALTO_TOKEN`.
+
+A Edge Function `clinicorp-sync` mantém as duas unidades separadas e possui dois modos operacionais:
+
+1. **Ler últimos 7 dias**: diagnóstico somente leitura, sem persistir pacientes ou pagamentos;
+2. **Sincronizar baixas**: processa pagamentos confirmados de boleto/cartão e tenta vinculá-los somente a registros já existentes no LYVRA.
+
+O vínculo é conservador. Quando paciente ou parcela não possuem correspondência segura, o movimento é ignorado e o motivo fica registrado no histórico técnico, sem criar dados automaticamente.
+
+## Jornada financeira
+
+Fluxo operacional atual do boleto:
+
+1. **D-1**: tarefa de lembrete para Maria Eduarda do financeiro;
+2. **Dia do vencimento**: aguardar baixa, sem cobrança automática;
+3. **D+3 dias úteis**: se ainda estiver em aberto, entrada automática na régua da Daiane;
+4. **Após contato**: acompanhamento até pagamento, negociação ou encerramento;
+5. **Pagamento confirmado**: parcela atualizada e tarefas futuras daquela cobrança canceladas.
 
 ## Desenvolvimento
 
@@ -29,41 +68,28 @@ npm ci
 npm run dev
 ```
 
-Para validar a versão de produção:
+Validação completa:
 
 ```bash
-npm run build
+npm test
 ```
 
 ## Tecnologias
 
-Next.js/Vinext, React, TypeScript, Tailwind CSS e Supabase (PostgreSQL + Auth).
+Next.js/Vinext, React, TypeScript, Tailwind CSS e Supabase (PostgreSQL + Auth + Edge Functions).
 
-Projeto privado da Casal Odonto. Integrações externas permanecem desativadas até a configuração das credenciais oficiais.
-
-As migrações versionadas estão em `supabase/migrations`. O cliente usa somente a chave publicável; todas as permissões de dados são aplicadas pelo RLS.
-
-## Clinicorp
-
-A primeira fase usa a Edge Function `clinicorp-sync` em modo somente leitura. Cada assinatura possui seu próprio Usuário API e Token API, armazenados apenas como segredos do servidor:
-
-- `CLINICORP_SOROCABA_USERNAME` e `CLINICORP_SOROCABA_TOKEN`;
-- `CLINICORP_SALTO_USERNAME` e `CLINICORP_SALTO_TOKEN`.
-
-A função identifica o assinante e a clínica, mantém Sorocaba e Salto de Pirapora separadas e lê uma amostra de pagamentos sem persistir pacientes, parcelas ou baixas. A gravação automática só deve ser ativada depois da validação dos status reais retornados pela API.
+As migrações versionadas ficam em `supabase/migrations`. O navegador usa somente a chave publicável; credenciais do Clinicorp e demais segredos permanecem no servidor.
 
 ## Deploy
 
-- ChatGPT Sites/Cloudflare e Vercel: aplicação conectada ao mesmo projeto oficial do Supabase.
+O `main` é publicado na Vercel. Antes de considerar uma versão pronta, o build/teste precisa passar e o deployment deve estar verde.
 
 ## Acessos e e-mails
 
-- Login individual: `nome@lyvrafinanceiro`. O servidor resolve a caixa responsável; o e-mail pessoal de suporte não fica no código do navegador.
-- `/ativar-acesso`: convite (OTP tipo `invite`); `/nova-senha`: recuperação (OTP tipo `recovery`). Códigos de 8 dígitos, validade de 900 segundos.
-- Remetente: `suporteaboveframe@gmail.com`. A senha de app permanece exclusivamente nas configurações SMTP do Supabase.
-- Modelos versionados em `supabase/templates/invite.html` e `recovery.html`; aplicar no painel Auth após publicar as rotas na Vercel.
-- `access-auth`: login, solicitação ao endereço já cadastrado e validação de código/senha, com limite de tentativas. Não retorna a sessão usada para alterar a senha.
-- `access-admin`: exige sessão ativa e perfil de liderança/suporte. Gestoras gerenciam somente membros de suas unidades; a conta de suporte só pode ser recuperada pelo próprio dono.
-- A recuperação pública envia apenas ao endereço previamente cadastrado. Não altera perfis, destinatários nem unidades.
-- `tests/access-policy.test.mjs` cobre normalização de login e fronteiras de permissão.
-- Toda publicação deve ser enviada ao GitHub e confirmada como pronta na Vercel. Um push isolado não comprova o deploy.
+- Login individual: `nome@lyvrafinanceiro`;
+- `/ativar-acesso`: primeiro acesso por código temporário;
+- `/nova-senha`: recuperação por código temporário;
+- as caixas de recuperação das unidades permanecem separadas das identidades internas dos usuários;
+- `access-auth` controla login, recuperação e limite de tentativas;
+- `access-admin` controla criação de acesso, unidades liberadas e recuperação administrativa conforme função;
+- senha e token nunca são exibidos nem armazenados no código do navegador.
