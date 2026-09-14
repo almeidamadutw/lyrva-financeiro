@@ -25,7 +25,10 @@ type Props = {
   userId: string;
   unit: string;
   onOpenJourney: () => void;
+  onOpenCollections: () => void;
 };
+
+const collectionKinds = new Set(["collection_call", "payment_promise"]);
 
 const taskLabels: Record<string, string> = {
   payment_reminder: "Lembrete D-1",
@@ -53,7 +56,7 @@ function unitMatches(filter: string, code: string) {
     || (filter === "salto" && code === "salto_de_pirapora");
 }
 
-export function FinancialNotifications({ userId, unit, onOpenJourney }: Props) {
+export function FinancialNotifications({ userId, unit, onOpenJourney, onOpenCollections }: Props) {
   const [open, setOpen] = useState(false);
   const [tasks, setTasks] = useState<FinancialTask[]>([]);
   const [units, setUnits] = useState<UnitRow[]>([]);
@@ -102,6 +105,13 @@ export function FinancialNotifications({ userId, unit, onOpenJourney }: Props) {
 
   const now = Date.now();
   const attention = visible.filter((task) => new Date(task.due_at).getTime() <= now).length;
+  const onlyCollection = visible.length > 0 && visible.every((task) => collectionKinds.has(task.kind));
+
+  const openTask = (task: FinancialTask) => {
+    setOpen(false);
+    if (collectionKinds.has(task.kind)) onOpenCollections();
+    else onOpenJourney();
+  };
 
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
@@ -121,16 +131,17 @@ export function FinancialNotifications({ userId, unit, onOpenJourney }: Props) {
           const due = new Date(task.due_at).getTime();
           const overdue = due <= now;
           const taskUnit = unitById.get(task.unit_id);
-          return <div key={task.id} className="px-5 py-4">
+          const collectionTask = collectionKinds.has(task.kind);
+          return <button key={task.id} type="button" onClick={() => openTask(task)} className="block w-full px-5 py-4 text-left transition hover:bg-[#fafbf8]">
             <div className="flex items-start gap-3">
-              <div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl ${task.kind === "collection_call" ? "bg-[#fff1d8] text-[#946614]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{task.kind === "collection_call" ? <WalletCards className="size-4" /> : <CalendarClock className="size-4" />}</div>
+              <div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl ${collectionTask ? "bg-[#fff1d8] text-[#946614]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{collectionTask ? <WalletCards className="size-4" /> : <CalendarClock className="size-4" />}</div>
               <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-[#526259]">{taskLabels[task.kind] ?? "Tarefa"}</span>{overdue && <Badge className="h-5 bg-[#fae8e3] px-1.5 text-[10px] text-[#9b4d3e] hover:bg-[#fae8e3]">Agora</Badge>}</div><p className="mt-1 text-sm font-medium text-[#24352c]">{task.title}</p>{task.description && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#7b8881]">{task.description}</p>}<p className="mt-2 text-[11px] font-medium text-[#86928b]">{formatDue(task.due_at)}{taskUnit?.name ? ` • ${taskUnit.name}` : ""}</p></div>
             </div>
-          </div>;
+          </button>;
         })}
       </div> : <div className="grid min-h-44 place-items-center px-6 text-center"><div><CheckCircle2 className="mx-auto size-8 text-[#83a88d]" /><p className="mt-3 text-sm font-medium text-[#425249]">Nada pendente para você</p><p className="mt-1 text-xs leading-5 text-[#87928c]">Quando uma tarefa entrar no seu prazo, ela aparece aqui.</p></div></div>}
 
-      <div className="border-t border-[#e7ebe7] bg-[#fafbf8] p-3"><Button variant="ghost" className="h-10 w-full justify-center rounded-xl text-[#32634e]" onClick={() => { setOpen(false); onOpenJourney(); }}>Abrir Jornada financeira</Button></div>
+      <div className="border-t border-[#e7ebe7] bg-[#fafbf8] p-3"><Button variant="ghost" className="h-10 w-full justify-center rounded-xl text-[#32634e]" onClick={() => { setOpen(false); if (onlyCollection) onOpenCollections(); else onOpenJourney(); }}>{onlyCollection ? "Abrir régua de cobrança" : "Abrir Jornada financeira"}</Button></div>
     </PopoverContent>
   </Popover>;
 }
