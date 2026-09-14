@@ -4,7 +4,7 @@
 create schema if not exists private;
 
 comment on schema private is
-  'Funções internas da LYRVA. Este schema não deve ser exposto pela Data API.';
+  'Funções internas da LYVRA. Este schema não deve ser exposto pela Data API.';
 
 create table public.units (
   id bigint generated always as identity primary key,
@@ -993,7 +993,7 @@ begin
   if new.email is null then
     raise exception using
       errcode = 'P0001',
-      message = 'A conta precisa possuir um e-mail autorizado pela LYRVA.';
+      message = 'A conta precisa possuir um e-mail autorizado pela LYVRA.';
   end if;
 
   select invitation.*
@@ -1007,7 +1007,7 @@ begin
   if not found then
     raise exception using
       errcode = 'P0001',
-      message = 'Este e-mail não possui um convite ativo para a LYRVA.';
+      message = 'Este e-mail não possui um convite ativo para a LYVRA.';
   end if;
 
   select min(invitation_unit.unit_id)
@@ -1602,7 +1602,7 @@ from public.staff_invitations invitation
 cross join public.units unit;
 
 comment on table public.financial_tasks is
-  'Lembretes operacionais da equipe. A LYRVA não usa nível de prioridade; a ordem é definida pelo vencimento.';
+  'Lembretes operacionais da equipe. A LYVRA não usa nível de prioridade; a ordem é definida pelo vencimento.';
 
 comment on column public.units.invoice_cycle_mode is
   'Salto permanece pending_definition até a equipe confirmar se o quadrimestre é fixo ou individual por paciente.';

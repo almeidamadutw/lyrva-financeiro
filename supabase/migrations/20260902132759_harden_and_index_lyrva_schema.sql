@@ -1,6 +1,6 @@
 -- Migração 20260902132759 — correções dos advisors após a migração inicial.
 
--- A função foi criada fora da migração da LYRVA. Ela é administrativa e não
+-- A função foi criada fora da migração da LYVRA. Ela é administrativa e não
 -- deve ficar exposta pela Data API a visitantes ou usuários autenticados.
 revoke execute on function public.rls_auto_enable() from public, anon, authenticated;
 

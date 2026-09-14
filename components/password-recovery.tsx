@@ -51,14 +51,14 @@ function AccessCodePage({ recovery = false }: { recovery?: boolean }) {
     finally { setBusy(false); }
   };
   return <main className="aboveframe-access"><div className="aboveframe-access-wrap">
-    <header className="aboveframe-top"><AboveframeBrand /><span className="aboveframe-product">LYRVA <span>FINANCEIRO</span></span></header>
+    <header className="aboveframe-top"><AboveframeBrand /><span className="aboveframe-product">LYVRA <span>FINANCEIRO</span></span></header>
     <section className="aboveframe-panel" aria-labelledby="access-title">
       <aside className="aboveframe-welcome"><span className="aboveframe-label">{recovery ? "CUIDANDO DO SEU ACESSO" : "UM NOVO COMEÇO"}</span>
-        <h1 id="access-title">{recovery ? <>Vamos abrir<br /> essa porta<br /><em>de novo.</em></> : <>Seu lugar na<br /> LYRVA está<br /><em>pronto.</em></>}</h1>
+        <h1 id="access-title">{recovery ? <>Vamos abrir<br /> essa porta<br /><em>de novo.</em></> : <>Seu lugar na<br /> LYVRA está<br /><em>pronto.</em></>}</h1>
         <p>{recovery ? "Recupere seu acesso e continue de onde parou. A Aboveframe está com você." : "Boas-vindas a uma rotina com mais clareza e organização. É bom ter você por aqui."}</p>
         <div className="aboveframe-trust"><ShieldCheck aria-hidden="true" /><span>Seu acesso é pessoal.<br />Seu código, de uso único.</span></div>
       </aside>
-      <div className="aboveframe-form">{complete ? <div className="aboveframe-success" role="status"><span><Check /></span><p className="aboveframe-label">TUDO CERTO</p><h2>{recovery ? "Senha atualizada." : "Agora é com você."}</h2><p>Seu acesso está pronto. Entre com seu usuário e a senha que acabou de criar.</p><Button asChild className="aboveframe-submit"><Link href="/">Entrar na LYRVA <ArrowRight /></Link></Button></div> : <>
+      <div className="aboveframe-form">{complete ? <div className="aboveframe-success" role="status"><span><Check /></span><p className="aboveframe-label">TUDO CERTO</p><h2>{recovery ? "Senha atualizada." : "Agora é com você."}</h2><p>Seu acesso está pronto. Entre com seu usuário e a senha que acabou de criar.</p><Button asChild className="aboveframe-submit"><Link href="/">Entrar na LYVRA <ArrowRight /></Link></Button></div> : <>
         <div className="aboveframe-step">01 <span /> {recovery ? "RECUPERAR ACESSO" : "ATIVAR ACESSO"}</div>
         <h2>{recovery ? "Uma nova senha." : "Vamos começar?"}</h2>
         <p className="aboveframe-intro">{recovery ? "Solicite um código ou use o que já recebeu no e-mail responsável pelo seu acesso." : "Informe seu usuário e o código do convite. Depois, escolha uma senha só sua."}</p>

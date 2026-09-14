@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
+import { LYVRA_ICON_DATA_URL } from "@/lib/lyvra-icon-data";
 import "./globals.css";
 
 export const metadata: Metadata = {

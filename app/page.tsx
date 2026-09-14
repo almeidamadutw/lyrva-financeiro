@@ -1,4 +1,4 @@
-import { LyvraApp } from "@/components/lyrva-app";
+import { LyvraApp } from "@/components/lyvra-app";
 
 export default function Home() {
   return <LyvraApp />;

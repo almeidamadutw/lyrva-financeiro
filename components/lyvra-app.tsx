@@ -75,7 +75,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Toaster } from "@/components/ui/sonner";
-import { LYVRA_ICON_DATA_URL } from "@/lib/lyrva-icon-data";
+import { LYVRA_ICON_DATA_URL } from "@/lib/lyvra-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
 import { FinancialJourney } from "@/components/financial-journey";
 import { FinancialNotifications } from "@/components/financial-notifications";
@@ -323,7 +323,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
           <form className="mt-8 space-y-5" onSubmit={submit}>
             <div className="space-y-2">
               <Label htmlFor="login-username" className="text-sm font-semibold text-[#33473c]">Usuário</Label>
-              <Input id="login-username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase())} placeholder="Ex.: daiane@lyvrafinanceiro" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 shadow-none focus-visible:ring-[#00BF63]" required />
+              <Input id="login-username" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value.toLowerCase())} placeholder="usuario@lyvrafinanceiro" className="h-12 rounded-xl border-[#dce4de] bg-[#fbfcfa] px-4 shadow-none focus-visible:ring-[#00BF63]" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="login-password" className="text-sm font-semibold text-[#33473c]">Senha</Label>
@@ -592,7 +592,7 @@ export function LyvraApp() {
             </div>
           </div>
         </SidebarHeader>
-        <SidebarContent className="px-2">
+        <SidebarContent className="sidebar-scroll-clean px-2">
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">Operação</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -650,7 +650,7 @@ export function LyvraApp() {
 }
 
 function UnitSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label="Selecionar unidade" className="h-10 w-10 rounded-xl border-[#dfe5df] bg-white px-0 text-[#25362e] shadow-none sm:min-w-39 sm:px-3"><Building2 className="size-4 text-[#6f7b74]" /><span className="hidden sm:inline"><SelectValue /></span></SelectTrigger><SelectContent><SelectItem value="todas">Todas as unidades</SelectItem><SelectItem value="sorocaba">Sorocaba</SelectItem><SelectItem value="salto">Salto de Pirapora</SelectItem></SelectContent></Select>;
+  return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label="Selecionar unidade" className="h-10 w-10 rounded-xl border-[#dfe5df] bg-white px-0 text-[#25362e] shadow-none sm:w-[190px] sm:px-3"><Building2 className="size-4 shrink-0 text-[#6f7b74]" /><span className="hidden min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left sm:inline"><SelectValue /></span></SelectTrigger><SelectContent><SelectItem value="todas">Todas as unidades</SelectItem><SelectItem value="sorocaba">Sorocaba</SelectItem><SelectItem value="salto">Salto de Pirapora</SelectItem></SelectContent></Select>;
 }
 
 function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: string; obligations: InvoiceObligation[]; reminderCount: number; goTo: (view: View) => void }) {
@@ -869,7 +869,7 @@ function AccessManagementView({ currentRole }: { currentRole: Role }) {
     <section className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">NOVO ACESSO</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Cadastrar integrante</h2><p className="mt-2 text-sm leading-6 text-[#718078]">O convite será enviado para a caixa responsável escolhida abaixo.</p>
       <form className="mt-6 space-y-4" onSubmit={createAccess}>
         <div className="space-y-2"><Label htmlFor="access-name">Nome completo</Label><Input id="access-name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nome da pessoa" required /></div>
-        <div className="space-y-2"><Label htmlFor="access-username">Usuário de entrada</Label><div className="flex items-center rounded-md border border-input bg-transparent"><Input id="access-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/@lyvrafinanceiro$/, "").replace(/[^a-z0-9._-]/g, "").slice(0, 40))} placeholder="daiane" minLength={3} required className="border-0 shadow-none focus-visible:ring-0" /><span className="pr-3 text-sm text-[#718078]">@lyvrafinanceiro</span></div><p className="text-xs text-[#87928c]">Este será o login da pessoa no sistema.</p></div>
+        <div className="space-y-2"><Label htmlFor="access-username">Usuário de entrada</Label><div className="flex items-center rounded-md border border-input bg-transparent"><Input id="access-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/@lyvrafinanceiro$/, "").replace(/[^a-z0-9._-]/g, "").slice(0, 40))} placeholder="usuario" minLength={3} required className="border-0 shadow-none focus-visible:ring-0" /><span className="pr-3 text-sm text-[#718078]">@lyvrafinanceiro</span></div><p className="text-xs text-[#87928c]">Este será o login da pessoa no sistema.</p></div>
         <div className="space-y-2"><Label>Tipo de acesso</Label><Select value={role} onValueChange={(value) => setRole(value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="membro">Membro</SelectItem>{currentRole !== "gestora" && <><SelectItem value="gestora">Gestora</SelectItem><SelectItem value="ceo">CEO</SelectItem></>}</SelectContent></Select></div>
         <div className="space-y-2"><Label>Caixa de recuperação</Label><Select value={recoveryUnit} onValueChange={setRecoveryUnit}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{units.map((unit) => <SelectItem key={unit.code} value={unit.code}>{unit.name}</SelectItem>)}</SelectContent></Select></div>
         <div className="space-y-2"><Label>Unidades liberadas</Label><div className="grid gap-2 sm:grid-cols-2">{units.map((unit) => <Button key={unit.code} type="button" variant={selectedUnits.includes(unit.code) ? "default" : "outline"} onClick={() => toggleUnit(unit.code)} className="justify-start rounded-xl">{selectedUnits.includes(unit.code) && <Check />}{unit.name}</Button>)}</div></div>
@@ -883,7 +883,7 @@ function AccessManagementView({ currentRole }: { currentRole: Role }) {
 }
 
 function SupportView({ goTo }: { goTo: (view: View) => void }) {
-  return <div className="space-y-5"><section className="hero-panel overflow-hidden rounded-[28px] px-6 py-7 text-white md:px-8"><AboveframeBrand /><p className="eyebrow mt-6 text-[#7deeb4]">SUPORTE LYRVA</p><h2 className="font-display mt-3 text-3xl font-medium">Controle técnico em um só lugar.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Gerencie acessos, envie recuperação de senha, acompanhe as conexões das unidades.</p></section><section className="grid gap-4 md:grid-cols-2"><button type="button" onClick={() => goTo("access")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><UserCog className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Usuários e senhas</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Criar acessos, escolher unidades e solicitar recuperação pela caixa central.</p></button><button type="button" onClick={() => goTo("integrations")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><Link2 className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Integrações</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Validar Clinicorp por unidade e acompanhar a saúde das conexões.</p></button></section></div>;
+  return <div className="space-y-5"><section className="hero-panel overflow-hidden rounded-[28px] px-6 py-7 text-white md:px-8"><AboveframeBrand /><p className="eyebrow mt-6 text-[#7deeb4]">SUPORTE LYVRA</p><h2 className="font-display mt-3 text-3xl font-medium">Controle técnico em um só lugar.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Gerencie acessos, envie recuperação de senha, acompanhe as conexões das unidades.</p></section><section className="grid gap-4 md:grid-cols-2"><button type="button" onClick={() => goTo("access")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><UserCog className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Usuários e senhas</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Criar acessos, escolher unidades e solicitar recuperação pela caixa central.</p></button><button type="button" onClick={() => goTo("integrations")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><Link2 className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Integrações</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Validar Clinicorp por unidade e acompanhar a saúde das conexões.</p></button></section></div>;
 }
 
 function IntegrationsView() {
