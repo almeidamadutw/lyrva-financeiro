@@ -1,0 +1,50 @@
+name: Mostrar permissão da régua
+
+on:
+  push:
+    paths:
+      - .github/workflows/lyvra-show-collection-permission.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Mostrar permissão da cobrança
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('components/lyvra-app.tsx')
+          s = path.read_text(encoding='utf-8')
+          s = s.replace(
+            'type AccessUnit = { id: number; code: string; name: string; access_recovery_email: string };',
+            'type AccessUnit = { id: number; code: string; name: string; access_recovery_email: string; collection_assignee_user_id?: string | null };',
+            1,
+          )
+          s = s.replace('<TableHead>Função</TableHead>', '<TableHead>Função e permissões</TableHead>', 1)
+          old = '<TableCell><Badge variant="secondary">{roleLabels[profile.role]}</Badge></TableCell>'
+          new = '<TableCell><div className="flex flex-wrap gap-1.5"><Badge variant="secondary">{roleLabels[profile.role]}</Badge>{units.some((unit) => unit.collection_assignee_user_id === profile.user_id) && <Badge className="bg-[#fff1d8] text-[#8a6118] hover:bg-[#fff1d8]">Régua de cobrança</Badge>}</div></TableCell>'
+          if old not in s:
+            raise SystemExit('Célula de função não encontrada')
+          s = s.replace(old, new, 1)
+          path.write_text(s, encoding='utf-8')
+          PY
+      - name: Validar release
+        run: |
+          npm ci
+          npm test
+      - name: Salvar alteração
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/lyvra-app.tsx
+          git commit -m "fix: show collection permission in access management"
+          git pull --rebase origin main
+          git push
