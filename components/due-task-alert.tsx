@@ -8,6 +8,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 type Props = {
   userId: string;
   onOpenJourney: () => void;
+  onOpenCollections: () => void;
 };
 
 type DueTask = {
@@ -15,9 +16,12 @@ type DueTask = {
   title: string;
   description: string | null;
   due_at: string;
+  kind: string;
 };
 
-export function DueTaskAlert({ userId, onOpenJourney }: Props) {
+const collectionKinds = new Set(["collection_call", "payment_promise"]);
+
+export function DueTaskAlert({ userId, onOpenJourney, onOpenCollections }: Props) {
   const running = useRef(false);
 
   const check = useCallback(async () => {
@@ -27,7 +31,7 @@ export function DueTaskAlert({ userId, onOpenJourney }: Props) {
       const supabase = getSupabaseBrowserClient();
       const { data, error } = await supabase
         .from("financial_tasks")
-        .select("id,title,description,due_at")
+        .select("id,title,description,due_at,kind")
         .eq("assigned_to", userId)
         .in("status", ["pending", "in_progress"])
         .lte("due_at", new Date().toISOString())
@@ -48,21 +52,22 @@ export function DueTaskAlert({ userId, onOpenJourney }: Props) {
 
       const first = unseen[0];
       const extra = unseen.length - 1;
+      const collectionTask = collectionKinds.has(first.kind);
       toast.warning(extra > 0 ? `${unseen.length} tarefas pedem atenção agora` : first.title, {
         id: `lyvra-due-${first.id}`,
         description: extra > 0
           ? `${first.title}${first.description ? ` • ${first.description}` : ""} e mais ${extra}.`
-          : first.description ?? "Esta tarefa chegou ao horário definido na Jornada financeira.",
+          : first.description ?? (collectionTask ? "Esta cobrança chegou ao horário definido na régua." : "Esta tarefa chegou ao horário definido na Jornada financeira."),
         duration: Infinity,
         action: {
-          label: "Abrir jornada",
-          onClick: onOpenJourney,
+          label: collectionTask ? "Abrir cobrança" : "Abrir jornada",
+          onClick: collectionTask ? onOpenCollections : onOpenJourney,
         },
       });
     } finally {
       running.current = false;
     }
-  }, [onOpenJourney, userId]);
+  }, [onOpenCollections, onOpenJourney, userId]);
 
   useEffect(() => {
     void check();
