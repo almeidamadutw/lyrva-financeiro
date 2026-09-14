@@ -1,0 +1,96 @@
+name: Ligar baixas Clinicorp
+
+on:
+  push:
+    paths:
+      - .github/workflows/lyvra-wire-clinicorp-settlements.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ligar sincronização segura
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          edge = Path('supabase/functions/clinicorp-sync/index.ts')
+          s = edge.read_text(encoding='utf-8')
+
+          s = s.replace(
+            '  summarizePaymentMapping,\n  summarizePayments,\n  validateDateRange,',
+            '  summarizePaymentMapping,\n  summarizePayments,\n  normalizeClinicorpRows,\n  validateDateRange,',
+            1,
+          )
+          s = s.replace(
+            'type Action = "status" | "discover" | "preview_payments";',
+            'type Action = "status" | "discover" | "preview_payments" | "sync_existing_payments";',
+            1,
+          )
+          s = s.replace(
+            'if (!action || !["status", "discover", "preview_payments"].includes(action)) {',
+            'if (!action || !["status", "discover", "preview_payments", "sync_existing_payments"].includes(action)) {',
+            1,
+          )
+          s = s.replace(
+            '      entity_type: "payments_preview",',
+            '      entity_type: action === "sync_existing_payments" ? "payments_sync" : "payments_preview",',
+            1,
+          )
+          s = s.replace(
+            '        mode: "read_only_preview",\n        date_range: dateRange,\n        patient_data_persisted: false,',
+            '        mode: action === "sync_existing_payments" ? "existing_only" : "read_only_preview",\n        date_range: dateRange,\n        patient_data_persisted: false,\n        creates_new_patients: false,',
+            1,
+          )
+
+          anchor = '    const posted = summarizePayments(postedPayload);\n'
+          if anchor not in s:
+            raise SystemExit('Âncora de leitura Clinicorp não encontrada')
+
+          sync_block = '''    if (action === "sync_existing_payments") {\n      const receivedRows = normalizeClinicorpRows(receivedPayload);\n      const { data: appliedRows, error: applyError } = await ctx.supabaseAdmin.rpc(\n        "apply_clinicorp_confirmed_payments",\n        {\n          p_unit_id: unit.id,\n          p_rows: receivedRows,\n          p_sync_run_id: syncRun.id,\n        },\n      );\n      if (applyError) throw new Error(`A leitura do Clinicorp terminou, mas as baixas não puderam ser aplicadas: ${applyError.message}`);\n\n      const applied = appliedRows?.[0] as {\n        processed_count?: number;\n        created_count?: number;\n        updated_count?: number;\n        skipped_count?: number;\n        failed_count?: number;\n        paid_installments?: number;\n      } | undefined;\n      if (!applied) throw new Error("O Clinicorp respondeu, mas o resumo da sincronização não foi retornado.");\n\n      const result = {\n        processedCount: Number(applied.processed_count ?? 0),\n        createdCount: Number(applied.created_count ?? 0),\n        updatedCount: Number(applied.updated_count ?? 0),\n        skippedCount: Number(applied.skipped_count ?? 0),\n        failedCount: Number(applied.failed_count ?? 0),\n        paidInstallments: Number(applied.paid_installments ?? 0),\n      };\n      const completedAt = new Date().toISOString();\n      const runStatus = result.failedCount > 0 ? "partial" : "completed";\n\n      const [{ error: runUpdateError }, { error: connectionUpdateError }] = await Promise.all([\n        ctx.supabaseAdmin\n          .from("sync_runs")\n          .update({\n            status: runStatus,\n            processed_count: result.processedCount,\n            created_count: result.createdCount,\n            updated_count: result.updatedCount,\n            skipped_count: result.skippedCount,\n            error_count: result.failedCount,\n            metadata: {\n              mode: "existing_only",\n              date_range: dateRange,\n              endpoint: "/payment/list",\n              creates_new_patients: false,\n              requires_payment_confirmed: true,\n              supported_methods: ["boleto", "card"],\n              result,\n            },\n            completed_at: completedAt,\n          })\n          .eq("id", syncRun.id),\n        ctx.supabaseAdmin\n          .from("integration_connections")\n          .update({ status: "connected", last_sync_at: completedAt, last_error: null })\n          .eq("id", existingConnection.id),\n      ]);\n\n      if (runUpdateError || connectionUpdateError) {\n        throw new Error("As baixas foram processadas, mas o histórico da sincronização não pôde ser atualizado.");\n      }\n\n      return json({\n        ok: true,\n        action,\n        unit: { code: unit.code, name: unit.name },\n        dateRange,\n        sync: result,\n        persisted: true,\n        createsNewPatients: false,\n      });\n    }\n\n'''
+          s = s.replace(anchor, sync_block + anchor, 1)
+          edge.write_text(s, encoding='utf-8')
+
+          app = Path('components/lyvra-app.tsx')
+          s = app.read_text(encoding='utf-8')
+
+          preview_type = '''  preview?: {\n    posted: ClinicorpPaymentSummary;\n    received: ClinicorpPaymentSummary;\n    mapping: ClinicorpMappingSummary;\n  };\n'''
+          if preview_type not in s:
+            raise SystemExit('Tipo de preview não encontrado')
+          s = s.replace(preview_type, preview_type + '''  sync?: {\n    processedCount: number;\n    createdCount: number;\n    updatedCount: number;\n    skippedCount: number;\n    failedCount: number;\n    paidInstallments: number;\n  };\n''', 1)
+
+          secondary = '  const secondaryCards = [\n'
+          if secondary not in s:
+            raise SystemExit('Âncora da tela de integrações não encontrada')
+          sync_fn = '''  const syncPayments = async (unitCode: ClinicorpUnitCode) => {\n    const to = new Date();\n    const from = new Date(to);\n    from.setDate(from.getDate() - 6);\n    setBusyUnit(unitCode);\n    try {\n      const result = await invokeClinicorp({\n        action: "sync_existing_payments",\n        unitCode,\n        from: saoPauloDate(from),\n        to: saoPauloDate(to),\n      });\n      const sync = result.sync;\n      if (!sync) throw new Error("O resumo da sincronização não foi retornado.");\n\n      const changed = sync.createdCount + sync.updatedCount;\n      if (changed > 0) {\n        toast.success("Baixas sincronizadas", {\n          description: `${sync.paidInstallments} parcela(s) ficaram pagas • ${changed} pagamento(s) vinculados.`,\n        });\n      } else {\n        toast.info("Nenhuma baixa vinculada", {\n          description: sync.skippedCount\n            ? `${sync.skippedCount} movimento(s) foram ignorados porque ainda não há correspondência segura no LYVRA.`\n            : "Não há novas baixas confirmadas para os pacientes cadastrados.",\n        });\n      }\n      if (sync.failedCount) {\n        toast.warning(`${sync.failedCount} movimento(s) precisam de revisão técnica.`);\n      }\n      await loadStatuses();\n    } catch (error) {\n      toast.error("As baixas não foram sincronizadas", { description: await clinicorpErrorMessage(error) });\n    } finally {\n      setBusyUnit(null);\n    }\n  };\n\n'''
+          s = s.replace(secondary, sync_fn + secondary, 1)
+
+          old_buttons = '''<div className="mt-6 flex flex-col gap-2 sm:flex-row"><Button disabled={busy || !response?.credentialsConfigured} onClick={() => void discover(item.code)} className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Validar conexão</Button><Button disabled={busy || !connected} onClick={() => void readPreview(item.code)} variant="outline" className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <Eye />} Ler últimos 7 dias</Button></div>'''
+          new_buttons = '''<div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap"><Button disabled={busy || !response?.credentialsConfigured} onClick={() => void discover(item.code)} className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Validar conexão</Button><Button disabled={busy || !connected} onClick={() => void readPreview(item.code)} variant="outline" className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <Eye />} Ler últimos 7 dias</Button><Button disabled={busy || !connected} onClick={() => void syncPayments(item.code)} variant="outline" className="h-10 rounded-xl border-[#b8dbc7] bg-[#edf8f1] text-[#27704b] hover:bg-[#e2f4e9]">{busy ? <LoaderCircle className="animate-spin" /> : <CheckCircle2 />} Sincronizar baixas</Button></div><p className="mt-3 text-xs leading-5 text-[#718078]">A sincronização só atualiza pacientes e parcelas já cadastrados no LYVRA. Nenhum paciente novo é criado pelo Clinicorp, e a baixa só é aplicada quando o pagamento está confirmado.</p>'''
+          if old_buttons not in s:
+            raise SystemExit('Bloco de botões Clinicorp não encontrado')
+          s = s.replace(old_buttons, new_buttons, 1)
+          app.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validar release
+        run: |
+          npm ci
+          npm test
+
+      - name: Salvar alterações
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/lyvra-app.tsx supabase/functions/clinicorp-sync/index.ts
+          git commit -m "feat: sync confirmed Clinicorp settlements safely"
+          git push
