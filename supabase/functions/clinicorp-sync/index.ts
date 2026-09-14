@@ -11,11 +11,12 @@ import {
   selectBusiness,
   summarizePaymentMapping,
   summarizePayments,
+  normalizeClinicorpRows,
   validateDateRange,
 } from "./clinicorp.mjs";
 
 type UnitCode = keyof typeof CLINICORP_SECRET_NAMES;
-type Action = "status" | "discover" | "preview_payments";
+type Action = "status" | "discover" | "preview_payments" | "sync_existing_payments";
 
 type RequestBody = {
   action?: Action;
@@ -97,7 +98,7 @@ Deno.serve(withSupabase({
 
   const action = body.action;
   const unitCode = body.unitCode;
-  if (!action || !["status", "discover", "preview_payments"].includes(action)) {
+  if (!action || !["status", "discover", "preview_payments", "sync_existing_payments"].includes(action)) {
     return json({ ok: false, code: "invalid_action", message: "Ação de integração inválida." }, 400);
   }
   if (!unitCode || !(unitCode in CLINICORP_SECRET_NAMES)) {
@@ -374,13 +375,14 @@ Deno.serve(withSupabase({
     .insert({
       connection_id: existingConnection.id,
       unit_id: unit.id,
-      entity_type: "payments_preview",
+      entity_type: action === "sync_existing_payments" ? "payments_sync" : "payments_preview",
       direction: "inbound",
       status: "running",
       metadata: {
-        mode: "read_only_preview",
+        mode: action === "sync_existing_payments" ? "existing_only" : "read_only_preview",
         date_range: dateRange,
         patient_data_persisted: false,
+        creates_new_patients: false,
       },
     })
     .select("id")
@@ -402,6 +404,82 @@ Deno.serve(withSupabase({
       clinicorpGet("/payment/list", { ...commonQuery, date_type: "postDate" }, credentials),
       clinicorpGet("/payment/list", commonQuery, credentials),
     ]);
+    if (action === "sync_existing_payments") {
+      const receivedRows = normalizeClinicorpRows(receivedPayload);
+      const { data: appliedRows, error: applyError } = await ctx.supabaseAdmin.rpc(
+        "apply_clinicorp_confirmed_payments",
+        {
+          p_unit_id: unit.id,
+          p_rows: receivedRows,
+          p_sync_run_id: syncRun.id,
+        },
+      );
+      if (applyError) throw new Error(`A leitura do Clinicorp terminou, mas as baixas não puderam ser aplicadas: ${applyError.message}`);
+
+      const applied = appliedRows?.[0] as {
+        processed_count?: number;
+        created_count?: number;
+        updated_count?: number;
+        skipped_count?: number;
+        failed_count?: number;
+        paid_installments?: number;
+      } | undefined;
+      if (!applied) throw new Error("O Clinicorp respondeu, mas o resumo da sincronização não foi retornado.");
+
+      const result = {
+        processedCount: Number(applied.processed_count ?? 0),
+        createdCount: Number(applied.created_count ?? 0),
+        updatedCount: Number(applied.updated_count ?? 0),
+        skippedCount: Number(applied.skipped_count ?? 0),
+        failedCount: Number(applied.failed_count ?? 0),
+        paidInstallments: Number(applied.paid_installments ?? 0),
+      };
+      const completedAt = new Date().toISOString();
+      const runStatus = result.failedCount > 0 ? "partial" : "completed";
+
+      const [{ error: runUpdateError }, { error: connectionUpdateError }] = await Promise.all([
+        ctx.supabaseAdmin
+          .from("sync_runs")
+          .update({
+            status: runStatus,
+            processed_count: result.processedCount,
+            created_count: result.createdCount,
+            updated_count: result.updatedCount,
+            skipped_count: result.skippedCount,
+            error_count: result.failedCount,
+            metadata: {
+              mode: "existing_only",
+              date_range: dateRange,
+              endpoint: "/payment/list",
+              creates_new_patients: false,
+              requires_payment_confirmed: true,
+              supported_methods: ["boleto", "card"],
+              result,
+            },
+            completed_at: completedAt,
+          })
+          .eq("id", syncRun.id),
+        ctx.supabaseAdmin
+          .from("integration_connections")
+          .update({ status: "connected", last_sync_at: completedAt, last_error: null })
+          .eq("id", existingConnection.id),
+      ]);
+
+      if (runUpdateError || connectionUpdateError) {
+        throw new Error("As baixas foram processadas, mas o histórico da sincronização não pôde ser atualizado.");
+      }
+
+      return json({
+        ok: true,
+        action,
+        unit: { code: unit.code, name: unit.name },
+        dateRange,
+        sync: result,
+        persisted: true,
+        createsNewPatients: false,
+      });
+    }
+
     const posted = summarizePayments(postedPayload);
     const received = summarizePayments(receivedPayload);
     const mapping = summarizePaymentMapping(postedPayload, receivedPayload);
