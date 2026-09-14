@@ -191,9 +191,10 @@ Deno.serve(withSupabase({
 
   if (action === "discover") {
     try {
+      console.log(JSON.stringify({ event: "clinicorp_discovery_started", unitCode }));
       // Contas separadas do Clinicorp podem não aparecer em /group/list_subscribers,
       // pois esse endpoint é voltado principalmente a agrupamentos/franquias.
-      // Primeiro consultamos assinante+clínicas e a lista de clínicas da própria credencial.
+      // Primeiro consultamos assinante+clínicas da própria credencial.
       const subscriberClinicPayload = await clinicorpGet(
         "/group/list_subscribers_clinics",
         {},
@@ -207,44 +208,90 @@ Deno.serve(withSupabase({
         const franchisePayload = await clinicorpGet("/group/list_subscribers", {}, credentials);
         subscribers = extractSubscriberCandidates(franchisePayload);
       }
+
+      // Em uma assinatura independente, o Clinicorp pode não devolver registros
+      // nos endpoints de grupo. Nessa modalidade, o Usuário API é o ID de acesso
+      // ao sistema e pode ser validado diretamente como subscriber_id.
+      let businessesFromCredential: ReturnType<typeof extractBusinessCandidates> = [];
+      let usedCredentialAsSubscriber = false;
+      if (!subscribers.length) {
+        try {
+          const directBusinessPayload = await clinicorpGet(
+            "/business/list",
+            { subscriber_id: credentials.username },
+            credentials,
+          );
+          businessesFromCredential = extractBusinessCandidates(directBusinessPayload);
+          if (businessesFromCredential.length) {
+            subscribers = [{ id: credentials.username, name: unit.name }];
+            usedCredentialAsSubscriber = true;
+          }
+        } catch (error) {
+          if (!(error instanceof ClinicorpApiError && error.status === 400)) throw error;
+        }
+      }
+
+      console.log(JSON.stringify({
+        event: "clinicorp_subscriber_candidates",
+        unitCode,
+        count: subscribers.length,
+        usedCredentialAsSubscriber,
+      }));
+
       const requestedSubscriberId = body.subscriberId?.trim();
-      const subscriber = requestedSubscriberId
-        ? subscribers.find((candidate) => candidate.id === requestedSubscriberId)
-        : subscribers.length === 1 ? subscribers[0] : null;
+      const subscriber = selectBusiness(subscribers, unit.name, requestedSubscriberId ?? null);
 
       if (!subscriber) {
-        await ctx.supabaseAdmin.from("integration_connections").update({ status: "pending" }).eq("id", connectionId);
+        const message = subscribers.length
+          ? "O acesso retornou mais de um assinante e nenhum correspondeu a esta unidade."
+          : "A credencial foi aceita, mas o Clinicorp não retornou um assinante nem uma clínica para este Usuário API.";
+        await ctx.supabaseAdmin
+          .from("integration_connections")
+          .update({ status: "error", last_error: message })
+          .eq("id", connectionId);
         return json({
           ok: false,
           code: "subscriber_selection_required",
-          message: subscribers.length
-            ? "O acesso retornou mais de um assinante. Selecione o correto."
-            : "O acesso não retornou nenhum assinante.",
+          message,
           subscribers,
         }, 409);
       }
 
       // /business/list exige subscriber_id. Consultá-lo antes de descobrir o
       // assinante faz o Clinicorp responder HTTP 400 e interrompe toda a etapa.
-      const scopedBusinessPayload = await clinicorpGet(
-        "/business/list",
-        { subscriber_id: subscriber.id },
-        credentials,
-      );
+      const scopedBusinessPayload = businessesFromCredential.length
+        ? null
+        : await clinicorpGet(
+          "/business/list",
+          { subscriber_id: subscriber.id },
+          credentials,
+        );
       const businesses = [
-        ...extractBusinessCandidates(scopedBusinessPayload),
+        ...businessesFromCredential,
+        ...(scopedBusinessPayload ? extractBusinessCandidates(scopedBusinessPayload) : []),
         ...extractBusinessCandidates(subscriberClinicPayload),
       ].filter((candidate, index, all) => all.findIndex((item) => item.id === candidate.id) === index);
       const business = selectBusiness(businesses, unit.name, body.businessId?.trim() ?? null);
 
+      console.log(JSON.stringify({
+        event: "clinicorp_business_candidates",
+        unitCode,
+        count: businesses.length,
+        matched: Boolean(business),
+      }));
+
       if (!business) {
-        await ctx.supabaseAdmin.from("integration_connections").update({ status: "pending" }).eq("id", connectionId);
+        const message = businesses.length
+          ? "O acesso retornou mais de uma clínica e nenhuma correspondeu a esta unidade."
+          : "O assinante foi identificado, mas não retornou nenhuma clínica.";
+        await ctx.supabaseAdmin
+          .from("integration_connections")
+          .update({ status: "error", last_error: message })
+          .eq("id", connectionId);
         return json({
           ok: false,
           code: "business_selection_required",
-          message: businesses.length
-            ? "O acesso retornou mais de uma clínica. Selecione a unidade correta."
-            : "O assinante não retornou nenhuma clínica.",
+          message,
           businesses,
         }, 409);
       }
@@ -279,6 +326,8 @@ Deno.serve(withSupabase({
       if (unitUpdateError || connectionUpdateError) {
         throw new Error("A conexão foi validada, mas não pôde ser registrada.");
       }
+
+      console.log(JSON.stringify({ event: "clinicorp_discovery_completed", unitCode }));
 
       return json({
         ok: true,

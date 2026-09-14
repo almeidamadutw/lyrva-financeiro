@@ -32,4 +32,6 @@ test("passes subscriber_id before asking Clinicorp for businesses", async () => 
 
   assert.doesNotMatch(integration, /clinicorpGet\("\/business\/list", \{\}, credentials\)/);
   assert.match(integration, /"\/business\/list",\s*\{ subscriber_id: subscriber\.id \}/);
+  assert.match(integration, /\{ subscriber_id: credentials\.username \}/);
+  assert.match(integration, /usedCredentialAsSubscriber/);
 });
