@@ -71,6 +71,26 @@ export function NfWorkbookImportView({ onImported }: Props) {
     )));
   };
 
+  const setVisibleRowsUnit = (unit: string) => {
+    const visibleKeys = new Set(
+      visibleRows
+        .filter((row) => !financialBlocking(row))
+        .map((row) => `${row.sourceSheet}::${row.sourceRow}`),
+    );
+    if (!visibleKeys.size) {
+      toast.info("Nenhum paciente visível pode receber unidade.");
+      return;
+    }
+    setRows((current) => current.map((item) => (
+      visibleKeys.has(`${item.sourceSheet}::${item.sourceRow}`)
+        ? { ...item, unit }
+        : item
+    )));
+    toast.success(`Unidade definida para ${visibleKeys.size} registro(s).`, {
+      description: unit,
+    });
+  };
+
   const submit = async () => {
     if (!ready.length) return;
     if (unitPending.length) {
@@ -95,7 +115,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
       let errors = 0;
       type ImportResult = { imported_count?: number; updated_count?: number; error_count?: number };
       type RpcResponse = { data: ImportResult[] | null; error: { message: string } | null };
-      const callDirectoryRpc = (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<RpcResponse>);
+      const callDirectoryRpc = supabase.rpc.bind(supabase) as unknown as (fn: string, args: Record<string, unknown>) => Promise<RpcResponse>;
 
       for (const [unitCode, unitRows] of grouped) {
         const planRows = unitRows.filter((row) => row.recordType === "financial_plan");
@@ -207,6 +227,15 @@ export function NfWorkbookImportView({ onImported }: Props) {
                 <SelectItem value="missing">Sem unidade {unitPending.length ? `(${unitPending.length})` : ""}</SelectItem>
                 <SelectItem value="Sorocaba">Sorocaba</SelectItem>
                 <SelectItem value="Salto de Pirapora">Salto de Pirapora</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value="" onValueChange={(value) => setVisibleRowsUnit(value)}>
+              <SelectTrigger className="h-10 w-full rounded-xl border-[#b8dbc7] bg-[#edf8f1] text-[#27704b] sm:w-48">
+                <SelectValue placeholder="Definir unidade" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Sorocaba">Aplicar Sorocaba</SelectItem>
+                <SelectItem value="Salto de Pirapora">Aplicar Salto de Pirapora</SelectItem>
               </SelectContent>
             </Select>
           </div>

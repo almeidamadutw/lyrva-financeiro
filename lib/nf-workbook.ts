@@ -220,7 +220,6 @@ function parseDetailedSheet(
 
     const importKey = [
       "nf-workbook",
-      normalize(sheetName),
       normalize(name),
       startDate ?? "semdata",
       paymentMethod === "Boleto" ? "boleto" : "card",
