@@ -177,7 +177,7 @@ function paymentMethodFromSheet(sheetName: string): "Cartão" | "Boleto" | null 
 }
 
 function detailedSourceSystem(paymentMethod: "Cartão" | "Boleto") {
-  return paymentMethod === "Boleto" ? "Clinicorp" as const : "Saúde Service" as const;
+  return "Clinicorp" as const;
 }
 
 function parseDetailedSheet(
@@ -261,7 +261,7 @@ function parseDetailedSheet(
 }
 
 function legacyNote(
-  sourceSystem: "Clinicorp" | "Saúde Service",
+  sourceSystem: "Clinicorp",
   paymentMethod: "Cartão" | "Boleto",
   row: unknown[],
   offset: number,
@@ -272,7 +272,7 @@ function legacyNote(
   const received = text(row[offset + 1]);
   const sent = text(row[offset + 4]);
   const pieces = [
-    `Origem: ${sourceSystem} / ${paymentMethod}`,
+    `Conciliação: ${sourceSystem} / ${paymentMethod}`,
     `Planilha: ${sheetName}`,
     amount !== null ? `Valor da NF no período: R$ ${amount.toFixed(2).replace(".", ",")}` : "",
     status ? `Status: ${status}` : "",
@@ -288,7 +288,7 @@ function parseLegacyBlock(
   headerIndex: number,
   offset: number,
   paymentMethod: "Cartão" | "Boleto",
-  sourceSystem: "Clinicorp" | "Saúde Service",
+  sourceSystem: "Clinicorp",
   fileUnit: string,
 ) {
   const parsed: ParsedNfPatient[] = [];
@@ -400,13 +400,13 @@ export async function parseNfWorkbook(file: File): Promise<NfWorkbookParseResult
     let foundLegacyBlock = false;
 
     // Regra operacional da planilha usada pela equipe:
-    // esquerda = Boleto puxado do Clinicorp; direita = Cartão puxado da Saúde Service.
+    // esquerda = Boleto; direita = Cartão. As baixas dos dois são conciliadas pelo Clinicorp.
     if (isPatientHeader(header[0]) && normalize(header[2]).includes("valordanota")) {
       parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 0, "Boleto", "Clinicorp", fileUnit));
       foundLegacyBlock = true;
     }
     if (isPatientHeader(header[7]) && normalize(header[9]).includes("valordanota")) {
-      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 7, "Cartão", "Saúde Service", fileUnit));
+      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 7, "Cartão", "Clinicorp", fileUnit));
       foundLegacyBlock = true;
     }
 

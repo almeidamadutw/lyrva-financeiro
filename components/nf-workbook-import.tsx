@@ -180,7 +180,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
       <div className="surface-card rounded-[24px] p-5 md:p-7">
         <p className="eyebrow">PLANILHA OFICIAL</p>
         <h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Importar controle de NF</h2>
-        <p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA lê o modelo detalhado e também a planilha mensal com dois blocos lado a lado. No modelo mensal, esquerda é Boleto/Clinicorp e direita é Cartão/Saúde Service.</p>
+        <p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA lê o modelo detalhado e também a planilha mensal com dois blocos lado a lado. No modelo mensal, esquerda é Boleto e direita é Cartão. As baixas dos dois são conciliadas pelo Clinicorp.</p>
 
         <div className="mt-6 rounded-2xl border border-[#f0dcae] bg-[#fff9eb] p-4">
           <p className="text-sm font-semibold text-[#6e5723]">Planilha com Sorocaba e Salto misturados</p>
@@ -196,8 +196,9 @@ export function NfWorkbookImportView({ onImported }: Props) {
 
         <div className="mt-5 space-y-3 text-sm text-[#65736b]">
           <CheckLine>Reconhece “Paciente” como nome</CheckLine>
-          <CheckLine>Modelo mensal: esquerda = Boleto/Clinicorp</CheckLine>
-          <CheckLine>Modelo mensal: direita = Cartão/Saúde Service</CheckLine>
+          <CheckLine>Modelo mensal: esquerda = Boleto</CheckLine>
+          <CheckLine>Modelo mensal: direita = Cartão</CheckLine>
+          <CheckLine>Clinicorp confirma baixas de boleto e cartão</CheckLine>
           <CheckLine>Separa Sorocaba e Salto antes de salvar</CheckLine>
           <CheckLine>Recalcula término, parcelas anuais e NF</CheckLine>
           <CheckLine>Preserva status e emissão real já preenchidos</CheckLine>
