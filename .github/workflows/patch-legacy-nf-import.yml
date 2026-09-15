@@ -1,0 +1,112 @@
+name: Ajustar importador mensal
+
+on:
+  push:
+    paths:
+      - .github/workflows/patch-legacy-nf-import.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Ajustar interface do importador
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('components/nf-workbook-import.tsx')
+          s = path.read_text(encoding='utf-8')
+
+          s = s.replace(
+              'const financialBlocking = (row: ParsedNfPatient) => !row.name || !row.startDate || !row.installments || row.installmentAmountCents <= 0;\n',
+              'const financialBlocking = (row: ParsedNfPatient) => row.recordType === "patient_directory"\n  ? !row.name\n  : !row.name || !row.startDate || !row.installments || row.installmentAmountCents <= 0;\n',
+              1,
+          )
+
+          s = s.replace(
+              '  const [onlyMissingUnit, setOnlyMissingUnit] = useState(false);\n',
+              '  const [unitFilter, setUnitFilter] = useState<"all" | "missing" | "Sorocaba" | "Salto de Pirapora">("all");\n',
+              1,
+          )
+          s = s.replace(
+              '    setOnlyMissingUnit(false);\n',
+              '    setUnitFilter("all");\n',
+              1,
+          )
+
+          old_visible = '''  const visibleRows = useMemo(() => {\n    const term = search.trim().toLowerCase();\n    return rows\n      .filter((row) => {\n        if (onlyMissingUnit && (row.unit || financialBlocking(row))) return false;\n        if (!term) return true;\n        return `${row.name} ${row.sourceSheet} ${row.paymentMethod}`.toLowerCase().includes(term);\n      })\n      .sort((a, b) => Number(Boolean(a.unit)) - Number(Boolean(b.unit)));\n  }, [rows, search, onlyMissingUnit]);\n'''
+          new_visible = '''  const visibleRows = useMemo(() => {\n    const term = search.trim().toLowerCase();\n    return rows\n      .filter((row) => {\n        if (unitFilter === "missing" && row.unit) return false;\n        if (unitFilter === "Sorocaba" && row.unit !== "Sorocaba") return false;\n        if (unitFilter === "Salto de Pirapora" && row.unit !== "Salto de Pirapora") return false;\n        if (!term) return true;\n        return `${row.name} ${row.sourceSheet} ${row.paymentMethod} ${row.sourceSystem ?? ""}`.toLowerCase().includes(term);\n      })\n      .sort((a, b) => Number(Boolean(a.unit)) - Number(Boolean(b.unit)));\n  }, [rows, search, unitFilter]);\n'''
+          if old_visible not in s:
+              raise SystemExit('Bloco visibleRows não encontrado')
+          s = s.replace(old_visible, new_visible, 1)
+
+          old_submit = '''      let created = 0;\n      let updated = 0;\n      let errors = 0;\n      for (const [unitCode, unitRows] of grouped) {\n        const { data, error } = await supabase.rpc("import_patients", {\n          p_unit_code: unitCode,\n          p_file_name: fileName || "planilha NF",\n          p_rows: JSON.parse(JSON.stringify(unitRows)),\n        });\n        if (error) throw error;\n        const result = data?.[0];\n        created += result?.imported_count ?? 0;\n        updated += result?.updated_count ?? 0;\n        errors += result?.error_count ?? 0;\n      }\n'''
+          new_submit = '''      let created = 0;\n      let updated = 0;\n      let errors = 0;\n      type ImportResult = { imported_count?: number; updated_count?: number; error_count?: number };\n      type RpcResponse = { data: ImportResult[] | null; error: { message: string } | null };\n      const callDirectoryRpc = (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<RpcResponse>);\n\n      for (const [unitCode, unitRows] of grouped) {\n        const planRows = unitRows.filter((row) => row.recordType === "financial_plan");\n        const directoryRows = unitRows.filter((row) => row.recordType === "patient_directory");\n\n        if (planRows.length) {\n          const { data, error } = await supabase.rpc("import_patients", {\n            p_unit_code: unitCode,\n            p_file_name: fileName || "planilha NF",\n            p_rows: JSON.parse(JSON.stringify(planRows)),\n          });\n          if (error) throw error;\n          const result = data?.[0];\n          created += result?.imported_count ?? 0;\n          updated += result?.updated_count ?? 0;\n          errors += result?.error_count ?? 0;\n        }\n\n        if (directoryRows.length) {\n          const { data, error } = await callDirectoryRpc("import_patient_directory", {\n            p_unit_code: unitCode,\n            p_file_name: fileName || "planilha mensal de NF",\n            p_rows: JSON.parse(JSON.stringify(directoryRows)),\n          });\n          if (error) throw new Error(error.message);\n          const result = data?.[0];\n          created += result?.imported_count ?? 0;\n          updated += result?.updated_count ?? 0;\n          errors += result?.error_count ?? 0;\n        }\n      }\n'''
+          if old_submit not in s:
+              raise SystemExit('Bloco submit não encontrado')
+          s = s.replace(old_submit, new_submit, 1)
+
+          s = s.replace(
+              'O LYVRA lê CARTÃO, BOLETO e variações dessas abas. As colunas calculadas da planilha são ignoradas e refeitas pelo sistema.',
+              'O LYVRA lê o modelo detalhado e também a planilha mensal com dois blocos lado a lado. No modelo mensal, esquerda é Boleto/Clinicorp e direita é Cartão/Saúde Service.',
+              1,
+          )
+          s = s.replace(
+              '<CheckLine>Forma de pagamento pela aba</CheckLine>',
+              '<CheckLine>Modelo mensal: esquerda = Boleto/Clinicorp</CheckLine>\n          <CheckLine>Modelo mensal: direita = Cartão/Saúde Service</CheckLine>',
+              1,
+          )
+
+          old_filter = '''            <Button type="button" variant={onlyMissingUnit ? "default" : "outline"} onClick={() => setOnlyMissingUnit((current) => !current)} className="h-10 rounded-xl">\n              Sem unidade {unitPending.length ? `(${unitPending.length})` : ""}\n            </Button>\n'''
+          new_filter = '''            <Select value={unitFilter} onValueChange={(value) => setUnitFilter(value as typeof unitFilter)}>\n              <SelectTrigger className="h-10 w-full rounded-xl sm:w-52">\n                <SelectValue placeholder="Filtrar unidade" />\n              </SelectTrigger>\n              <SelectContent>\n                <SelectItem value="all">Todas as unidades</SelectItem>\n                <SelectItem value="missing">Sem unidade {unitPending.length ? `(${unitPending.length})` : ""}</SelectItem>\n                <SelectItem value="Sorocaba">Sorocaba</SelectItem>\n                <SelectItem value="Salto de Pirapora">Salto de Pirapora</SelectItem>\n              </SelectContent>\n            </Select>\n'''
+          if old_filter not in s:
+              raise SystemExit('Filtro antigo não encontrado')
+          s = s.replace(old_filter, new_filter, 1)
+
+          s = s.replace(
+              '<TableCell>{row.paymentMethod}</TableCell>',
+              '<TableCell><p>{row.paymentMethod}</p>{row.sourceSystem && <p className="mt-1 text-xs text-[#87928c]">{row.sourceSystem}</p>}</TableCell>',
+              1,
+          )
+
+          old_plan = '''                  <TableCell><p>{row.installments ? `${row.installments}x de ${money(row.installmentAmountCents)}` : "Incompleto"}</p><p className="mt-1 text-xs text-[#87928c]">{row.startDate || "Sem data inicial"}</p></TableCell>\n'''
+          new_plan = '''                  <TableCell>{row.recordType === "patient_directory"\n                    ? <><p className="font-medium text-[#405148]">Cadastro de paciente</p><p className="mt-1 text-xs text-[#87928c]">Sem inventar parcelamento</p></>\n                    : <><p>{row.installments ? `${row.installments}x de ${money(row.installmentAmountCents)}` : "Incompleto"}</p><p className="mt-1 text-xs text-[#87928c]">{row.startDate || "Sem data inicial"}</p></>}</TableCell>\n'''
+          if old_plan not in s:
+              raise SystemExit('Célula de plano não encontrada')
+          s = s.replace(old_plan, new_plan, 1)
+
+          s = s.replace(
+              'description: `${created} novo(s), ${updated} atualizado(s). As parcelas e NFs foram recalculadas pelo LYVRA.`,',
+              'description: `${created} novo(s), ${updated} atualizado(s). Planos detalhados geram parcelas/NFs; planilhas mensais cadastram o paciente sem inventar parcelamento.`,',
+              1,
+          )
+
+          path.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validar
+        run: |
+          npm ci
+          npm test
+          npx next build
+
+      - name: Salvar alteração
+        shell: bash
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/nf-workbook-import.tsx
+          git commit -m "feat: support legacy side-by-side NF workbook"
+          git push
