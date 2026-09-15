@@ -1,0 +1,34 @@
+name: Finalizar correção do importador
+
+on:
+  push:
+    paths:
+      - .github/workflows/finalize-import-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Aplicar patch
+        run: python3 .github/scripts/fix_import_dedupe_unit.py
+      - name: Validar Next e integração Clinicorp
+        run: |
+          npm ci
+          node --test tests/clinicorp-sync.test.mjs
+          npx next build
+      - name: Publicar correção
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/nf-workbook-import.tsx lib/nf-workbook.ts
+          git commit -m "fix: importação sem duplicar e unidade em lote"
+          git push
