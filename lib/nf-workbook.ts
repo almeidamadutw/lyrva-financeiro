@@ -6,7 +6,9 @@ export type ParsedNfPatient = {
   clinicorpId?: string | null;
   unit: string;
   treatment?: string | null;
-  paymentMethod: "Cartão" | "Boleto";
+  paymentMethod: "Cartão" | "Boleto" | "Misto";
+  sourceSystem?: "Clinicorp" | "Saúde Service" | "Misto" | "Planilha";
+  recordType: "financial_plan" | "patient_directory";
   planAmountCents: number;
   installmentAmountCents: number;
   installments: number | null;
@@ -109,10 +111,18 @@ function splitNameAnnotation(rawName: string) {
   const match = rawName.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
   if (!match) return { name: rawName.trim(), annotation: "" };
   const annotation = match[2].trim();
-  const looksOperational = /(nf|nota|nome|pai|mae|mãe|marido|esposa|irma|irmã|irmao|irmão|pix|emitir)/i.test(annotation);
+  const looksOperational = /(nf|nota|nome|pai|mae|mãe|marido|esposa|irma|irmã|irmao|irmão|pix|emitir|m[eê]s)/i.test(annotation);
   return looksOperational
     ? { name: match[1].trim(), annotation }
     : { name: rawName.trim(), annotation: "" };
+}
+
+function cleanLegacyPatientName(rawName: string) {
+  let value = text(rawName);
+  value = value.replace(/\s+\b(?:pago|paga|quitado|quitada)\b\s*$/i, "");
+  value = value.replace(/\s+\d+\s*\/\s*\d+\s*(?:\([^)]*\))?\s*$/i, "");
+  value = value.replace(/\s*\(\s*\d+\s*\/\s*\d+\s*\)\s*$/i, "");
+  return splitNameAnnotation(value).name.trim();
 }
 
 function detectUnit(note: string) {
@@ -131,11 +141,30 @@ function shouldDisableInvoice(note: string) {
   return /(n[aã]o\s+emitir\s+(nota|nf)|sem\s+nota\s+fiscal)/i.test(note);
 }
 
-function findHeaderIndex(rows: unknown[][]) {
+function isPatientHeader(value: unknown) {
+  const key = normalize(value);
+  return key === "paciente" || key === "nome" || key === "nomecompleto" || key === "coluna1";
+}
+
+function findDetailedHeaderIndex(rows: unknown[][]) {
   const max = Math.min(rows.length, 12);
   for (let index = 0; index < max; index += 1) {
-    const first = normalize(rows[index]?.[0]);
-    if (first === "paciente" || first === "nome" || first === "nomecompleto") return index;
+    const row = rows[index] ?? [];
+    if (!isPatientHeader(row[0])) continue;
+    const second = normalize(row[1]);
+    const third = normalize(row[2]);
+    if ((second.includes("datadavenda") || second.includes("1parcela")) && third.includes("parcel")) return index;
+  }
+  return -1;
+}
+
+function findLegacyHeaderIndex(rows: unknown[][]) {
+  const max = Math.min(rows.length, 12);
+  for (let index = 0; index < max; index += 1) {
+    const row = rows[index] ?? [];
+    const left = isPatientHeader(row[0]) && normalize(row[2]).includes("valordanota");
+    const right = isPatientHeader(row[7]) && normalize(row[9]).includes("valordanota");
+    if (left || right) return index;
   }
   return -1;
 }
@@ -147,102 +176,263 @@ function paymentMethodFromSheet(sheetName: string): "Cartão" | "Boleto" | null 
   return null;
 }
 
+function detailedSourceSystem(paymentMethod: "Cartão" | "Boleto") {
+  return paymentMethod === "Boleto" ? "Clinicorp" as const : "Saúde Service" as const;
+}
+
+function parseDetailedSheet(
+  sheetName: string,
+  rows: unknown[][],
+  headerIndex: number,
+  paymentMethod: "Cartão" | "Boleto",
+  fileUnit: string,
+  XLSX: typeof import("xlsx"),
+) {
+  const parsed: ParsedNfPatient[] = [];
+
+  for (let index = headerIndex + 1; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
+    const rawName = text(row[0]);
+    if (!rawName) continue;
+
+    const { name, annotation } = splitNameAnnotation(rawName);
+    const observation = text(row[13]);
+    const combinedNote = [annotation, observation].filter(Boolean).join(" • ");
+    const startDate = parseDate(row[1], XLSX);
+    const installments = positiveInteger(row[2]);
+    const installmentValue = moneyNumber(row[3]);
+    const installmentAmountCents = installmentValue ? Math.round(installmentValue * 100) : 0;
+    const planAmountCents = installments && installmentAmountCents ? installments * installmentAmountCents : 0;
+    const endDate = startDate && installments ? addMonthsClamped(startDate, installments - 1) : null;
+    const invoiceStatus = text(row[10]).toUpperCase() || null;
+    const invoiceIssuedDate = parseDate(row[11], XLSX);
+    const issuedValue = moneyNumber(row[12]);
+    const invoiceIssuedAmountCents = issuedValue !== null ? Math.round(issuedValue * 100) : null;
+    const invoiceDisabled = shouldDisableInvoice(combinedNote);
+    const unit = detectUnit(combinedNote) || fileUnit;
+    const review: string[] = [];
+
+    if (!startDate) review.push("data da 1ª parcela");
+    if (!installments) review.push("nº de parcelas");
+    if (!installmentAmountCents) review.push("valor da parcela");
+    if (/\bpix\b/i.test(combinedNote)) review.push("forma de pagamento indicada como PIX na observação");
+    if (invoiceStatus === "EMITIDA" && !invoiceIssuedDate) review.push("NF marcada como emitida sem data real");
+
+    const importKey = [
+      "nf-workbook",
+      normalize(sheetName),
+      normalize(name),
+      startDate ?? "semdata",
+      paymentMethod === "Boleto" ? "boleto" : "card",
+      String(installments ?? 0),
+      String(installmentAmountCents),
+    ].join("|");
+
+    parsed.push({
+      name,
+      unit,
+      paymentMethod,
+      sourceSystem: detailedSourceSystem(paymentMethod),
+      recordType: "financial_plan",
+      planAmountCents,
+      installmentAmountCents,
+      installments,
+      startDate,
+      endDate,
+      dueDay: startDate ? Number(startDate.slice(-2)) : null,
+      taxReceiptIr: !invoiceDisabled,
+      invoiceScheduleMode: "automatic",
+      invoiceIntervalMonths: 12,
+      invoiceStatus,
+      invoiceIssuedDate,
+      invoiceIssuedAmountCents,
+      invoiceRecipientName: recipientFromNote(combinedNote),
+      invoiceDisabled,
+      invoiceDisabledReason: invoiceDisabled ? combinedNote || "Não emitir nota fiscal" : null,
+      notes: combinedNote || null,
+      source: "import",
+      importKey,
+      sourceSheet: sheetName,
+      sourceRow: index + 1,
+      reviewReason: review.length ? review.join(", ") : null,
+    });
+  }
+
+  return parsed;
+}
+
+function legacyNote(
+  sourceSystem: "Clinicorp" | "Saúde Service",
+  paymentMethod: "Cartão" | "Boleto",
+  row: unknown[],
+  offset: number,
+  sheetName: string,
+) {
+  const amount = moneyNumber(row[offset + 2]);
+  const status = text(row[offset + 3]);
+  const received = text(row[offset + 1]);
+  const sent = text(row[offset + 4]);
+  const pieces = [
+    `Origem: ${sourceSystem} / ${paymentMethod}`,
+    `Planilha: ${sheetName}`,
+    amount !== null ? `Valor da NF no período: R$ ${amount.toFixed(2).replace(".", ",")}` : "",
+    status ? `Status: ${status}` : "",
+    received ? `Recebimento: ${received}` : "",
+    sent ? `Envio: ${sent}` : "",
+  ].filter(Boolean);
+  return pieces.join(" • ");
+}
+
+function parseLegacyBlock(
+  sheetName: string,
+  rows: unknown[][],
+  headerIndex: number,
+  offset: number,
+  paymentMethod: "Cartão" | "Boleto",
+  sourceSystem: "Clinicorp" | "Saúde Service",
+  fileUnit: string,
+) {
+  const parsed: ParsedNfPatient[] = [];
+
+  for (let index = headerIndex + 1; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
+    const rawName = text(row[offset]);
+    if (!rawName || isPatientHeader(rawName)) continue;
+    const key = normalize(rawName);
+    if (!key || key.startsWith("total") || key.startsWith("soma")) continue;
+
+    const name = cleanLegacyPatientName(rawName);
+    if (name.length < 2) continue;
+
+    const invoiceStatus = text(row[offset + 3]).toUpperCase() || null;
+    const note = legacyNote(sourceSystem, paymentMethod, row, offset, sheetName);
+    const unit = fileUnit || detectUnit(note);
+
+    parsed.push({
+      name,
+      unit,
+      paymentMethod,
+      sourceSystem,
+      recordType: "patient_directory",
+      planAmountCents: 0,
+      installmentAmountCents: 0,
+      installments: null,
+      startDate: null,
+      endDate: null,
+      dueDay: null,
+      taxReceiptIr: true,
+      invoiceScheduleMode: "automatic",
+      invoiceIntervalMonths: 12,
+      invoiceStatus,
+      invoiceIssuedDate: null,
+      invoiceIssuedAmountCents: null,
+      invoiceRecipientName: null,
+      invoiceDisabled: false,
+      invoiceDisabledReason: null,
+      notes: note,
+      source: "import",
+      importKey: ["patient-directory", normalize(name), normalize(unit || "sem-unidade")].join("|"),
+      sourceSheet: sheetName,
+      sourceRow: index + 1,
+      reviewReason: null,
+    });
+  }
+
+  return parsed;
+}
+
+function mergeDirectoryRows(rows: ParsedNfPatient[]) {
+  const result: ParsedNfPatient[] = [];
+  const byKey = new Map<string, number>();
+
+  for (const row of rows) {
+    if (row.recordType !== "patient_directory") {
+      result.push(row);
+      continue;
+    }
+
+    const key = `${normalize(row.name)}|${normalize(row.unit || "sem-unidade")}`;
+    const existingIndex = byKey.get(key);
+    if (existingIndex === undefined) {
+      byKey.set(key, result.length);
+      result.push(row);
+      continue;
+    }
+
+    const existing = result[existingIndex];
+    const mixedSource = existing.sourceSystem !== row.sourceSystem;
+    result[existingIndex] = {
+      ...existing,
+      paymentMethod: mixedSource ? "Misto" : row.paymentMethod,
+      sourceSystem: mixedSource ? "Misto" : row.sourceSystem,
+      invoiceStatus: row.invoiceStatus || existing.invoiceStatus,
+      notes: row.notes || existing.notes,
+      sourceSheet: row.sourceSheet,
+      sourceRow: row.sourceRow,
+    };
+  }
+
+  return result;
+}
+
 export async function parseNfWorkbook(file: File): Promise<NfWorkbookParseResult> {
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
   const parsedRows: ParsedNfPatient[] = [];
   const recognizedSheets: string[] = [];
+  const fileUnit = detectUnit(file.name);
 
   for (const sheetName of workbook.SheetNames) {
-    const paymentMethod = paymentMethodFromSheet(sheetName);
-    if (!paymentMethod) continue;
-
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
-    const headerIndex = findHeaderIndex(rows);
-    if (headerIndex < 0) continue;
-    recognizedSheets.push(sheetName);
 
-    for (let index = headerIndex + 1; index < rows.length; index += 1) {
-      const row = rows[index] ?? [];
-      const rawName = text(row[0]);
-      if (!rawName) continue;
-
-      const { name, annotation } = splitNameAnnotation(rawName);
-      const observation = text(row[13]);
-      const combinedNote = [annotation, observation].filter(Boolean).join(" • ");
-      const startDate = parseDate(row[1], XLSX);
-      const installments = positiveInteger(row[2]);
-      const installmentValue = moneyNumber(row[3]);
-      const installmentAmountCents = installmentValue ? Math.round(installmentValue * 100) : 0;
-      const planAmountCents = installments && installmentAmountCents ? installments * installmentAmountCents : 0;
-      const endDate = startDate && installments ? addMonthsClamped(startDate, installments - 1) : null;
-      const invoiceStatus = text(row[10]).toUpperCase() || null;
-      const invoiceIssuedDate = parseDate(row[11], XLSX);
-      const issuedValue = moneyNumber(row[12]);
-      const invoiceIssuedAmountCents = issuedValue !== null ? Math.round(issuedValue * 100) : null;
-      const invoiceDisabled = shouldDisableInvoice(combinedNote);
-      const unit = detectUnit(combinedNote);
-      const review: string[] = [];
-
-      if (!startDate) review.push("data da 1ª parcela");
-      if (!installments) review.push("nº de parcelas");
-      if (!installmentAmountCents) review.push("valor da parcela");
-      if (/\bpix\b/i.test(combinedNote)) review.push("forma de pagamento indicada como PIX na observação");
-      if (invoiceStatus === "EMITIDA" && !invoiceIssuedDate) review.push("NF marcada como emitida sem data real");
-
-      const importKey = [
-        "nf-workbook",
-        normalize(sheetName),
-        normalize(name),
-        startDate ?? "semdata",
-        paymentMethod === "Boleto" ? "boleto" : "card",
-        String(installments ?? 0),
-        String(installmentAmountCents),
-      ].join("|");
-
-      parsedRows.push({
-        name,
-        unit,
-        paymentMethod,
-        planAmountCents,
-        installmentAmountCents,
-        installments,
-        startDate,
-        endDate,
-        dueDay: startDate ? Number(startDate.slice(-2)) : null,
-        taxReceiptIr: !invoiceDisabled,
-        invoiceScheduleMode: "automatic",
-        invoiceIntervalMonths: 12,
-        invoiceStatus,
-        invoiceIssuedDate,
-        invoiceIssuedAmountCents,
-        invoiceRecipientName: recipientFromNote(combinedNote),
-        invoiceDisabled,
-        invoiceDisabledReason: invoiceDisabled ? combinedNote || "Não emitir nota fiscal" : null,
-        notes: combinedNote || null,
-        source: "import",
-        importKey,
-        sourceSheet: sheetName,
-        sourceRow: index + 1,
-        reviewReason: review.length ? review.join(", ") : null,
-      });
+    const paymentMethod = paymentMethodFromSheet(sheetName);
+    const detailedHeaderIndex = paymentMethod ? findDetailedHeaderIndex(rows) : -1;
+    if (paymentMethod && detailedHeaderIndex >= 0) {
+      parsedRows.push(...parseDetailedSheet(sheetName, rows, detailedHeaderIndex, paymentMethod, fileUnit, XLSX));
+      recognizedSheets.push(sheetName);
+      continue;
     }
+
+    const legacyHeaderIndex = findLegacyHeaderIndex(rows);
+    if (legacyHeaderIndex < 0) continue;
+
+    const header = rows[legacyHeaderIndex] ?? [];
+    let foundLegacyBlock = false;
+
+    // Regra operacional da planilha usada pela equipe:
+    // esquerda = Boleto puxado do Clinicorp; direita = Cartão puxado da Saúde Service.
+    if (isPatientHeader(header[0]) && normalize(header[2]).includes("valordanota")) {
+      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 0, "Boleto", "Clinicorp", fileUnit));
+      foundLegacyBlock = true;
+    }
+    if (isPatientHeader(header[7]) && normalize(header[9]).includes("valordanota")) {
+      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 7, "Cartão", "Saúde Service", fileUnit));
+      foundLegacyBlock = true;
+    }
+
+    if (foundLegacyBlock) recognizedSheets.push(sheetName);
   }
+
+  const mergedRows = mergeDirectoryRows(parsedRows);
 
   if (!recognizedSheets.length) {
-    throw new Error("Não encontrei abas de CARTÃO ou BOLETO com a coluna Paciente.");
+    throw new Error("Não encontrei o modelo detalhado nem o modelo mensal com Boleto à esquerda e Cartão à direita.");
   }
 
-  const readyCount = parsedRows.filter((row) => !row.reviewReason && row.startDate && row.installments && row.installmentAmountCents > 0).length;
-  const explicitUnitCount = parsedRows.filter((row) => Boolean(row.unit)).length;
+  const readyCount = mergedRows.filter((row) => (
+    row.recordType === "patient_directory"
+      ? Boolean(row.name)
+      : !row.reviewReason && Boolean(row.startDate) && Boolean(row.installments) && row.installmentAmountCents > 0
+  )).length;
+  const explicitUnitCount = mergedRows.filter((row) => Boolean(row.unit)).length;
 
   return {
-    rows: parsedRows,
-    sheets: recognizedSheets,
+    rows: mergedRows,
+    sheets: [...new Set(recognizedSheets)],
     readyCount,
-    reviewCount: parsedRows.length - readyCount,
+    reviewCount: mergedRows.length - readyCount,
     explicitUnitCount,
-    unitlessCount: parsedRows.length - explicitUnitCount,
+    unitlessCount: mergedRows.length - explicitUnitCount,
   };
 }
