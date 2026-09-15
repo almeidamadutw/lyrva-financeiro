@@ -38,6 +38,17 @@ import {
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,10 +90,11 @@ import { FinancialJourney } from "@/components/financial-journey";
 import { FinancialNotifications } from "@/components/financial-notifications";
 import { DueTaskAlert } from "@/components/due-task-alert";
 import { ManualPatientDialog } from "@/components/manual-patient-dialog";
-import { NfWorkbookImportView } from "@/components/nf-workbook-import";
+import { WorkbookImportHub } from "@/components/workbook-import-hub";
+import { PaymentReminderReview } from "@/components/payment-reminder-review";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "journey" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
+type View = "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 type OperationalArea = "none" | "reminders" | "collections" | "invoices" | "management" | "support";
 
@@ -120,6 +132,10 @@ type Patient = {
   invoiceDisabled?: boolean;
   invoiceDisabledReason?: string | null;
   notes?: string | null;
+  settledAt?: string | null;
+  settledReason?: string | null;
+  reminderOptOut?: boolean;
+  reminderOptOutReason?: string | null;
 };
 
 type InvoiceObligation = {
@@ -202,6 +218,7 @@ type ClinicorpFunctionResponse = {
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
   { id: "journey", label: "Jornada financeira", icon: Sparkles },
+  { id: "reminders", label: "Lembretes de boleto", icon: Bell },
   { id: "invoices", label: "Notas fiscais", icon: FileText },
   { id: "collections", label: "Régua de cobrança", icon: WalletCards },
   { id: "patients", label: "Pacientes", icon: Users },
@@ -221,6 +238,7 @@ const roleLabels: Record<Role, string> = {
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: "Confira primeiro o que precisa de ação", title: "Visão geral" },
   journey: { eyebrow: "Execute as tarefas pela data de vencimento", title: "Jornada financeira" },
+  reminders: { eyebrow: "Revise a lista antes de autorizar qualquer envio", title: "Lembretes de boleto" },
   invoices: { eyebrow: "Emita e marque como concluída somente após emitir", title: "Notas fiscais" },
   collections: { eyebrow: "Registre cada contato antes de seguir para o próximo", title: "Régua de cobrança" },
   patients: { eyebrow: "Pesquise antes de cadastrar para evitar duplicidade", title: "Pacientes" },
@@ -240,7 +258,7 @@ const areaLabels: Record<OperationalArea, string> = {
 };
 
 const allowedViewsFor = (user: UserAccount) => {
-  const financialViews: View[] = ["dashboard", "journey", "invoices", "collections", "patients", "import"];
+  const financialViews: View[] = ["dashboard", "journey", "reminders", "invoices", "collections", "patients", "import"];
   const supportViews: View[] = ["support", "access", "integrations"];
   return new Set<View>(user.role === "suporte" || user.operationalArea === "support" ? supportViews : financialViews);
 };
@@ -248,7 +266,7 @@ const allowedViewsFor = (user: UserAccount) => {
 const defaultViewFor = (user: UserAccount): View => {
   if (user.operationalArea === "support") return "support";
   if (user.operationalArea === "collections") return "collections";
-  if (user.operationalArea === "reminders") return "journey";
+  if (user.operationalArea === "reminders") return "reminders";
   if (user.operationalArea === "invoices") return "invoices";
   if (user.operationalArea === "management") return "dashboard";
   return "patients";
@@ -456,7 +474,7 @@ export function LyvraApp() {
       const afterTomorrow = new Date(tomorrow);
       afterTomorrow.setDate(afterTomorrow.getDate() + 1);
 
-      const [patientResult, obligationResult, reminderResult] = await Promise.all([
+      const [patientResult, obligationResult, reminderResult, patientStateResult] = await Promise.all([
         supabase.from("patient_directory").select("*").order("full_name"),
         supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
         supabase
@@ -466,9 +484,10 @@ export function LyvraApp() {
           .gte("due_at", tomorrow.toISOString())
           .lt("due_at", afterTomorrow.toISOString())
           .in("status", ["pending", "in_progress"]),
+        (supabase as any).from("patients").select("id,settled_at,settled_reason,reminder_opt_out,reminder_opt_out_reason"),
       ]);
 
-      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error;
+      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error ?? patientStateResult.error;
       if (firstError) throw firstError;
 
       const paymentLabels: Record<string, string> = {
@@ -479,6 +498,8 @@ export function LyvraApp() {
         transfer: "Transferência",
         other: "Outro",
       };
+
+      const patientStateMap = new Map(((patientStateResult.data ?? []) as any[]).map((item) => [Number(item.id), item]));
 
       setPatients(((patientResult.data ?? []) as unknown as any[]).map((row) => {
         if (row.patient_id === null || row.full_name === null || row.unit_name === null) throw new Error("Cadastro de paciente incompleto no banco.");
@@ -507,6 +528,10 @@ export function LyvraApp() {
         invoiceDisabled: Boolean(row.invoice_disabled),
         invoiceDisabledReason: row.invoice_disabled_reason,
         notes: row.notes,
+        settledAt: patientStateMap.get(Number(row.patient_id))?.settled_at ?? null,
+        settledReason: patientStateMap.get(Number(row.patient_id))?.settled_reason ?? null,
+        reminderOptOut: Boolean(patientStateMap.get(Number(row.patient_id))?.reminder_opt_out),
+        reminderOptOutReason: patientStateMap.get(Number(row.patient_id))?.reminder_opt_out_reason ?? null,
       }); }));
 
       setObligations(((obligationResult.data ?? []) as unknown as any[]).map((row) => {
@@ -700,10 +725,11 @@ export function LyvraApp() {
           <div className="mx-auto max-w-[1500px]">
             {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
+            {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
             {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} canEdit={currentUser.operationalArea !== "support"} />}
-            {view === "import" && allowedViews.has("import") && <NfWorkbookImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
+            {view === "import" && allowedViews.has("import") && <WorkbookImportHub onImported={async () => { await loadFinancialData(); }} />}
             {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
             {view === "support" && allowedViews.has("support") && <SupportView goTo={setView} />}
             {view === "integrations" && allowedViews.has("integrations") && <IntegrationsView />}
@@ -743,13 +769,10 @@ function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligatio
 }
 
 function PatientsView({ unit, patients, loading, goTo, onSaved, canEdit }: { unit: string; patients: Patient[]; loading: boolean; goTo: (view: View) => void; onSaved: () => Promise<void>; canEdit: boolean }) {
-  const [query, setQuery] = useState("");
-  const filtered = patients.filter((patient) => (unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")) && patient.name.toLowerCase().includes(query.toLowerCase()));
-  return <div className="space-y-5">
-    <section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Pesquise o nome antes de qualquer cadastro. Use esta tela para conferir unidade, pagamento e dados do paciente.</p></div><div className="flex flex-wrap gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9 shadow-none" /></div>{canEdit && <><ManualPatientDialog onSaved={onSaved} /><Button onClick={() => goTo("import")} variant="outline" className="h-10 rounded-xl"><UploadCloud /> Importar</Button></>}</div></div>
-      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : filtered.length ? <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled ? <span className="text-[#a05a48]">Não emitir</span> : patient.invoiceFrequency || "Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center"><div><Users className="mx-auto size-9 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">Nenhum paciente cadastrado</p><p className="mt-1 text-sm text-[#8a958e]">Confira se o filtro de unidade está correto.</p>{canEdit && <Button onClick={() => goTo("import")} variant="outline" className="mt-5 rounded-xl"><UploadCloud /> Importar planilha</Button>}</div></div>}
-    </section>
-  </div>;
+  const [query, setQuery] = useState(""); const [statusFilter,setStatusFilter]=useState<"active"|"settled"|"all">("active"); const [settlingId,setSettlingId]=useState<number|null>(null);
+  const filtered=patients.filter(patient=>{const u=unit==="todas"||(unit==="sorocaba"?patient.unit==="Sorocaba":patient.unit==="Salto de Pirapora");const q=patient.name.toLowerCase().includes(query.toLowerCase());const st=statusFilter==="all"||(statusFilter==="settled"?Boolean(patient.settledAt):!patient.settledAt);return u&&q&&st});
+  const settlePatient=async(patient:Patient)=>{if(!patient.id)return;setSettlingId(patient.id);try{const supabase=getSupabaseBrowserClient();const {data:authData}=await supabase.auth.getUser();const now=new Date().toISOString();const p=await (supabase as any).from("patients").update({status:"inactive",settled_at:now,settled_by:authData.user?.id??null,settled_reason:"Quitado manualmente no LYVRA",reminder_opt_out:true,reminder_opt_out_reason:"Paciente quitado",reminder_opt_out_at:now,reminder_opt_out_by:authData.user?.id??null,updated_by:authData.user?.id??null}).eq("id",patient.id);if(p.error)throw p.error;const pu=await supabase.from("patient_units").select("id").eq("patient_id",patient.id);if(pu.error)throw pu.error;const puids=(pu.data??[]).map(x=>Number(x.id));if(puids.length){const plans=await supabase.from("payment_plans").select("id").in("patient_unit_id",puids);if(plans.error)throw plans.error;const ids=(plans.data??[]).map(x=>Number(x.id));await (supabase as any).from("payment_plans").update({status:"completed"}).in("patient_unit_id",puids).eq("status","active");if(ids.length)await (supabase as any).from("installments").update({status:"cancelled"}).in("payment_plan_id",ids).in("status",["pending","processing","overdue"]);await (supabase as any).from("collection_cases").update({status:"closed",outcome:"paid",closed_at:now}).in("patient_unit_id",puids).not("status","in",'(paid,closed)')}await (supabase as any).from("financial_tasks").update({status:"cancelled"}).eq("patient_id",patient.id).in("status",["pending","in_progress"]);await (supabase as any).from("message_events").update({status:"cancelled"}).eq("patient_id",patient.id).in("status",["scheduled","processing"]);toast.success(`${patient.name} marcado como quitado`,{description:"O cadastro foi preservado no histórico e saiu das rotinas futuras."});await onSaved()}catch(error){toast.error("Não foi possível marcar como quitado",{description:error instanceof Error?error.message:"Tente novamente."})}finally{setSettlingId(null)}};
+  return <div className="space-y-5"><section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Pesquise antes de cadastrar. Quitados ficam no histórico e não voltam para cobrança ou lembretes.</p></div><div className="flex flex-wrap gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9"/></div><Select value={statusFilter} onValueChange={v=>setStatusFilter(v as typeof statusFilter)}><SelectTrigger className="h-10 w-36 rounded-xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="active">Ativos</SelectItem><SelectItem value="settled">Quitados</SelectItem><SelectItem value="all">Todos</SelectItem></SelectContent></Select>{canEdit&&<><ManualPatientDialog onSaved={onSaved}/><Button onClick={()=>goTo("import")} variant="outline" className="h-10 rounded-xl"><UploadCloud/> Importar</Button></>}</div></div>{loading?<div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin"/></div>:filtered.length?<Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12"/></TableRow></TableHeader><TableBody>{filtered.map(patient=><TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><div className="flex items-center gap-2"><p className="font-medium">{patient.name}</p>{patient.settledAt&&<Badge className="bg-[#eaf5df] text-[#54752d]">Quitado</Badge>}</div><p className="mt-1 text-xs text-[#839087]">{patient.cpf||"CPF pendente"} • {patient.treatment||"Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod||"—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled?<span className="text-[#a05a48]">Não emitir</span>:patient.invoiceFrequency||"Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr)?<Badge className="bg-[#eaf5df] text-[#54752d]"><Check/> Sim</Badge>:<Badge variant="secondary">Não</Badge>}</TableCell><TableCell>{canEdit&&!patient.settledAt?<AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm"><MoreHorizontal/><span className="sr-only">Ações do paciente</span></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Marcar {patient.name} como quitado?</AlertDialogTitle><AlertDialogDescription>Confirme somente se o financeiro foi quitado. O paciente sairá das cobranças, lembretes e parcelas abertas, mas continuará no histórico.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction disabled={settlingId===patient.id} onClick={()=>void settlePatient(patient)}>{settlingId===patient.id?"Salvando…":"Sim, marcar como quitado"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>:patient.settledAt?<span className="text-xs text-[#7b897f]">Quitado</span>:null}</TableCell></TableRow>)}</TableBody></Table>:<div className="grid min-h-64 place-items-center text-sm text-[#7d8982]">Nenhum paciente neste filtro.</div>}</section></div>;
 }
 
 function ImportView({ onImported }: { onImported: () => Promise<void> }) {
@@ -1096,7 +1119,7 @@ function IntegrationsView() {
 }
 
 function ObligationsTable({ title, description, obligations, compact = false, onIssued }: { title: string; description: string; obligations: InvoiceObligation[]; compact?: boolean; onIssued?: (id: number) => void | Promise<void> }) {
-  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact && <div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9 shadow-none" /></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="h-11 pl-5 text-[11px] uppercase tracking-[.08em] text-[#829087] md:pl-6">Paciente</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Referência</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Valor</TableHead><TableHead className="text-[11px] uppercase tracking-[.08em] text-[#829087]">Situação</TableHead><TableHead className="w-20" /></TableRow></TableHeader><TableBody>{obligations.map((item) => <TableRow key={item.id}><TableCell className="py-4 pl-5 md:pl-6"><div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{item.initials}</div><div><p className="font-medium text-[#213128]">{item.patient}</p><p className="mt-0.5 text-xs text-[#849087]">{item.unit}</p></div></div></TableCell><TableCell><p>{item.reference}</p>{item.scheduledIssueDate && <p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>}</TableCell><TableCell className="font-semibold tabular-nums">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued && item.tone === "ready" ? <Button onClick={() => onIssued(item.id)} variant="outline" size="sm" className="rounded-lg">Emitir</Button> : <Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Mais opções</span></Button>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length && <div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
+  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact&&<div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9"/></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Referência</TableHead><TableHead>Valor</TableHead><TableHead>Situação</TableHead><TableHead className="w-20"/></TableRow></TableHeader><TableBody>{obligations.map(item=><TableRow key={item.id}><TableCell className="py-4 pl-6"><p className="font-medium">{item.patient}</p><p className="mt-1 text-xs text-[#849087]">{item.unit}</p></TableCell><TableCell>{item.reference}{item.scheduledIssueDate&&<p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>}</TableCell><TableCell className="font-semibold">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued&&item.tone==="ready"?<Button onClick={()=>onIssued(item.id)} variant="outline" size="sm">Emitir</Button>:<AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm"><MoreHorizontal/><span className="sr-only">Ver detalhes</span></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{item.patient}</AlertDialogTitle><AlertDialogDescription>Confira os dados desta obrigação.</AlertDialogDescription></AlertDialogHeader><div className="grid gap-3 rounded-xl bg-[#f7f9f6] p-4 text-sm"><div className="flex justify-between"><span>Unidade</span><strong>{item.unit}</strong></div><div className="flex justify-between"><span>Referência</span><strong>{item.reference}</strong></div><div className="flex justify-between"><span>Valor</span><strong>{item.amount}</strong></div><div className="flex justify-between"><span>Situação</span><strong>{item.status}</strong></div>{item.scheduledIssueDate&&<div className="flex justify-between"><span>Emissão prevista</span><strong>{formatIsoDate(item.scheduledIssueDate)}</strong></div>}</div><AlertDialogFooter><AlertDialogCancel>Fechar</AlertDialogCancel></AlertDialogFooter></AlertDialogContent></AlertDialog>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length&&<div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
 }
 
 function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string; detail: string; icon: typeof FileText; accent: string }) {

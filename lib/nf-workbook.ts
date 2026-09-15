@@ -194,6 +194,7 @@ function parseDetailedSheet(
     const row = rows[index] ?? [];
     const rawName = text(row[0]);
     if (!rawName) continue;
+    if (/\b(?:pago|paga|quitado|quitada)\b/i.test(rawName)) continue;
 
     const { name, annotation } = splitNameAnnotation(rawName);
     const observation = text(row[13]);
@@ -297,6 +298,7 @@ function parseLegacyBlock(
     const row = rows[index] ?? [];
     const rawName = text(row[offset]);
     if (!rawName || isPatientHeader(rawName)) continue;
+    if (/\b(?:pago|paga|quitado|quitada)\b/i.test(rawName)) continue;
     const key = normalize(rawName);
     if (!key || key.startsWith("total") || key.startsWith("soma")) continue;
 

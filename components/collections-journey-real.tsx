@@ -199,14 +199,16 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
-      const [queueResult, interactionResult, profileResult] = await Promise.all([
+      const [queueResult, interactionResult, profileResult, settledResult] = await Promise.all([
         supabase.from("collection_queue").select("*").order("eligible_at", { ascending: true }),
         supabase.from("collection_interactions").select("id,collection_case_id,performed_by,channel,outcome,notes,occurred_at,next_action_at").order("occurred_at", { ascending: true }),
         supabase.from("profiles").select("user_id,full_name").eq("is_active", true),
+        (supabase as any).from("patients").select("id").not("settled_at", "is", null),
       ]);
-      const firstError = queueResult.error ?? interactionResult.error ?? profileResult.error;
+      const firstError = queueResult.error ?? interactionResult.error ?? profileResult.error ?? settledResult.error;
       if (firstError) throw firstError;
-      setQueue((queueResult.data ?? []) as unknown as QueueRow[]);
+      const settledIds = new Set(((settledResult.data ?? []) as any[]).map((item) => Number(item.id)));
+      setQueue(((queueResult.data ?? []) as unknown as QueueRow[]).filter((row) => !settledIds.has(row.patient_id)));
       setInteractions((interactionResult.data ?? []) as unknown as InteractionRow[]);
       setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
     } catch (error) {

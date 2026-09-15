@@ -14,6 +14,7 @@ import { parseNfWorkbook, type ParsedNfPatient } from "@/lib/nf-workbook";
 
 type Props = { onImported: () => Promise<void> };
 
+const patientKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
 const financialBlocking = (row: ParsedNfPatient) => row.recordType === "patient_directory"
   ? !row.name
@@ -38,8 +39,15 @@ export function NfWorkbookImportView({ onImported }: Props) {
     setFileName(file.name);
     try {
       const result = await parseNfWorkbook(file);
-      setRows(result.rows);
-      setSheetNames(result.sheets);
+      const supabase = getSupabaseBrowserClient();
+      const settledResult = await (supabase as any).from("patients").select("full_name,cpf").not("settled_at", "is", null);
+      if (settledResult.error) throw settledResult.error;
+      const settledNames = new Set(((settledResult.data ?? []) as any[]).map((item) => patientKey(String(item.full_name ?? ""))));
+      const settledCpfs = new Set(((settledResult.data ?? []) as any[]).map((item) => String(item.cpf ?? "").replace(/\D/g, "")).filter(Boolean));
+      const filteredRows = result.rows.filter((row) => !(settledNames.has(patientKey(row.name)) || (row.cpf && settledCpfs.has(String(row.cpf).replace(/\D/g, "")))));
+      const ignored = result.rows.length - filteredRows.length;
+      setRows(filteredRows); setSheetNames(result.sheets);
+      if (ignored) toast.info(`${ignored} paciente(s) quitado(s) foram ignorados`, { description: "Uma planilha antiga não reativa quem já foi marcado como quitado no LYVRA." });
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Não foi possível ler a planilha.");
     }
