@@ -240,15 +240,9 @@ const areaLabels: Record<OperationalArea, string> = {
 };
 
 const allowedViewsFor = (user: UserAccount) => {
-  const byArea: Record<OperationalArea, View[]> = {
-    none: ["patients"],
-    reminders: ["journey", "patients"],
-    collections: ["collections", "patients"],
-    invoices: ["invoices", "patients", "import"],
-    management: ["dashboard", "journey", "invoices", "collections", "patients", "import", "access"],
-    support: ["support", "access", "integrations"],
-  };
-  return new Set<View>(byArea[user.operationalArea] ?? byArea.none);
+  const financialViews: View[] = ["dashboard", "journey", "invoices", "collections", "patients", "import"];
+  const supportViews: View[] = ["support", "access", "integrations"];
+  return new Set<View>(user.role === "suporte" || user.operationalArea === "support" ? supportViews : financialViews);
 };
 
 const defaultViewFor = (user: UserAccount): View => {
@@ -665,7 +659,7 @@ export function LyvraApp() {
         </SidebarHeader>
         <SidebarContent className="sidebar-scroll-clean px-2">
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">{areaLabels[currentUser.operationalArea]}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">{currentUser.operationalArea === "support" ? "Suporte" : "Financeiro"}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleNavItems.map((item) => (
@@ -705,10 +699,10 @@ export function LyvraApp() {
         <main className="min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4] p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
             {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
-            {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode={currentUser.operationalArea === "reminders" ? "reminders" : "management"} />}
+            {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
-            {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} canEdit={["invoices", "management"].includes(currentUser.operationalArea)} />}
+            {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} canEdit={currentUser.operationalArea !== "support"} />}
             {view === "import" && allowedViews.has("import") && <NfWorkbookImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
             {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
             {view === "support" && allowedViews.has("support") && <SupportView goTo={setView} />}
