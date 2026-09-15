@@ -660,7 +660,6 @@ export function LyvraApp() {
             <LyvraMark />
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
               <p className="font-display text-[22px] font-semibold leading-none tracking-[0.18em]">LYVRA</p>
-              <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">inteligência financeira</p>
             </div>
           </div>
         </SidebarHeader>
@@ -706,7 +705,7 @@ export function LyvraApp() {
         <main className="min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4] p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
             {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
-            {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} />}
+            {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode={currentUser.operationalArea === "reminders" ? "reminders" : "management"} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
             {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} canEdit={["invoices", "management"].includes(currentUser.operationalArea)} />}
@@ -735,7 +734,7 @@ function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: strin
   return <div className="space-y-5">
     <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMECE POR AQUI</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira as pendências com prazo mais próximo.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Use os cards para acompanhar a operação. Entre na tela específica para executar a tarefa e registrar a conclusão.</p></div><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências operacionais" description="Obrigações que pedem uma ação da equipe." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências operacionais" description="Abra a obrigação para conferir o que precisa ser feito." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
   </div>;
 }
 
@@ -886,6 +885,7 @@ function AccessManagementView({ currentRole }: { currentRole: Role }) {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<Role>("membro");
+  const [operationalArea, setOperationalArea] = useState<OperationalArea>("invoices");
   const [recoveryUnit, setRecoveryUnit] = useState("");
   const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -915,9 +915,9 @@ function AccessManagementView({ currentRole }: { currentRole: Role }) {
   const createAccess = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setSaving(true);
     try {
-      const result = await invokeAccessAdmin({ action: "invite", fullName, username, role, unitCode: recoveryUnit, unitCodes: selectedUnits });
+      const result = await invokeAccessAdmin({ action: "invite", fullName, username, role, operationalArea: role === "membro" ? operationalArea : "management", unitCode: recoveryUnit, unitCodes: selectedUnits });
       toast.success("Acesso criado", { description: result.message });
-      setFullName(""); setUsername(""); setRole("membro");
+      setFullName(""); setUsername(""); setRole("membro"); setOperationalArea("invoices");
       await load();
     } catch (error) {
       toast.error("Acesso não criado", { description: error instanceof Error ? error.message : undefined });
@@ -943,7 +943,7 @@ function AccessManagementView({ currentRole }: { currentRole: Role }) {
       <form className="mt-6 space-y-4" onSubmit={createAccess}>
         <div className="space-y-2"><Label htmlFor="access-name">Nome completo</Label><Input id="access-name" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Nome da pessoa" required /></div>
         <div className="space-y-2"><Label htmlFor="access-username">Usuário de entrada</Label><div className="flex items-center rounded-md border border-input bg-transparent"><Input id="access-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/@lyvrafinanceiro$/, "").replace(/[^a-z0-9._-]/g, "").slice(0, 40))} placeholder="usuario" minLength={3} required className="border-0 shadow-none focus-visible:ring-0" /><span className="pr-3 text-sm text-[#718078]">@lyvrafinanceiro</span></div><p className="text-xs text-[#87928c]">Este será o login da pessoa no sistema.</p></div>
-        <div className="space-y-2"><Label>Tipo de acesso</Label><Select value={role} onValueChange={(value) => setRole(value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="membro">Membro</SelectItem>{currentRole !== "gestora" && <><SelectItem value="gestora">Gestora</SelectItem><SelectItem value="ceo">CEO</SelectItem></>}</SelectContent></Select></div>
+        <div className="space-y-2"><Label>Tipo de acesso</Label><Select value={role} onValueChange={(value) => setRole(value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="membro">Membro</SelectItem>{currentRole !== "gestora" && <><SelectItem value="gestora">Gestora</SelectItem><SelectItem value="ceo">CEO</SelectItem></>}</SelectContent></Select></div>{role === "membro" && <div className="space-y-2"><Label>Rotina da pessoa</Label><Select value={operationalArea} onValueChange={(value) => setOperationalArea(value as OperationalArea)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="reminders">Lembretes D-1</SelectItem><SelectItem value="collections">Régua de cobrança</SelectItem><SelectItem value="invoices">Notas fiscais</SelectItem></SelectContent></Select><p className="text-xs leading-5 text-[#87928c]">Essa escolha define as telas da lateral. D-1 e cobrança também definem a pessoa responsável nas unidades selecionadas quando o acesso for ativado.</p></div>}
         <div className="space-y-2"><Label>Caixa de recuperação</Label><Select value={recoveryUnit} onValueChange={setRecoveryUnit}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{units.map((unit) => <SelectItem key={unit.code} value={unit.code}>{unit.name}</SelectItem>)}</SelectContent></Select></div>
         <div className="space-y-2"><Label>Unidades liberadas</Label><div className="grid gap-2 sm:grid-cols-2">{units.map((unit) => <Button key={unit.code} type="button" variant={selectedUnits.includes(unit.code) ? "default" : "outline"} onClick={() => toggleUnit(unit.code)} className="justify-start rounded-xl">{selectedUnits.includes(unit.code) && <Check />}{unit.name}</Button>)}</div></div>
         <Button disabled={saving || !selectedUnits.length} className="h-11 w-full rounded-xl bg-[#183b32]">{saving ? <LoaderCircle className="animate-spin" /> : <UserCog />} Criar acesso e enviar código</Button>
@@ -1076,11 +1076,6 @@ function IntegrationsView() {
     }
   };
 
-  const secondaryCards = [
-    { name: "WhatsApp Business", icon: MessageCircle, status: "Aguardando configuração", description: "Lembrete D-1 e confirmação automática de pagamento.", accent: "#e6f4ef", color: "#26735d", next: "Conta Meta e número oficial" },
-    { name: "Emissor de NFS-e", icon: ReceiptText, status: "Planejado", description: "Na primeira fase, o LYVRA controla a emissão manual.", accent: "#eeeafb", color: "#7261b9", next: "Definir emissor e certificado" },
-  ];
-
   return <div className="space-y-5">
     <section className="rounded-[24px] border border-[#dfe5df] bg-white p-6"><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Clinicorp por unidade</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">Use “Sincronizar baixas” quando precisar atualizar pagamentos. Faça uma unidade por vez e confira a mensagem final antes de iniciar a próxima.</p></section>
 
@@ -1103,8 +1098,6 @@ function IntegrationsView() {
       })}
     </section>
 
-    <section className="grid gap-4 lg:grid-cols-2">{secondaryCards.map((item) => <article key={item.name} className="surface-card rounded-[24px] p-6"><div className="flex items-start justify-between gap-4"><div className="grid size-12 place-items-center rounded-2xl" style={{ background: item.accent, color: item.color }}><item.icon className="size-5" /></div><Badge variant="outline" className="text-[10px]">{item.status}</Badge></div><h3 className="font-display mt-6 text-xl font-semibold text-[#1c2c23]">{item.name}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-[#718078]">{item.description}</p><div className="mt-6 border-t border-[#edf0ed] pt-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909a94]">Próximo passo</p><p className="mt-2 text-sm font-medium text-[#405148]">{item.next}</p></div></article>)}</section>
-    <section className="surface-card rounded-[24px] p-6"><div className="flex items-start gap-4"><div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#fff2d9] text-[#946814]"><ShieldCheck /></div><div><h3 className="font-display text-lg font-semibold">Ordem segura de ativação</h3><p className="mt-1 text-sm leading-6 text-[#718078]">1. Cadastrar os dois acessos em segredo → 2. Validar cada assinatura → 3. Ler uma amostra sem gravar → 4. Aprovar o mapeamento → 5. Ativar a sincronização automática.</p></div></div></section>
   </div>;
 }
 
@@ -1113,7 +1106,7 @@ function ObligationsTable({ title, description, obligations, compact = false, on
 }
 
 function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string; detail: string; icon: typeof FileText; accent: string }) {
-  return <article className="surface-card metric-card rounded-[22px] p-5"><div className="flex items-start justify-between"><div className={`metric-icon metric-${accent}`}><Icon /></div><span className="text-xs font-medium text-[#87928c]">BASE REAL</span></div><div className="mt-5 flex items-end justify-between gap-3"><div><p className="font-display text-[32px] font-semibold leading-none tracking-tight text-[#1a2b22]">{value}</p><p className="mt-2 text-sm text-[#68766e]">{label}</p></div><p className="mb-0.5 text-xs font-semibold tabular-nums text-[#506158]">{detail}</p></div></article>;
+  return <article className="surface-card metric-card rounded-[22px] p-5"><div className="flex items-start justify-between"><div className={`metric-icon metric-${accent}`}><Icon /></div></div><div className="mt-5 flex items-end justify-between gap-3"><div><p className="font-display text-[32px] font-semibold leading-none tracking-tight text-[#1a2b22]">{value}</p><p className="mt-2 text-sm text-[#68766e]">{label}</p></div><p className="mb-0.5 text-xs font-semibold tabular-nums text-[#506158]">{detail}</p></div></article>;
 }
 
 function QuarterCard({ obligations }: { obligations: InvoiceObligation[] }) {

@@ -47,14 +47,17 @@ Deno.serve(async (request) => {
       return json({ ok: true, message: auditError ? "Código enviado. O registro de auditoria precisa de revisão pelo suporte." : "Código enviado ao e-mail responsável pelo acesso." });
     }
     const role = body.role ?? "membro";
+    const requestedOperationalArea = String(body.operationalArea ?? "");
+    const operationalArea = role === "membro" ? requestedOperationalArea : "management";
     const fullName = String(body.fullName ?? "").trim();
     const unitCodes = Array.isArray(body.unitCodes) ? [...new Set<string>(body.unitCodes.map(String))] : [];
     const selectedUnits = units.filter(u => unitCodes.includes(u.code));
     const recoveryUnit = selectedUnits.find(u => u.code === body.unitCode);
     if (fullName.length < 2 || fullName.length > 120 || !["membro", "gestora", "ceo"].includes(role) || username === "suporte" || (actor.role === "gestora" && role !== "membro")) return json({ ok: false, message: "Você não pode criar este tipo de acesso." }, 403);
+    if (role === "membro" && !["reminders", "collections", "invoices"].includes(operationalArea)) return json({ ok: false, message: "Escolha a rotina que esta pessoa vai executar no LYVRA." }, 400);
     if (!recoveryUnit?.access_recovery_email || selectedUnits.length !== unitCodes.length || !selectedUnits.length) return json({ ok: false, message: "Escolha as unidades liberadas e uma delas para receber o código." }, 400);
     const email = recoveryUnit.access_recovery_email.replace("@", `+${username}@`);
-    const { data: invitation, error: insertError } = await admin.from("staff_invitations").insert({ email, full_name: fullName, role, username, recovery_unit_id: recoveryUnit.id, invited_by: user.id, status: "pending", expires_at: new Date(Date.now()+7*86400000).toISOString() }).select("id").single();
+    const { data: invitation, error: insertError } = await admin.from("staff_invitations").insert({ email, full_name: fullName, role, operational_area: operationalArea, username, recovery_unit_id: recoveryUnit.id, invited_by: user.id, status: "pending", expires_at: new Date(Date.now()+7*86400000).toISOString() }).select("id").single();
     if (insertError || !invitation) return json({ ok: false, message: insertError?.code === "23505" ? "Este usuário já possui um cadastro ou convite. Use a recuperação se já estiver cadastrado." : "Não foi possível preparar o convite." }, 400);
     const { error: assignmentError } = await admin.from("staff_invitation_units").insert(selectedUnits.map(unit => ({ invitation_id: invitation.id, unit_id: unit.id })));
     if (assignmentError) {

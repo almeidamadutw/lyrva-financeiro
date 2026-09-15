@@ -34,6 +34,7 @@ type ProfileRow = { user_id: string; full_name: string };
 
 type FinancialJourneyProps = {
   unit: string;
+  mode?: "reminders" | "management";
 };
 
 const unitMatches = (filter: string, code: string) =>
@@ -58,7 +59,7 @@ const formatDateTime = (value: string) =>
     year: "numeric",
   }).format(new Date(value));
 
-export function FinancialJourney({ unit }: FinancialJourneyProps) {
+export function FinancialJourney({ unit, mode = "management" }: FinancialJourneyProps) {
   const [tasks, setTasks] = useState<JourneyTask[]>([]);
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
@@ -185,13 +186,14 @@ export function FinancialJourney({ unit }: FinancialJourneyProps) {
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <JourneyMetric label="Vencidas" value={overdue} detail="Pedem ação" />
-        <JourneyMetric label="Para hoje" value={todayCount} detail="Na agenda" />
-        <JourneyMetric label="Lembretes D-1" value={reminderCount} detail="Maria Eduarda" />
-        <JourneyMetric label="Em cobrança" value={collectionCount} detail="Daiane" />
+      <section className={`grid gap-4 sm:grid-cols-2 ${mode === "reminders" ? "xl:grid-cols-3" : "xl:grid-cols-4"}`}>
+        <JourneyMetric label="Vencidas" value={overdue} detail="Faça primeiro" />
+        <JourneyMetric label="Para hoje" value={todayCount} detail="Faça em seguida" />
+        <JourneyMetric label="Lembretes D-1" value={reminderCount} detail="Sua fila" />
+        {mode === "management" && <JourneyMetric label="Em cobrança" value={collectionCount} detail="Régua da Daiane" />}
       </section>
 
+      {mode === "management" ? <>
       <section className="surface-card rounded-[24px] p-5 md:p-6">
         <div className="flex items-start gap-3">
           <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><ReceiptText className="size-5" /></div>
@@ -214,6 +216,15 @@ export function FinancialJourney({ unit }: FinancialJourneyProps) {
           })}
         </div>
       </section>
+      </> : <section className="surface-card rounded-[24px] p-5 md:p-6">
+        <p className="eyebrow">LEMBRETE D-1</p>
+        <h3 className="font-display mt-2 text-xl font-semibold text-[#192820]">Como concluir sua tarefa</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl bg-[#fafbf8] p-4"><p className="text-xs font-bold text-[#71847a]">1. CONFIRA</p><p className="mt-2 text-sm leading-6 text-[#65736b]">Abra a tarefa e confirme paciente, unidade e vencimento do boleto.</p></div>
+          <div className="rounded-2xl bg-[#fafbf8] p-4"><p className="text-xs font-bold text-[#71847a]">2. FAÇA O CONTATO</p><p className="mt-2 text-sm leading-6 text-[#65736b]">Envie o lembrete pelo canal definido pela clínica.</p></div>
+          <div className="rounded-2xl bg-[#fafbf8] p-4"><p className="text-xs font-bold text-[#71847a]">3. CONCLUA</p><p className="mt-2 text-sm leading-6 text-[#65736b]">Marque a tarefa como concluída somente depois de fazer o contato.</p></div>
+        </div>
+      </section>}
 
       <section className="surface-card overflow-hidden rounded-[24px]">
         <div className="flex flex-col gap-3 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6">
