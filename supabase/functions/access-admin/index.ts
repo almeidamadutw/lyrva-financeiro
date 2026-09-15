@@ -27,7 +27,7 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const action = body.action ?? "list";
     if (action === "list") {
-      const { data: profiles, error } = await admin.from("profiles").select("user_id,username,full_name,role,is_active,recovery_unit_id,profile_units(unit_id)").order("full_name");
+      const { data: profiles, error } = await admin.from("profiles").select("user_id,username,full_name,role,operational_area,is_active,recovery_unit_id,profile_units(unit_id)").order("full_name");
       if (error) throw error;
       return json({ ok: true, units, profiles: (profiles ?? []).filter(p => canManage(actor.role, user.id, p, allowedIds, p.profile_units.map(pu => pu.unit_id))) });
     }

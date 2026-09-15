@@ -143,7 +143,7 @@ export function FinancialJourney({ unit }: FinancialJourneyProps) {
     {
       eyebrow: "D-1 DO VENCIMENTO",
       title: "Lembrete do boleto",
-      description: "Maria Eduarda do financeiro recebe a tarefa de lembrete um dia antes do vencimento. O envio automático pelo WhatsApp entra na etapa de integração.",
+      description: "Um dia antes do vencimento, confira o paciente, faça o lembrete indicado e conclua a tarefa depois do contato.",
       owner: "Maria Eduarda",
       icon: BellRing,
     },
@@ -175,9 +175,9 @@ export function FinancialJourney({ unit }: FinancialJourneyProps) {
       <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7">
         <div className="relative z-10 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
-            <Badge className="border border-white/12 bg-white/8 text-white hover:bg-white/8">JORNADA ATIVA</Badge>
-            <h2 className="font-display mt-4 text-3xl font-medium tracking-tight md:text-[40px]">O que precisa acontecer,<br className="hidden sm:block" /> na hora certa.</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">A jornada organiza lembretes, cobrança e próximas ações. Não existe nível de prioridade: a ordem é definida pelo prazo.</p>
+            <Badge className="border border-white/12 bg-white/8 text-white hover:bg-white/8">COMO COMEÇAR</Badge>
+            <h2 className="font-display mt-4 text-3xl font-medium tracking-tight md:text-[38px]">Faça primeiro o que está vencido ou vence hoje.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">Abra a tarefa, confira o paciente, execute o contato indicado e marque como concluída somente depois de terminar.</p>
           </div>
           <Button variant="outline" onClick={() => void load()} disabled={loading} className="h-11 rounded-xl border-white/15 bg-white/8 text-white shadow-none hover:bg-white/14 hover:text-white">
             {loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />} Atualizar jornada
@@ -198,7 +198,7 @@ export function FinancialJourney({ unit }: FinancialJourneyProps) {
           <div>
             <p className="eyebrow">FLUXO DEFINIDO</p>
             <h3 className="font-display mt-1 text-xl font-semibold text-[#192820]">Do lembrete ao desfecho</h3>
-            <p className="mt-1 text-sm leading-6 text-[#718078]">As etapas abaixo são operacionais e alimentam as tarefas reais do sistema.</p>
+            <p className="mt-1 text-sm leading-6 text-[#718078]">Use este fluxo para entender por que cada tarefa aparece e quem deve executá-la.</p>
           </div>
         </div>
         <div className="mt-6 grid gap-3 xl:grid-cols-4">
@@ -242,7 +242,7 @@ export function FinancialJourney({ unit }: FinancialJourneyProps) {
             })}
           </div>
         ) : (
-          <div className="grid min-h-56 place-items-center px-6 text-center"><div><CheckCircle2 className="mx-auto size-9 text-[#88ad93]" /><p className="mt-3 font-medium text-[#405148]">Nenhuma tarefa aberta neste filtro</p><p className="mt-1 text-sm text-[#87928c]">Quando pacientes e parcelas entrarem na base, a jornada será alimentada automaticamente.</p></div></div>
+          <div className="grid min-h-56 place-items-center px-6 text-center"><div><CheckCircle2 className="mx-auto size-9 text-[#88ad93]" /><p className="mt-3 font-medium text-[#405148]">Nenhuma tarefa aberta neste filtro</p><p className="mt-1 text-sm text-[#87928c]">Se não houver tarefa aqui, não há ação pendente neste filtro.</p></div></div>
         )}
       </section>
     </div>

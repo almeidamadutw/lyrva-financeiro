@@ -1,8 +1,6 @@
 "use client";
 
 import { accessAuth } from "@/lib/access-auth";
-import { AboveframeBrand } from "@/components/password-recovery";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -86,12 +84,14 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type View = "dashboard" | "journey" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
+type OperationalArea = "none" | "reminders" | "collections" | "invoices" | "management" | "support";
 
 type UserAccount = {
   id: string;
   name: string;
   email: string;
   role: Role;
+  operationalArea: OperationalArea;
   canManageCollections: boolean;
 };
 
@@ -219,15 +219,45 @@ const roleLabels: Record<Role, string> = {
 };
 
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
-  dashboard: { eyebrow: "Operação financeira", title: "Visão geral" },
-  journey: { eyebrow: "Operação financeira", title: "Jornada financeira" },
-  invoices: { eyebrow: "Controle fiscal", title: "Notas fiscais" },
-  collections: { eyebrow: "Jornada do financeiro", title: "Régua de cobrança" },
-  patients: { eyebrow: "Base de cadastros", title: "Pacientes" },
-  import: { eyebrow: "Carga inicial", title: "Importar planilha" },
-  access: { eyebrow: "Equipe e segurança", title: "Gerenciar acessos" },
-  support: { eyebrow: "Administração técnica", title: "Central de suporte" },
-  integrations: { eyebrow: "Conexões do sistema", title: "Integrações" },
+  dashboard: { eyebrow: "Confira primeiro o que precisa de ação", title: "Visão geral" },
+  journey: { eyebrow: "Execute as tarefas pela data de vencimento", title: "Jornada financeira" },
+  invoices: { eyebrow: "Emita e marque como concluída somente após emitir", title: "Notas fiscais" },
+  collections: { eyebrow: "Registre cada contato antes de seguir para o próximo", title: "Régua de cobrança" },
+  patients: { eyebrow: "Pesquise antes de cadastrar para evitar duplicidade", title: "Pacientes" },
+  import: { eyebrow: "Revise paciente e unidade antes de confirmar", title: "Importar planilha" },
+  access: { eyebrow: "Libere somente as telas necessárias para cada função", title: "Gerenciar acessos" },
+  support: { eyebrow: "Use esta área para acessos e problemas de integração", title: "Central de suporte" },
+  integrations: { eyebrow: "Sincronize uma unidade por vez e confira o resultado", title: "Integrações" },
+};
+
+const areaLabels: Record<OperationalArea, string> = {
+  none: "Sem rotina definida",
+  reminders: "Lembretes D-1",
+  collections: "Régua de cobrança",
+  invoices: "Notas fiscais",
+  management: "Gestão financeira",
+  support: "Suporte técnico",
+};
+
+const allowedViewsFor = (user: UserAccount) => {
+  const byArea: Record<OperationalArea, View[]> = {
+    none: ["patients"],
+    reminders: ["journey", "patients"],
+    collections: ["collections", "patients"],
+    invoices: ["invoices", "patients", "import"],
+    management: ["dashboard", "journey", "invoices", "collections", "patients", "import", "access"],
+    support: ["support", "access", "integrations"],
+  };
+  return new Set<View>(byArea[user.operationalArea] ?? byArea.none);
+};
+
+const defaultViewFor = (user: UserAccount): View => {
+  if (user.operationalArea === "support") return "support";
+  if (user.operationalArea === "collections") return "collections";
+  if (user.operationalArea === "reminders") return "journey";
+  if (user.operationalArea === "invoices") return "invoices";
+  if (user.operationalArea === "management") return "dashboard";
+  return "patients";
 };
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -343,18 +373,14 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
         <header className="login-brand" aria-label="LYVRA Inteligência Financeira">
           <div className="login-logo" aria-hidden="true"><img src={LYVRA_ICON_DATA_URL} alt="" /></div>
           <p className="font-display text-[30px] font-semibold leading-none tracking-[0.24em] text-[#102d23]">LYVRA</p>
-          <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6f7e75]">Inteligência financeira</p>
+          <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-[#6f7e75]">Financeiro Casal Odonto</p>
         </header>
-
-        <div className="login-ribbon" aria-label="Pagamentos, notas e rotinas">
-          <span>Pagamentos</span><span className="login-ribbon-dot" aria-hidden="true" /><span>Notas</span><span className="login-ribbon-dot" aria-hidden="true" /><span>Rotinas</span>
-        </div>
 
         <div className="login-card">
           <div className="text-center">
             <p className="eyebrow">ACESSO AO FINANCEIRO</p>
-            <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-[#172a21]">Bem-vindo de volta</h1>
-            <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-[#75827a]">Entre com os dados fornecidos pela equipe responsável.</p>
+            <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-[#172a21]">Acesse sua rotina</h1>
+            <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-[#75827a]">Use o usuário e a senha do seu acesso ao LYVRA.</p>
           </div>
 
           <form className="mt-8 space-y-5" onSubmit={submit}>
@@ -401,7 +427,7 @@ export function LyvraApp() {
     const supabase = getSupabaseBrowserClient();
     const { data, error } = await supabase
       .from("profiles")
-      .select("user_id, full_name, email, role, is_active")
+      .select("*")
       .eq("user_id", userId)
       .single();
 
@@ -421,6 +447,7 @@ export function LyvraApp() {
       name: data.full_name,
       email: data.email,
       role: data.role as Role,
+      operationalArea: (((data as unknown as { operational_area?: OperationalArea }).operational_area) ?? (data.role === "suporte" ? "support" : ["gestora", "ceo"].includes(data.role) ? "management" : Boolean(collectionUnits?.length) ? "collections" : "none")),
       canManageCollections: Boolean(collectionUnits?.length),
     };
   }, []);
@@ -538,9 +565,9 @@ export function LyvraApp() {
         return;
       }
 
-      if (active) setCurrentUser(account);
+      if (active) { setCurrentUser(account); setView(defaultViewFor(account)); }
       try {
-        await loadFinancialData();
+        if (account.operationalArea !== "support") await loadFinancialData();
       } catch {
         if (active) toast.error("Não foi possível carregar a base financeira.");
       } finally {
@@ -596,8 +623,9 @@ export function LyvraApp() {
     }
 
     setCurrentUser(account);
+    setView(defaultViewFor(account));
     try {
-      await loadFinancialData();
+      if (account.operationalArea !== "support") await loadFinancialData();
     } catch {
       return "A conta entrou, mas a base financeira não pôde ser carregada.";
     }
@@ -618,19 +646,14 @@ export function LyvraApp() {
 
   if (!currentUser) return <LoginScreen onLogin={login} />;
 
-  const visibleNavItems = navItems.filter((item) => {
-    if (item.id === "collections") return currentUser.canManageCollections || ["gestora", "ceo", "suporte"].includes(currentUser.role);
-    if (item.id === "integrations") return currentUser.role === "suporte";
-    if (item.id === "support") return currentUser.role === "suporte";
-    if (item.id === "access") return ["gestora", "ceo", "suporte"].includes(currentUser.role);
-    return true;
-  });
+  const allowedViews = allowedViewsFor(currentUser);
+  const visibleNavItems = navItems.filter((item) => allowedViews.has(item.id));
   const userInitials = initials(currentUser.name);
 
   return (
     <SidebarProvider className="app-density">
       <Toaster position="top-right" richColors />
-      <DueTaskAlert userId={currentUser.id} onOpenJourney={() => setView("journey")} onOpenCollections={() => setView("collections")} />
+      {currentUser.operationalArea !== "support" && <DueTaskAlert userId={currentUser.id} onOpenJourney={() => allowedViews.has("journey") && setView("journey")} onOpenCollections={() => allowedViews.has("collections") && setView("collections")} />}
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
           <div className="flex items-center gap-3 overflow-hidden px-1">
@@ -643,7 +666,7 @@ export function LyvraApp() {
         </SidebarHeader>
         <SidebarContent className="sidebar-scroll-clean px-2">
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">Operação</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">{areaLabels[currentUser.operationalArea]}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {visibleNavItems.map((item) => (
@@ -661,7 +684,7 @@ export function LyvraApp() {
         <SidebarFooter className="p-3">
           <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.045] p-3 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-1">
             <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#00BF63] text-xs font-bold text-[#10221f]">{userInitials}</div>
-            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium text-white">{currentUser.name}</p><p className="truncate text-xs text-white/42">{currentUser.role === "membro" && currentUser.canManageCollections ? "Cobrança" : roleLabels[currentUser.role]}</p></div>
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden"><p className="truncate text-sm font-medium text-white">{currentUser.name}</p><p className="truncate text-xs text-white/42">{areaLabels[currentUser.operationalArea]}</p></div>
             <Button onClick={logout} variant="ghost" size="icon-sm" className="rounded-lg text-white/35 hover:bg-white/10 hover:text-white" aria-label="Sair do LYVRA"><LogOut /></Button>
           </div>
         </SidebarFooter>
@@ -675,22 +698,22 @@ export function LyvraApp() {
             <div><p className="text-xs font-medium text-[#6b756f]">{viewTitles[view].eyebrow}</p><h1 className="font-display text-xl font-semibold tracking-tight text-[#16241f]">{viewTitles[view].title}</h1></div>
           </div>
           <div className="flex items-center gap-2">
-            {unitFilter}
-            <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => setView("journey")} onOpenCollections={() => setView("collections")} />
+            {currentUser.operationalArea !== "support" && unitFilter}
+            {currentUser.operationalArea !== "support" && <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => allowedViews.has("journey") && setView("journey")} onOpenCollections={() => allowedViews.has("collections") && setView("collections")} />}
           </div>
         </header>
 
         <main className="min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4] p-4 md:p-7">
           <div className="mx-auto max-w-[1500px]">
-            {view === "dashboard" && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
-            {view === "journey" && <FinancialJourney unit={unit} />}
-            {view === "invoices" && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
-            {view === "collections" && <CollectionsJourney unit={unit} />}
-            {view === "patients" && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} />}
-            {view === "import" && <NfWorkbookImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
-            {view === "access" && ["gestora", "ceo", "suporte"].includes(currentUser.role) && <AccessManagementView currentRole={currentUser.role} />}
-            {view === "support" && currentUser.role === "suporte" && <SupportView goTo={setView} />}
-            {view === "integrations" && currentUser.role === "suporte" && <IntegrationsView />}
+            {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
+            {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} />}
+            {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
+            {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
+            {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} goTo={setView} onSaved={loadFinancialData} canEdit={["invoices", "management"].includes(currentUser.operationalArea)} />}
+            {view === "import" && allowedViews.has("import") && <NfWorkbookImportView onImported={async () => { await loadFinancialData(); setView("patients"); }} />}
+            {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
+            {view === "support" && allowedViews.has("support") && <SupportView goTo={setView} />}
+            {view === "integrations" && allowedViews.has("integrations") && <IntegrationsView />}
           </div>
         </main>
       </SidebarInset>
@@ -710,7 +733,7 @@ function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: strin
   const issued = allFiltered.filter((item) => item.rawStatus === "issued");
   const total = (items: InvoiceObligation[]) => moneyValue(items.reduce((sum, item) => sum + item.amountValue, 0));
   return <div className="space-y-5">
-    <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-7 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8"><span className="mr-1.5 size-1.5 rounded-full bg-[#00BF63]" />BASE REAL CONECTADA</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[42px]">O financeiro organizado,<br className="hidden sm:block" /> sem nada escapar.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/58 md:text-base">{allFiltered.length ? `${allFiltered.length} obrigação(ões) fiscal(is) carregada(s) da base.` : "A estrutura está pronta e aguarda a primeira importação de pacientes e pagamentos."}</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" className="h-11 rounded-xl border-white/15 bg-white/8 px-4 text-white shadow-none hover:bg-white/14 hover:text-white"><CalendarDays /> Dados em tempo real</Button><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Ver notas a emitir <ChevronRight /></Button></div></div></section>
+    <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMECE POR AQUI</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira as pendências com prazo mais próximo.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Use os cards para acompanhar a operação. Entre na tela específica para executar a tarefa e registrar a conclusão.</p></div><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências operacionais" description="Obrigações que pedem uma ação da equipe." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
   </div>;
@@ -720,18 +743,18 @@ function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligatio
   const [status, setStatus] = useState("todos");
   const filtered = obligations.filter((item) => (unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")) && (status === "todos" || item.tone === status));
   return <div className="space-y-5">
-    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">OBRIGAÇÕES REAIS</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Fila de emissão</h2><p className="mt-2 text-sm text-[#718078]">O paciente permanece aqui até a emissão ser concluída.</p></div><div className="flex flex-wrap gap-2"><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Ciclo anterior</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select><Button className="h-10 rounded-xl" onClick={() => toast.info("A emissão automática entra após definirmos o emissor fiscal.") }><ReceiptText /> Emitir selecionadas</Button></div></section>
+    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Notas que precisam de ação</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#718078]">Filtre a situação, emita a NF fora do LYVRA e só depois marque a obrigação como emitida aqui.</p></div><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Ciclo anterior</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select></section>
     <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registros encontrados`} obligations={filtered} onIssued={onIssued} />
     <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Cartão" label="1 NF por ano" description="A NF é prevista no primeiro recebimento do ano e considera as parcelas daquele ano-calendário." /><RuleCard title="Boleto" label="Fim do parcelamento ou 31/12" description="A NF é prevista no término do parcelamento ou em 31 de dezembro, o que acontecer primeiro. O restante segue para o ano seguinte." /></div>
   </div>;
 }
 
-function PatientsView({ unit, patients, loading, goTo, onSaved }: { unit: string; patients: Patient[]; loading: boolean; goTo: (view: View) => void; onSaved: () => Promise<void> }) {
+function PatientsView({ unit, patients, loading, goTo, onSaved, canEdit }: { unit: string; patients: Patient[]; loading: boolean; goTo: (view: View) => void; onSaved: () => Promise<void>; canEdit: boolean }) {
   const [query, setQuery] = useState("");
   const filtered = patients.filter((patient) => (unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")) && patient.name.toLowerCase().includes(query.toLowerCase()));
   return <div className="space-y-5">
-    <section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Somente quem estiver marcado para IR entra na rotina de notas.</p></div><div className="flex flex-wrap gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9 shadow-none" /></div><ManualPatientDialog onSaved={onSaved} /><Button onClick={() => goTo("import")} variant="outline" className="h-10 rounded-xl"><UploadCloud /> Importar</Button></div></div>
-      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : filtered.length ? <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled ? <span className="text-[#a05a48]">Não emitir</span> : patient.invoiceFrequency || "Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center"><div><Users className="mx-auto size-9 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">Nenhum paciente cadastrado</p><p className="mt-1 text-sm text-[#8a958e]">Importe a planilha oficial para iniciar a base real.</p><Button onClick={() => goTo("import")} variant="outline" className="mt-5 rounded-xl"><UploadCloud /> Importar planilha</Button></div></div>}
+    <section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes cadastrados</h2><p className="mt-1 text-sm text-[#718078]">Pesquise o nome antes de qualquer cadastro. Use esta tela para conferir unidade, pagamento e dados do paciente.</p></div><div className="flex flex-wrap gap-2"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9 shadow-none" /></div>{canEdit && <><ManualPatientDialog onSaved={onSaved} /><Button onClick={() => goTo("import")} variant="outline" className="h-10 rounded-xl"><UploadCloud /> Importar</Button></>}</div></div>
+      {loading ? <div className="grid min-h-64 place-items-center text-sm text-[#718078]"><LoaderCircle className="mr-2 inline size-4 animate-spin" />Carregando pacientes…</div> : filtered.length ? <Table><TableHeader><TableRow className="bg-[#fafbf8] hover:bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-12" /></TableRow></TableHeader><TableBody>{filtered.map((patient) => <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><p className="font-medium text-[#213128]">{patient.name}</p><p className="mt-1 text-xs text-[#839087]">{patient.cpf || "CPF pendente"} • {patient.treatment || "Tratamento não informado"}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod || "—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled ? <span className="text-[#a05a48]">Não emitir</span> : patient.invoiceFrequency || "Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr) ? <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]"><Check /> Sim</Badge> : <Badge variant="secondary">Não</Badge>}</TableCell><TableCell><Button variant="ghost" size="icon-sm"><MoreHorizontal /><span className="sr-only">Ações do paciente</span></Button></TableCell></TableRow>)}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center"><div><Users className="mx-auto size-9 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">Nenhum paciente cadastrado</p><p className="mt-1 text-sm text-[#8a958e]">Confira se o filtro de unidade está correto.</p>{canEdit && <Button onClick={() => goTo("import")} variant="outline" className="mt-5 rounded-xl"><UploadCloud /> Importar planilha</Button>}</div></div>}
     </section>
   </div>;
 }
@@ -843,6 +866,7 @@ type ManagedProfile = {
   username: string;
   full_name: string;
   role: Role;
+  operational_area?: OperationalArea;
   is_active: boolean;
   recovery_unit_id: number;
   profile_units: { unit_id: number }[];
@@ -926,13 +950,13 @@ function AccessManagementView({ currentRole }: { currentRole: Role }) {
       </form>
     </section>
     <section className="surface-card overflow-hidden rounded-[24px]"><div className="border-b border-[#e7ebe7] p-5 md:px-6"><p className="eyebrow">EQUIPE</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Acessos cadastrados</h2><p className="mt-2 text-sm text-[#718078]">A senha nunca fica visível. A recuperação vai para a caixa central.</p></div>
-      {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-[#00BF63]" /></div> : profiles.length ? <Table><TableHeader><TableRow><TableHead className="pl-6">Pessoa</TableHead><TableHead>Função e permissões</TableHead><TableHead>Recuperação</TableHead><TableHead /></TableRow></TableHeader><TableBody>{profiles.map((profile) => { const box = units.find((item) => item.id === profile.recovery_unit_id); return <TableRow key={profile.user_id}><TableCell className="py-4 pl-6"><p className="font-medium text-[#213128]">{profile.full_name}</p><p className="mt-1 text-xs text-[#839087]">{profile.username}@lyvrafinanceiro</p></TableCell><TableCell><div className="flex flex-wrap gap-1.5"><Badge variant="secondary">{roleLabels[profile.role]}</Badge>{units.some((unit) => unit.collection_assignee_user_id === profile.user_id) && <Badge className="bg-[#fff1d8] text-[#8a6118] hover:bg-[#fff1d8]">Régua de cobrança</Badge>}</div></TableCell><TableCell>{profile.role === "suporte" ? "E-mail pessoal" : box?.name ?? "—"}</TableCell><TableCell className="text-right"><Button variant="outline" size="sm" disabled={recovering === profile.user_id} onClick={() => void requestRecovery(profile)} className="rounded-xl">{recovering === profile.user_id ? <LoaderCircle className="animate-spin" /> : <Mail />} Recuperar senha</Button></TableCell></TableRow>; })}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center text-sm text-[#718078]">Nenhum acesso ativado ainda.</div>}
+      {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin text-[#00BF63]" /></div> : profiles.length ? <Table><TableHeader><TableRow><TableHead className="pl-6">Pessoa</TableHead><TableHead>Função e permissões</TableHead><TableHead>Recuperação</TableHead><TableHead /></TableRow></TableHeader><TableBody>{profiles.map((profile) => { const box = units.find((item) => item.id === profile.recovery_unit_id); return <TableRow key={profile.user_id}><TableCell className="py-4 pl-6"><p className="font-medium text-[#213128]">{profile.full_name}</p><p className="mt-1 text-xs text-[#839087]">{profile.username}@lyvrafinanceiro</p></TableCell><TableCell><div className="flex flex-wrap gap-1.5"><Badge variant="secondary">{roleLabels[profile.role]}</Badge><Badge className="bg-[#edf8f1] text-[#27704b] hover:bg-[#edf8f1]">{areaLabels[profile.operational_area ?? (profile.role === "suporte" ? "support" : ["gestora", "ceo"].includes(profile.role) ? "management" : "none")]}</Badge></div></TableCell><TableCell>{profile.role === "suporte" ? "E-mail pessoal" : box?.name ?? "—"}</TableCell><TableCell className="text-right"><Button variant="outline" size="sm" disabled={recovering === profile.user_id} onClick={() => void requestRecovery(profile)} className="rounded-xl">{recovering === profile.user_id ? <LoaderCircle className="animate-spin" /> : <Mail />} Recuperar senha</Button></TableCell></TableRow>; })}</TableBody></Table> : <div className="grid min-h-64 place-items-center px-6 text-center text-sm text-[#718078]">Nenhum acesso ativado ainda.</div>}
     </section>
   </div>;
 }
 
 function SupportView({ goTo }: { goTo: (view: View) => void }) {
-  return <div className="space-y-5"><section className="hero-panel overflow-hidden rounded-[28px] px-6 py-7 text-white md:px-8"><AboveframeBrand /><p className="eyebrow mt-6 text-[#7deeb4]">SUPORTE LYVRA</p><h2 className="font-display mt-3 text-3xl font-medium">Controle técnico em um só lugar.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Gerencie acessos, envie recuperação de senha, acompanhe as conexões das unidades.</p></section><section className="grid gap-4 md:grid-cols-2"><button type="button" onClick={() => goTo("access")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><UserCog className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Usuários e senhas</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Criar acessos, escolher unidades e solicitar recuperação pela caixa central.</p></button><button type="button" onClick={() => goTo("integrations")} className="surface-card rounded-[24px] p-6 text-left transition hover:-translate-y-0.5 hover:border-[#00BF63]"><Link2 className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Integrações</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Validar Clinicorp por unidade e acompanhar a saúde das conexões.</p></button></section></div>;
+  return <div className="space-y-5"><section className="rounded-[24px] border border-[#dfe5df] bg-white p-6"><p className="eyebrow">O QUE FAZER AQUI</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Corrija acesso ou integração</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#718078]">Se o problema for login, senha ou unidade liberada, abra Gerenciar acessos. Se os dados não estiverem sincronizando, abra Integrações.</p></section><section className="grid gap-4 md:grid-cols-2"><button type="button" onClick={() => goTo("access")} className="surface-card rounded-[24px] p-6 text-left transition hover:border-[#00BF63]"><UserCog className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Gerenciar acessos</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Criar usuário, conferir unidades liberadas e enviar recuperação de senha.</p></button><button type="button" onClick={() => goTo("integrations")} className="surface-card rounded-[24px] p-6 text-left transition hover:border-[#00BF63]"><Link2 className="size-6 text-[#00884a]" /><h3 className="font-display mt-5 text-xl font-semibold text-[#192820]">Ver integrações</h3><p className="mt-2 text-sm leading-6 text-[#718078]">Conferir Clinicorp e sincronizar as baixas de Sorocaba ou Salto quando necessário.</p></button></section></div>;
 }
 
 function IntegrationsView() {
@@ -1058,7 +1082,7 @@ function IntegrationsView() {
   ];
 
   return <div className="space-y-5">
-    <section className="hero-panel overflow-hidden rounded-[28px] p-6 text-white md:p-8"><div className="relative z-10 max-w-3xl"><Badge className="border border-white/12 bg-white/8 text-white hover:bg-white/8">CLINICORP • FASE DE LEITURA</Badge><h2 className="font-display mt-4 text-3xl font-medium md:text-4xl">Cada clínica conectada no seu próprio acesso.</h2><p className="mt-3 text-sm leading-6 text-white/60">Primeiro validamos Sorocaba e Salto separadamente. A leitura inicial identifica os campos e as baixas reais, mas ainda não cadastra nem altera nenhum pagamento.</p></div></section>
+    <section className="rounded-[24px] border border-[#dfe5df] bg-white p-6"><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Clinicorp por unidade</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">Use “Sincronizar baixas” quando precisar atualizar pagamentos. Faça uma unidade por vez e confira a mensagem final antes de iniciar a próxima.</p></section>
 
     <section className="grid gap-4 xl:grid-cols-2">
       {clinicorpUnits.map((item) => {

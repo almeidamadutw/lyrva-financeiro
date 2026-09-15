@@ -178,9 +178,9 @@ export function NfWorkbookImportView({ onImported }: Props) {
   return <div className="space-y-5">
     <section className="grid gap-5 xl:grid-cols-[.72fr_1.28fr]">
       <div className="surface-card rounded-[24px] p-5 md:p-7">
-        <p className="eyebrow">PLANILHA OFICIAL</p>
+        <p className="eyebrow">ANTES DE IMPORTAR</p>
         <h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Importar controle de NF</h2>
-        <p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA lê o modelo detalhado e também a planilha mensal com dois blocos lado a lado. No modelo mensal, esquerda é Boleto e direita é Cartão. As baixas dos dois são conciliadas pelo Clinicorp.</p>
+        <p className="mt-2 text-sm leading-6 text-[#718078]">Selecione a planilha, confira os pacientes e defina a unidade de quem estiver sem Sorocaba ou Salto. Só confirme quando a conferência estiver correta.</p>
 
         <div className="mt-6 rounded-2xl border border-[#f0dcae] bg-[#fff9eb] p-4">
           <p className="text-sm font-semibold text-[#6e5723]">Planilha com Sorocaba e Salto misturados</p>
@@ -208,7 +208,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
       <div className="surface-card overflow-hidden rounded-[24px]">
         <div className="border-b border-[#e7ebe7] p-5 md:px-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="eyebrow">CONFERÊNCIA</p><h2 className="font-display mt-2 text-xl font-semibold text-[#192820]">Antes de gravar</h2></div>
+            <div><p className="eyebrow">CONFIRA ANTES DE SALVAR</p><h2 className="font-display mt-2 text-xl font-semibold text-[#192820]">Antes de gravar</h2></div>
             {rows.length > 0 && <Badge variant="secondary">{rows.length} registros</Badge>}
           </div>
           {sheetNames.length > 0 && <p className="mt-2 text-xs text-[#87928c]">Abas lidas: {sheetNames.join(", ")}</p>}
