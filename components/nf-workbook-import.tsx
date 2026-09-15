@@ -15,7 +15,9 @@ import { parseNfWorkbook, type ParsedNfPatient } from "@/lib/nf-workbook";
 type Props = { onImported: () => Promise<void> };
 
 const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
-const financialBlocking = (row: ParsedNfPatient) => !row.name || !row.startDate || !row.installments || row.installmentAmountCents <= 0;
+const financialBlocking = (row: ParsedNfPatient) => row.recordType === "patient_directory"
+  ? !row.name
+  : !row.name || !row.startDate || !row.installments || row.installmentAmountCents <= 0;
 const needsReview = (row: ParsedNfPatient) => financialBlocking(row) || !row.unit;
 
 export function NfWorkbookImportView({ onImported }: Props) {
@@ -26,13 +28,13 @@ export function NfWorkbookImportView({ onImported }: Props) {
   const [parseError, setParseError] = useState("");
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState("");
-  const [onlyMissingUnit, setOnlyMissingUnit] = useState(false);
+  const [unitFilter, setUnitFilter] = useState<"all" | "missing" | "Sorocaba" | "Salto de Pirapora">("all");
 
   const parseFile = async (file: File) => {
     setParseError("");
     setRows([]);
     setSearch("");
-    setOnlyMissingUnit(false);
+    setUnitFilter("all");
     setFileName(file.name);
     try {
       const result = await parseNfWorkbook(file);
@@ -52,12 +54,14 @@ export function NfWorkbookImportView({ onImported }: Props) {
     const term = search.trim().toLowerCase();
     return rows
       .filter((row) => {
-        if (onlyMissingUnit && (row.unit || financialBlocking(row))) return false;
+        if (unitFilter === "missing" && row.unit) return false;
+        if (unitFilter === "Sorocaba" && row.unit !== "Sorocaba") return false;
+        if (unitFilter === "Salto de Pirapora" && row.unit !== "Salto de Pirapora") return false;
         if (!term) return true;
-        return `${row.name} ${row.sourceSheet} ${row.paymentMethod}`.toLowerCase().includes(term);
+        return `${row.name} ${row.sourceSheet} ${row.paymentMethod} ${row.sourceSystem ?? ""}`.toLowerCase().includes(term);
       })
       .sort((a, b) => Number(Boolean(a.unit)) - Number(Boolean(b.unit)));
-  }, [rows, search, onlyMissingUnit]);
+  }, [rows, search, unitFilter]);
 
   const setRowUnit = (row: ParsedNfPatient, unit: string) => {
     setRows((current) => current.map((item) => (
@@ -89,17 +93,39 @@ export function NfWorkbookImportView({ onImported }: Props) {
       let created = 0;
       let updated = 0;
       let errors = 0;
+      type ImportResult = { imported_count?: number; updated_count?: number; error_count?: number };
+      type RpcResponse = { data: ImportResult[] | null; error: { message: string } | null };
+      const callDirectoryRpc = (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<RpcResponse>);
+
       for (const [unitCode, unitRows] of grouped) {
-        const { data, error } = await supabase.rpc("import_patients", {
-          p_unit_code: unitCode,
-          p_file_name: fileName || "planilha NF",
-          p_rows: JSON.parse(JSON.stringify(unitRows)),
-        });
-        if (error) throw error;
-        const result = data?.[0];
-        created += result?.imported_count ?? 0;
-        updated += result?.updated_count ?? 0;
-        errors += result?.error_count ?? 0;
+        const planRows = unitRows.filter((row) => row.recordType === "financial_plan");
+        const directoryRows = unitRows.filter((row) => row.recordType === "patient_directory");
+
+        if (planRows.length) {
+          const { data, error } = await supabase.rpc("import_patients", {
+            p_unit_code: unitCode,
+            p_file_name: fileName || "planilha NF",
+            p_rows: JSON.parse(JSON.stringify(planRows)),
+          });
+          if (error) throw error;
+          const result = data?.[0];
+          created += result?.imported_count ?? 0;
+          updated += result?.updated_count ?? 0;
+          errors += result?.error_count ?? 0;
+        }
+
+        if (directoryRows.length) {
+          const { data, error } = await callDirectoryRpc("import_patient_directory", {
+            p_unit_code: unitCode,
+            p_file_name: fileName || "planilha mensal de NF",
+            p_rows: JSON.parse(JSON.stringify(directoryRows)),
+          });
+          if (error) throw new Error(error.message);
+          const result = data?.[0];
+          created += result?.imported_count ?? 0;
+          updated += result?.updated_count ?? 0;
+          errors += result?.error_count ?? 0;
+        }
       }
 
       if (errors) {
@@ -108,7 +134,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
         });
       } else {
         toast.success(`${created + updated} pacientes processados`, {
-          description: `${created} novo(s), ${updated} atualizado(s). As parcelas e NFs foram recalculadas pelo LYVRA.`,
+          description: `${created} novo(s), ${updated} atualizado(s). Planos detalhados geram parcelas/NFs; planilhas mensais cadastram o paciente sem inventar parcelamento.`,
         });
       }
       await onImported();
@@ -126,7 +152,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
       <div className="surface-card rounded-[24px] p-5 md:p-7">
         <p className="eyebrow">PLANILHA OFICIAL</p>
         <h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Importar controle de NF</h2>
-        <p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA lê CARTÃO, BOLETO e variações dessas abas. As colunas calculadas da planilha são ignoradas e refeitas pelo sistema.</p>
+        <p className="mt-2 text-sm leading-6 text-[#718078]">O LYVRA lê o modelo detalhado e também a planilha mensal com dois blocos lado a lado. No modelo mensal, esquerda é Boleto/Clinicorp e direita é Cartão/Saúde Service.</p>
 
         <div className="mt-6 rounded-2xl border border-[#f0dcae] bg-[#fff9eb] p-4">
           <p className="text-sm font-semibold text-[#6e5723]">Planilha com Sorocaba e Salto misturados</p>
@@ -142,7 +168,8 @@ export function NfWorkbookImportView({ onImported }: Props) {
 
         <div className="mt-5 space-y-3 text-sm text-[#65736b]">
           <CheckLine>Reconhece “Paciente” como nome</CheckLine>
-          <CheckLine>Forma de pagamento pela aba</CheckLine>
+          <CheckLine>Modelo mensal: esquerda = Boleto/Clinicorp</CheckLine>
+          <CheckLine>Modelo mensal: direita = Cartão/Saúde Service</CheckLine>
           <CheckLine>Separa Sorocaba e Salto antes de salvar</CheckLine>
           <CheckLine>Recalcula término, parcelas anuais e NF</CheckLine>
           <CheckLine>Preserva status e emissão real já preenchidos</CheckLine>
@@ -171,9 +198,17 @@ export function NfWorkbookImportView({ onImported }: Props) {
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9aa49e]" />
               <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar paciente ou aba" className="h-10 rounded-xl pl-9" />
             </div>
-            <Button type="button" variant={onlyMissingUnit ? "default" : "outline"} onClick={() => setOnlyMissingUnit((current) => !current)} className="h-10 rounded-xl">
-              Sem unidade {unitPending.length ? `(${unitPending.length})` : ""}
-            </Button>
+            <Select value={unitFilter} onValueChange={(value) => setUnitFilter(value as typeof unitFilter)}>
+              <SelectTrigger className="h-10 w-full rounded-xl sm:w-52">
+                <SelectValue placeholder="Filtrar unidade" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as unidades</SelectItem>
+                <SelectItem value="missing">Sem unidade {unitPending.length ? `(${unitPending.length})` : ""}</SelectItem>
+                <SelectItem value="Sorocaba">Sorocaba</SelectItem>
+                <SelectItem value="Salto de Pirapora">Salto de Pirapora</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="max-h-[560px] overflow-auto">
@@ -189,8 +224,10 @@ export function NfWorkbookImportView({ onImported }: Props) {
                     </Select>}
                   </TableCell>
                   <TableCell className="text-xs">{row.sourceSheet} • linha {row.sourceRow}</TableCell>
-                  <TableCell>{row.paymentMethod}</TableCell>
-                  <TableCell><p>{row.installments ? `${row.installments}x de ${money(row.installmentAmountCents)}` : "Incompleto"}</p><p className="mt-1 text-xs text-[#87928c]">{row.startDate || "Sem data inicial"}</p></TableCell>
+                  <TableCell><p>{row.paymentMethod}</p>{row.sourceSystem && <p className="mt-1 text-xs text-[#87928c]">{row.sourceSystem}</p>}</TableCell>
+                  <TableCell>{row.recordType === "patient_directory"
+                    ? <><p className="font-medium text-[#405148]">Cadastro de paciente</p><p className="mt-1 text-xs text-[#87928c]">Sem inventar parcelamento</p></>
+                    : <><p>{row.installments ? `${row.installments}x de ${money(row.installmentAmountCents)}` : "Incompleto"}</p><p className="mt-1 text-xs text-[#87928c]">{row.startDate || "Sem data inicial"}</p></>}</TableCell>
                   <TableCell>{financialBlocking(row) ? <Badge className="bg-[#fae8e3] text-[#934e3f] hover:bg-[#fae8e3]">Revisar dados</Badge> : !row.unit ? <Badge className="bg-[#fff2d9] text-[#946814] hover:bg-[#fff2d9]">Definir unidade</Badge> : row.reviewReason ? <Badge className="bg-[#fff2d9] text-[#946814] hover:bg-[#fff2d9]">Alerta</Badge> : <Badge className="bg-[#eaf5df] text-[#54752d] hover:bg-[#eaf5df]">Pronto</Badge>}</TableCell>
                 </TableRow>)}
               </TableBody>
