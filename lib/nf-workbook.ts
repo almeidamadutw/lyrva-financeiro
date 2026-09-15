@@ -359,10 +359,11 @@ function mergeDirectoryRows(rows: ParsedNfPatient[]) {
     }
 
     const existing = result[existingIndex];
+    const mixedPayment = existing.paymentMethod !== row.paymentMethod;
     const mixedSource = existing.sourceSystem !== row.sourceSystem;
     result[existingIndex] = {
       ...existing,
-      paymentMethod: mixedSource ? "Misto" : row.paymentMethod,
+      paymentMethod: mixedPayment ? "Misto" : row.paymentMethod,
       sourceSystem: mixedSource ? "Misto" : row.sourceSystem,
       invoiceStatus: row.invoiceStatus || existing.invoiceStatus,
       notes: row.notes || existing.notes,
