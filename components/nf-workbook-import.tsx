@@ -122,29 +122,37 @@ export function NfWorkbookImportView({ onImported }: Props) {
         const directoryRows = unitRows.filter((row) => row.recordType === "patient_directory");
 
         if (planRows.length) {
-          const { data, error } = await supabase.rpc("import_patients", {
-            p_unit_code: unitCode,
-            p_file_name: fileName || "planilha NF",
-            p_rows: JSON.parse(JSON.stringify(planRows)),
-          });
-          if (error) throw error;
-          const result = data?.[0];
-          created += result?.imported_count ?? 0;
-          updated += result?.updated_count ?? 0;
-          errors += result?.error_count ?? 0;
+          const batchSize = 10;
+          for (let offset = 0; offset < planRows.length; offset += batchSize) {
+            const batch = planRows.slice(offset, offset + batchSize);
+            const { data, error } = await supabase.rpc("import_patients", {
+              p_unit_code: unitCode,
+              p_file_name: fileName || "planilha NF",
+              p_rows: JSON.parse(JSON.stringify(batch)),
+            });
+            if (error) throw error;
+            const result = data?.[0];
+            created += result?.imported_count ?? 0;
+            updated += result?.updated_count ?? 0;
+            errors += result?.error_count ?? 0;
+          }
         }
 
         if (directoryRows.length) {
-          const { data, error } = await callDirectoryRpc("import_patient_directory", {
-            p_unit_code: unitCode,
-            p_file_name: fileName || "planilha mensal de NF",
-            p_rows: JSON.parse(JSON.stringify(directoryRows)),
-          });
-          if (error) throw new Error(error.message);
-          const result = data?.[0];
-          created += result?.imported_count ?? 0;
-          updated += result?.updated_count ?? 0;
-          errors += result?.error_count ?? 0;
+          const batchSize = 25;
+          for (let offset = 0; offset < directoryRows.length; offset += batchSize) {
+            const batch = directoryRows.slice(offset, offset + batchSize);
+            const { data, error } = await callDirectoryRpc("import_patient_directory", {
+              p_unit_code: unitCode,
+              p_file_name: fileName || "planilha mensal de NF",
+              p_rows: JSON.parse(JSON.stringify(batch)),
+            });
+            if (error) throw new Error(error.message);
+            const result = data?.[0];
+            created += result?.imported_count ?? 0;
+            updated += result?.updated_count ?? 0;
+            errors += result?.error_count ?? 0;
+          }
         }
       }
 
@@ -272,7 +280,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
 
           <div className="flex flex-col gap-3 border-t border-[#e7ebe7] bg-[#fafbf8] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6">
             <p className="text-sm text-[#65736b]">{unitPending.length ? "Separe as unidades para continuar." : blocking.length ? `${ready.length} paciente(s) prontos; ${blocking.length} linha(s) incompleta(s) serão ignoradas.` : "Todas as unidades estão definidas. Pronto para importar."}</p>
-            <Button disabled={importing || !ready.length || unitPending.length > 0} onClick={() => void submit()} className="h-11 rounded-xl bg-[#183b32] px-5">{importing ? <LoaderCircle className="animate-spin" /> : <Database />} Importar {ready.length} pacientes</Button>
+            <Button disabled={importing || !ready.length || unitPending.length > 0} onClick={() => void submit()} className="h-11 rounded-xl bg-[#183b32] px-5">{importing ? <><LoaderCircle className="animate-spin" /> Importando em lotes...</> : <><Database /> Importar {ready.length} pacientes</>}</Button>
           </div>
         </> : <div className="grid min-h-96 place-items-center px-6 text-center"><div><FileSpreadsheet className="mx-auto size-10 text-[#b3bdb6]" /><p className="mt-4 font-medium text-[#4e5d54]">A conferência aparecerá aqui</p><p className="mt-1 text-sm text-[#8a958e]">Nada é salvo antes da sua confirmação.</p></div></div>}
       </div>
