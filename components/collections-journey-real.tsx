@@ -370,8 +370,8 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       <CollectionMetric icon={Landmark} label="Pacientes protestados" value={String(protested.length)} detail="Acompanhamento separado" tone="bg-[#fae8e3] text-[#9b4d3e]" />
     </section>
 
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,.55fr)]">
-      <div className="surface-card overflow-hidden rounded-[24px]">
+    <section className="lyvra-split-collections">
+      <div className="surface-card min-w-0 overflow-hidden rounded-[24px]">
         <Tabs defaultValue="all">
           <div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 md:flex-row md:items-center md:justify-between md:px-6"><div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div><TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 md:w-auto"><TabsTrigger value="all" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{actionable.length}</Badge></TabsTrigger><TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger><TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger><TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger></TabsList></div>
           <TabsContent value="all" className="m-0"><CollectionTable patients={actionable} onOpen={setSelectedId} loading={loading} /></TabsContent>
@@ -381,7 +381,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         </Tabs>
       </div>
 
-      <aside className="space-y-5">
+      <aside className="min-w-0 space-y-5">
         <div className="rounded-[24px] bg-[#10221f] p-6 text-white shadow-[0_18px_45px_rgba(24,59,50,.13)]"><div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/45">Avisos da Daiane</p><BellRing className="size-5 text-[#00BF63]" /></div><p className="font-display mt-5 text-2xl font-semibold">{today.length ? `${today.length} ação(ões) para hoje` : "Nenhuma cobrança vencida agora"}</p><p className="mt-2 text-sm leading-6 text-white/55">{today.length ? "A fila considera o prazo D+3 e os retornos que já chegaram na data combinada." : "Casos futuros ficam escondidos até chegar o dia correto."}</p></div>
         <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">COMO A JORNADA FUNCIONA</p><div className="mt-5 space-y-4"><JourneyStep number="1" title="Vencimento" detail="Boleto permanece em acompanhamento." /><JourneyStep number="2" title="D+3 dias úteis" detail="Paciente entra na fila da Daiane." /><JourneyStep number="3" title="Negociação" detail="Conversa, acordo e retorno registrados." /><JourneyStep number="4" title="Desfecho" detail="Pagamento confirmado ou protesto." last /></div></div>
       </aside>

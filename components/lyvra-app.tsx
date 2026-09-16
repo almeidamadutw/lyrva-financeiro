@@ -721,8 +721,8 @@ export function LyvraApp() {
           </div>
         </header>
 
-        <main className="min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4] p-4 md:p-7">
-          <div className="mx-auto max-w-[1500px]">
+        <main className="lyvra-page min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4]">
+          <div className="lyvra-page-inner">
             {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
@@ -754,7 +754,7 @@ function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: strin
   return <div className="space-y-5">
     <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMECE POR AQUI</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira as pendências com prazo mais próximo.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Use os cards para acompanhar a operação. Entre na tela específica para executar a tarefa e registrar a conclusão.</p></div><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></section>
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,.7fr)]"><ObligationsTable title="Pendências operacionais" description="Abra a obrigação para conferir o que precisa ser feito." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
+    <section className="lyvra-split-dashboard"><ObligationsTable title="Pendências operacionais" description="Abra a obrigação para conferir o que precisa ser feito." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
   </div>;
 }
 
