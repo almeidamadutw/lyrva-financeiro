@@ -1,0 +1,34 @@
+name: Linhas responsivas da régua
+
+on:
+  push:
+    paths:
+      - '.github/scripts/patch_collection_rows_responsive.py'
+      - '.github/workflows/patch-collection-rows-responsive.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Aplicar ajuste
+        run: python .github/scripts/patch_collection_rows_responsive.py
+      - name: Validar produção
+        run: |
+          npm ci --ignore-scripts
+          npx next build
+      - name: Publicar
+        run: |
+          git config user.name 'lyvra-automation'
+          git config user.email '164823888+almeidamadutw@users.noreply.github.com'
+          git add app/globals.css components/collections-journey-real.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'fix: torna linhas da régua adaptativas sem scroll horizontal'
+          git push
