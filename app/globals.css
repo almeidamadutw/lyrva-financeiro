@@ -64,6 +64,15 @@ button, input { font: inherit; }
 .lyvra-page{padding:clamp(1rem,1.2vw + .25rem,1.75rem)}
 .lyvra-page-inner{width:100%;max-width:1800px;margin-inline:auto;min-width:0;container-type:inline-size}
 .lyvra-split-dashboard,.lyvra-split-collections{display:grid;grid-template-columns:minmax(0,1fr);gap:1.25rem}
+.collection-responsive-list{width:100%;min-width:0;overflow:hidden}
+.collection-responsive-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.9rem 1rem;padding:1rem 1.25rem;align-items:center}
+.collection-responsive-row>*{min-width:0}
+.collection-patient-field{grid-column:1/-1}
+.collection-next-field{grid-column:1/-1}
+.collection-action-field{grid-column:1/-1}
+.collection-field-label{display:block;margin-bottom:.35rem;font-size:.625rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#98a29c}
+@container (min-width:820px){.collection-responsive-row{grid-template-columns:minmax(220px,1.6fr) minmax(125px,.72fr) minmax(100px,.55fr) minmax(110px,.7fr);padding:1rem 1.5rem}.collection-patient-field{grid-column:auto}.collection-next-field{grid-column:1/4}.collection-action-field{grid-column:4;align-self:end}}
+@container (min-width:1260px){.collection-responsive-row{grid-template-columns:minmax(230px,1.55fr) minmax(125px,.7fr) minmax(100px,.55fr) minmax(115px,.65fr) minmax(180px,1.1fr) auto;gap:1rem 1.25rem}.collection-next-field,.collection-action-field{grid-column:auto}.collection-action-field{align-self:center}.collection-field-label{display:none}}
 .lyvra-split-dashboard>* , .lyvra-split-collections>*{min-width:0}
 @container (min-width:1420px){.lyvra-split-dashboard{grid-template-columns:minmax(0,1.55fr) minmax(300px,.7fr)}}
 @container (min-width:1580px){.lyvra-split-collections{grid-template-columns:minmax(0,1fr) minmax(320px,360px)}}
