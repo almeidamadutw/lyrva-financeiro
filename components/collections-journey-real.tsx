@@ -194,6 +194,11 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [internalSelectedId, setSelectedId] = useState<number | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [yearFilter, setYearFilter] = useState("all");
+  const [quickPeriod, setQuickPeriod] = useState("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -279,8 +284,42 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const selectedUnit = useMemo(() => patients.filter((patient) => unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")), [patients, unit]);
   const todayKey = saoPauloDayKey();
   const now = Date.now();
+  const availableYears = useMemo(() => [...new Set(selectedUnit.map((patient) => patient.dueDateIso.slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [selectedUnit]);
+  const periodFiltered = useMemo(() => {
+    let quickStart = "";
+    if (quickPeriod !== "all") {
+      const start = new Date(`${todayKey}T12:00:00-03:00`);
+      start.setDate(start.getDate() - (Number(quickPeriod) - 1));
+      quickStart = saoPauloDayKey(start);
+    }
+    return selectedUnit.filter((patient) => {
+      const due = patient.dueDateIso;
+      if (quickStart && (due < quickStart || due > todayKey)) return false;
+      if (dateFrom && due < dateFrom) return false;
+      if (dateTo && due > dateTo) return false;
+      if (yearFilter !== "all" && due.slice(0, 4) !== yearFilter) return false;
+      if (monthFilter !== "all" && due.slice(5, 7) !== monthFilter) return false;
+      return true;
+    });
+  }, [selectedUnit, quickPeriod, todayKey, dateFrom, dateTo, yearFilter, monthFilter]);
 
-  const actionable = selectedUnit.filter((patient) => {
+  const clearPeriodFilters = () => {
+    setQuickPeriod("all");
+    setDateFrom("");
+    setDateTo("");
+    setMonthFilter("all");
+    setYearFilter("all");
+  };
+
+  const setQuick = (days: string) => {
+    setQuickPeriod(days);
+    setDateFrom("");
+    setDateTo("");
+    setMonthFilter("all");
+    setYearFilter("all");
+  };
+
+  const actionable = periodFiltered.filter((patient) => {
     if (patient.stage === "protested") return true;
     if (patient.stage === "negotiation") return true;
     if (patient.stage === "promise") return true;
@@ -303,6 +342,27 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => void load()} disabled={loading} className="rounded-xl">{loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}</Button></div>
     </section>
 
+    <section className="surface-card rounded-[24px] p-5 md:p-6">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div><div className="flex items-center gap-2"><CalendarClock className="size-4 text-[#00884a]" /><p className="text-sm font-semibold text-[#2d3e34]">Filtrar por vencimento</p></div><p className="mt-1 text-xs text-[#87928c]">Use um período rápido, mês/ano ou escolha as datas exatas.</p></div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant={quickPeriod === "7" ? "default" : "outline"} onClick={() => setQuick("7")} className="rounded-xl">7 dias</Button>
+            <Button type="button" size="sm" variant={quickPeriod === "30" ? "default" : "outline"} onClick={() => setQuick("30")} className="rounded-xl">30 dias</Button>
+            <Button type="button" size="sm" variant={quickPeriod === "90" ? "default" : "outline"} onClick={() => setQuick("90")} className="rounded-xl">90 dias</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={clearPeriodFilters} className="rounded-xl">Limpar</Button>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div><Label className="mb-1.5 block text-xs text-[#718078]">De</Label><Input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setQuickPeriod("all"); }} className="h-10 rounded-xl" /></div>
+          <div><Label className="mb-1.5 block text-xs text-[#718078]">Até</Label><Input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setQuickPeriod("all"); }} className="h-10 rounded-xl" /></div>
+          <div><Label className="mb-1.5 block text-xs text-[#718078]">Mês</Label><Select value={monthFilter} onValueChange={(value) => { setMonthFilter(value); setQuickPeriod("all"); }}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os meses</SelectItem><SelectItem value="01">Janeiro</SelectItem><SelectItem value="02">Fevereiro</SelectItem><SelectItem value="03">Março</SelectItem><SelectItem value="04">Abril</SelectItem><SelectItem value="05">Maio</SelectItem><SelectItem value="06">Junho</SelectItem><SelectItem value="07">Julho</SelectItem><SelectItem value="08">Agosto</SelectItem><SelectItem value="09">Setembro</SelectItem><SelectItem value="10">Outubro</SelectItem><SelectItem value="11">Novembro</SelectItem><SelectItem value="12">Dezembro</SelectItem></SelectContent></Select></div>
+          <div><Label className="mb-1.5 block text-xs text-[#718078]">Ano</Label><Select value={yearFilter} onValueChange={(value) => { setYearFilter(value); setQuickPeriod("all"); }}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os anos</SelectItem>{availableYears.map((year) => <SelectItem key={year} value={year}>{year}</SelectItem>)}</SelectContent></Select></div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[#718078]"><Badge variant="secondary">{periodFiltered.length} caso(s) no período</Badge>{dateFrom && <span>De {dateOnly(dateFrom)}</span>}{dateTo && <span>até {dateOnly(dateTo)}</span>}{monthFilter !== "all" && <span>Mês {monthFilter}</span>}{yearFilter !== "all" && <span>Ano {yearFilter}</span>}</div>
+      </div>
+    </section>
+
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <CollectionMetric icon={PhoneCall} label="Ligações para fazer" value={String(today.filter((patient) => patient.stage === "call").length)} detail="Casos que já chegaram no prazo" tone="bg-[#fff1d8] text-[#946614]" />
       <CollectionMetric icon={CalendarClock} label="Promessas para conferir" value={String(today.filter((patient) => patient.stage === "promise").length)} detail="Pagamento combinado para confirmar" tone="bg-[#e6f6ed] text-[#137044]" />
@@ -312,8 +372,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
 
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(310px,.55fr)]">
       <div className="surface-card overflow-hidden rounded-[24px]">
-        <Tabs defaultValue="today">
-          <div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 md:flex-row md:items-center md:justify-between md:px-6"><div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div><TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 md:w-auto"><TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger><TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger><TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger></TabsList></div>
+        <Tabs defaultValue="all">
+          <div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 md:flex-row md:items-center md:justify-between md:px-6"><div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div><TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 md:w-auto"><TabsTrigger value="all" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{actionable.length}</Badge></TabsTrigger><TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger><TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger><TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger></TabsList></div>
+          <TabsContent value="all" className="m-0"><CollectionTable patients={actionable} onOpen={setSelectedId} loading={loading} /></TabsContent>
           <TabsContent value="today" className="m-0"><CollectionTable patients={today} onOpen={setSelectedId} loading={loading} /></TabsContent>
           <TabsContent value="negotiating" className="m-0"><CollectionTable patients={negotiating} onOpen={setSelectedId} loading={loading} /></TabsContent>
           <TabsContent value="protested" className="m-0"><ProtestedBlock patients={protested} onOpen={setSelectedId} loading={loading} /></TabsContent>
