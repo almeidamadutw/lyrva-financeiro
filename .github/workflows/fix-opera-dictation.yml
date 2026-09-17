@@ -1,0 +1,34 @@
+name: Corrigir ditado no Opera
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-opera-dictation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Aplicar correção
+        run: python3 .github/scripts/fix_opera_dictation.py
+      - name: Validar build
+        run: |
+          npm ci
+          npx next build
+      - name: Publicar
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/collections-journey-real.tsx
+          git commit -m "fix: melhora ditado no Opera"
+          git push
