@@ -61,31 +61,48 @@ export function FinancialNotifications({ userId, unit, onOpenJourney, onOpenColl
   const [tasks, setTasks] = useState<FinancialTask[]>([]);
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
-      const [taskResult, unitResult] = await Promise.all([
-        supabase
-          .from("financial_tasks")
-          .select("id,unit_id,title,description,kind,status,due_at,assigned_to")
-          .eq("assigned_to", userId)
-          .in("status", ["pending", "in_progress"])
-          .order("due_at", { ascending: true })
-          .limit(50),
-        supabase.from("units").select("id,code,name").eq("is_active", true),
-      ]);
-      if (taskResult.error) throw taskResult.error;
+      const unitResult = await supabase.from("units").select("id,code,name").eq("is_active", true);
       if (unitResult.error) throw unitResult.error;
+      const unitRows = (unitResult.data ?? []) as UnitRow[];
+      const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
+      const selectedUnit = selectedCode === "todas" ? null : unitRows.find((item) => item.code === selectedCode);
+
+      let listQuery = supabase
+        .from("financial_tasks")
+        .select("id,unit_id,title,description,kind,status,due_at,assigned_to")
+        .eq("assigned_to", userId)
+        .in("status", ["pending", "in_progress"])
+        .order("due_at", { ascending: true })
+        .limit(50);
+      let countQuery = supabase
+        .from("financial_tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("assigned_to", userId)
+        .in("status", ["pending", "in_progress"]);
+      if (selectedUnit) {
+        listQuery = listQuery.eq("unit_id", selectedUnit.id);
+        countQuery = countQuery.eq("unit_id", selectedUnit.id);
+      }
+
+      const [taskResult, countResult] = await Promise.all([listQuery, countQuery]);
+      if (taskResult.error) throw taskResult.error;
+      if (countResult.error) throw countResult.error;
       setTasks((taskResult.data ?? []) as FinancialTask[]);
-      setUnits((unitResult.data ?? []) as UnitRow[]);
+      setUnits(unitRows);
+      setTotalCount(countResult.count ?? taskResult.data?.length ?? 0);
     } catch {
       setTasks([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [unit, userId]);
 
   useEffect(() => {
     void load();
@@ -122,7 +139,7 @@ export function FinancialNotifications({ userId, unit, onOpenJourney, onOpenColl
     </PopoverTrigger>
     <PopoverContent align="end" className="w-[min(92vw,390px)] overflow-hidden rounded-2xl border-[#dfe5df] p-0 shadow-[0_18px_55px_rgba(25,52,39,.16)]">
       <div className="border-b border-[#e7ebe7] bg-[#fafbf8] px-5 py-4">
-        <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#87938c]">AGENDA FINANCEIRA</p><h3 className="font-display mt-1 text-lg font-semibold text-[#1c2d24]">Suas notificações</h3></div><Badge variant="secondary">{visible.length}</Badge></div>
+        <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#87938c]">AGENDA FINANCEIRA</p><h3 className="font-display mt-1 text-lg font-semibold text-[#1c2d24]">Suas notificações</h3></div><Badge variant="secondary">{totalCount}</Badge></div>
         <p className="mt-1 text-xs text-[#7f8b84]">A ordem é pelo prazo, sem nível de prioridade.</p>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { accessAuth } from "@/lib/access-auth";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   AlertCircle,
@@ -154,6 +154,9 @@ type InvoiceObligation = {
   ruleCode?: string | null;
   issuedAmount?: number;
   issuedAt?: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  sourceType?: string | null;
 };
 
 type ClinicorpUnitCode = "sorocaba" | "salto_de_pirapora";
@@ -434,7 +437,7 @@ export function LyvraApp() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [obligations, setObligations] = useState<InvoiceObligation[]>([]);
-  const [reminderCount, setReminderCount] = useState(0);
+  const [reminderCounts, setReminderCounts] = useState<Record<string, number>>({ todas: 0, sorocaba: 0, salto: 0 });
 
   const loadProfile = useCallback(async (userId: string): Promise<UserAccount | null> => {
     const supabase = getSupabaseBrowserClient();
@@ -469,26 +472,28 @@ export function LyvraApp() {
     const supabase = getSupabaseBrowserClient();
     if (!silent) setLoadingPatients(true);
     try {
-      const tomorrow = new Date();
-      tomorrow.setHours(0, 0, 0, 0);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const afterTomorrow = new Date(tomorrow);
-      afterTomorrow.setDate(afterTomorrow.getDate() + 1);
+      const todayKey = saoPauloDate(new Date());
+      const tomorrowDate = new Date(`${todayKey}T12:00:00Z`);
+      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+      const tomorrowKey = saoPauloDate(tomorrowDate);
+      const reminderStart = `${todayKey}T00:00:00-03:00`;
+      const reminderEnd = `${tomorrowKey}T00:00:00-03:00`;
 
-      const [patientResult, obligationResult, reminderResult, patientStateResult] = await Promise.all([
+      const [patientResult, obligationResult, reminderResult, patientStateResult, unitResult] = await Promise.all([
         supabase.from("patient_directory").select("*").order("full_name"),
         supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
         supabase
           .from("financial_tasks")
-          .select("id", { count: "exact", head: true })
+          .select("id,unit_id")
           .eq("kind", "payment_reminder")
-          .gte("due_at", tomorrow.toISOString())
-          .lt("due_at", afterTomorrow.toISOString())
+          .gte("due_at", reminderStart)
+          .lt("due_at", reminderEnd)
           .in("status", ["pending", "in_progress"]),
         (supabase as any).from("patients").select("id,settled_at,settled_reason,reminder_opt_out,reminder_opt_out_reason"),
+        supabase.from("units").select("id,code").eq("is_active", true),
       ]);
 
-      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error ?? patientStateResult.error;
+      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error ?? patientStateResult.error ?? unitResult.error;
       if (firstError) throw firstError;
 
       const paymentLabels: Record<string, string> = {
@@ -555,13 +560,24 @@ export function LyvraApp() {
           ruleCode: row.rule_code,
           issuedAmount: Number(row.issued_amount ?? 0),
           issuedAt: row.invoice_issued_at ?? null,
+          periodStart: row.period_start ?? null,
+          periodEnd: row.period_end ?? null,
+          sourceType: row.source_type ?? null,
         };
       }));
-      setReminderCount(reminderResult.count ?? 0);
+      const unitCodeById = new Map(((unitResult.data ?? []) as any[]).map((item) => [Number(item.id), String(item.code)]));
+      const reminderRows = (reminderResult.data ?? []) as any[];
+      const nextReminderCounts: Record<string, number> = { todas: reminderRows.length, sorocaba: 0, salto: 0 };
+      for (const row of reminderRows) {
+        const code = unitCodeById.get(Number(row.unit_id));
+        if (code === "sorocaba") nextReminderCounts.sorocaba += 1;
+        if (code === "salto_de_pirapora") nextReminderCounts.salto += 1;
+      }
+      setReminderCounts(nextReminderCounts);
     } catch (error) {
       setPatients([]);
       setObligations([]);
-      setReminderCount(0);
+      setReminderCounts({ todas: 0, sorocaba: 0, salto: 0 });
       throw error;
     } finally {
       if (!silent) setLoadingPatients(false);
@@ -739,7 +755,7 @@ export function LyvraApp() {
 
         <main className="lyvra-page min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4]">
           <div className="lyvra-page-inner">
-            {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCount} goTo={setView} />}
+            {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView} />}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
@@ -760,29 +776,57 @@ function UnitSelect({ value, onChange }: { value: string; onChange: (value: stri
   return <Select value={value} onValueChange={onChange}><SelectTrigger aria-label="Selecionar unidade" className="h-10 w-10 rounded-xl border-[#dfe5df] bg-white px-0 text-[#25362e] shadow-none sm:w-[190px] sm:px-3"><Building2 className="size-4 shrink-0 text-[#6f7b74]" /><span className="hidden min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left sm:inline"><SelectValue /></span></SelectTrigger><SelectContent><SelectItem value="todas">Todas as unidades</SelectItem><SelectItem value="sorocaba">Sorocaba</SelectItem><SelectItem value="salto">Salto de Pirapora</SelectItem></SelectContent></Select>;
 }
 
+const obligationMonthKey = (item: InvoiceObligation) => {
+  if (item.sourceType === "workbook" && item.periodStart) return item.periodStart.slice(0, 7);
+  return item.scheduledIssueDate?.slice(0, 7)
+    ?? item.periodEnd?.slice(0, 7)
+    ?? item.periodStart?.slice(0, 7)
+    ?? (item.issuedAt ? saoPauloDate(new Date(item.issuedAt)).slice(0, 7) : null);
+};
+
+const competenceLabel = (key: string) => {
+  const [year, month] = key.split("-").map(Number);
+  if (!year || !month) return key;
+  return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, 1)));
+};
+
 function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: string; obligations: InvoiceObligation[]; reminderCount: number; goTo: (view: View) => void }) {
-  const allFiltered = obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora"));
-  const pending = allFiltered.filter((item) => item.rawStatus !== "issued" && item.rawStatus !== "cancelled").slice(0, 4);
-  const ready = allFiltered.filter((item) => item.rawStatus === "ready");
-  const waiting = allFiltered.filter((item) => ["forecast", "awaiting_payment", "payment_unconfirmed", "open"].includes(item.rawStatus));
-  const todayKey = saoPauloDate(new Date());
-  const currentMonthKey = todayKey.slice(0, 7);
-  const issued = allFiltered.filter((item) => item.rawStatus === "issued" && item.issuedAt && saoPauloDate(new Date(item.issuedAt)) <= todayKey && saoPauloDate(new Date(item.issuedAt)).slice(0, 7) === currentMonthKey);
+  const currentMonthKey = saoPauloDate(new Date()).slice(0, 7);
+  const unitFiltered = useMemo(() => obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")), [obligations, unit]);
+  const monthKeys = useMemo(() => [...new Set([currentMonthKey, ...unitFiltered.map(obligationMonthKey).filter((value): value is string => Boolean(value))])].sort((a, b) => b.localeCompare(a)), [currentMonthKey, unitFiltered]);
+  const [competence, setCompetence] = useState(currentMonthKey);
+
+  useEffect(() => {
+    if (!monthKeys.includes(competence)) setCompetence(monthKeys[0] ?? currentMonthKey);
+  }, [competence, currentMonthKey, monthKeys]);
+
+  const scoped = unitFiltered.filter((item) => obligationMonthKey(item) === competence);
+  const pending = scoped.filter((item) => item.rawStatus !== "issued" && item.rawStatus !== "cancelled").slice(0, 4);
+  const ready = scoped.filter((item) => item.rawStatus === "ready");
+  const waiting = scoped.filter((item) => ["forecast", "awaiting_payment", "payment_unconfirmed", "open", "missing_data", "divergence", "cycle_in_progress"].includes(item.rawStatus));
+  const issued = scoped.filter((item) => item.rawStatus === "issued");
   const total = (items: InvoiceObligation[]) => moneyValue(items.reduce((sum, item) => sum + item.amountValue, 0));
+
   return <div className="space-y-5">
-    <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMECE POR AQUI</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira as pendências com prazo mais próximo.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Use os cards para acompanhar a operação. Entre na tela específica para executar a tarefa e registrar a conclusão.</p></div><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></section>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Emitidas neste mês" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
-    <section className="lyvra-split-dashboard"><ObligationsTable title="Pendências operacionais" description="Abra a obrigação para conferir o que precisa ser feito." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
+    <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMPETÊNCIA {competenceLabel(competence).toUpperCase()}</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira o financeiro do mês selecionado.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Todos os cards fiscais abaixo usam a mesma competência. Troque o mês para consultar o histórico sem misturar períodos.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Select value={competence} onValueChange={setCompetence}><SelectTrigger className="h-11 min-w-52 rounded-xl border-white/15 bg-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent>{monthKeys.map((key) => <SelectItem key={key} value={key}>{competenceLabel(key)}</SelectItem>)}</SelectContent></Select><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></div></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Emitidas na competência" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes de hoje" value={String(reminderCount)} detail="D-1 do boleto" icon={MessageCircle} accent="violet" /></section>
+    <section className="lyvra-split-dashboard"><ObligationsTable title="Pendências da competência" description={`${pending.length} pendência(s) em ${competenceLabel(competence)}`} obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={scoped} /><ActivityCard obligations={scoped} /></div></section>
   </div>;
 }
 
 function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligations: InvoiceObligation[]; onIssued: (id: number) => void | Promise<void> }) {
   const [status, setStatus] = useState("todos");
-  const filtered = obligations.filter((item) => (unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")) && (status === "todos" || item.tone === status));
+  const currentMonthKey = saoPauloDate(new Date()).slice(0, 7);
+  const unitFiltered = useMemo(() => obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")), [obligations, unit]);
+  const monthKeys = useMemo(() => [...new Set([currentMonthKey, ...unitFiltered.map(obligationMonthKey).filter((value): value is string => Boolean(value))])].sort((a, b) => b.localeCompare(a)), [currentMonthKey, unitFiltered]);
+  const [competence, setCompetence] = useState(currentMonthKey);
+  const filtered = unitFiltered.filter((item) => (competence === "all" || obligationMonthKey(item) === competence) && (status === "todos" || item.tone === status));
+  const competenceText = competence === "all" ? "todas as competências" : competenceLabel(competence);
+
   return <div className="space-y-5">
-    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Notas que precisam de ação</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#718078]">Filtre a situação, emita a NF fora do LYVRA e só depois marque a obrigação como emitida aqui.</p></div><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando baixa</SelectItem><SelectItem value="cycle">Ciclo anterior</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select></section>
-    <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registros encontrados`} obligations={filtered} onIssued={onIssued} />
-    <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Cartão" label="1 NF por ano" description="A NF é prevista no primeiro recebimento do ano e considera as parcelas daquele ano-calendário." /><RuleCard title="Boleto" label="Fim do parcelamento ou 31/12" description="A NF é prevista no término do parcelamento ou em 31 de dezembro, o que acontecer primeiro. O restante segue para o ano seguinte." /></div>
+    <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">COMPETÊNCIA FISCAL</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Notas fiscais</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#718078]">A planilha mensal e os planos financeiros aparecem juntos, mas cada registro permanece na competência correta.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Select value={competence} onValueChange={setCompetence}><SelectTrigger className="h-10 min-w-52 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas as competências</SelectItem>{monthKeys.map((key) => <SelectItem key={key} value={key}>{competenceLabel(key)}</SelectItem>)}</SelectContent></Select><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando / em aberto</SelectItem><SelectItem value="cycle">Ciclo em andamento</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select></div></section>
+    <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registro(s) em ${competenceText}`} obligations={filtered} onIssued={onIssued} />
+    <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Planilha mensal" label="Competência preservada" description="Cada aba mensal vira uma obrigação fiscal do próprio mês, mantendo valor e status informados na planilha." /><RuleCard title="Planos detalhados" label="Agenda automática" description="Quando o parcelamento está completo no LYVRA, as obrigações continuam sendo calculadas pelas regras cadastradas no plano, sem misturar com a planilha mensal." /></div>
   </div>;
 }
 
@@ -883,7 +927,7 @@ function PatientsView({ unit, patients, loading, goTo, onSaved, canEdit }: { uni
     const statusMatches = statusFilter === "all"
       || (statusFilter === "settled" ? Boolean(patient.settledAt) : false)
       || (statusFilter === "requested" ? state?.settlement_state === "requested" && !patient.settledAt : false)
-      || (statusFilter === "active" ? !patient.settledAt : false);
+      || (statusFilter === "active" ? !patient.settledAt && state?.settlement_state !== "requested" : false);
     return unitMatches && queryMatches && statusMatches;
   });
 
@@ -1233,7 +1277,7 @@ function IntegrationsView() {
 }
 
 function ObligationsTable({ title, description, obligations, compact = false, onIssued }: { title: string; description: string; obligations: InvoiceObligation[]; compact?: boolean; onIssued?: (id: number) => void | Promise<void> }) {
-  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact&&<div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9"/></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Referência</TableHead><TableHead>Valor</TableHead><TableHead>Situação</TableHead><TableHead className="w-20"/></TableRow></TableHeader><TableBody>{obligations.map(item=><TableRow key={item.id}><TableCell className="py-4 pl-6"><p className="font-medium">{item.patient}</p><p className="mt-1 text-xs text-[#849087]">{item.unit}</p></TableCell><TableCell>{item.reference}{item.scheduledIssueDate&&<p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>}</TableCell><TableCell className="font-semibold">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued&&item.tone==="ready"?<Button onClick={()=>onIssued(item.id)} variant="outline" size="sm">Emitir</Button>:<AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm"><MoreHorizontal/><span className="sr-only">Ver detalhes</span></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{item.patient}</AlertDialogTitle><AlertDialogDescription>Confira os dados desta obrigação.</AlertDialogDescription></AlertDialogHeader><div className="grid gap-3 rounded-xl bg-[#f7f9f6] p-4 text-sm"><div className="flex justify-between"><span>Unidade</span><strong>{item.unit}</strong></div><div className="flex justify-between"><span>Referência</span><strong>{item.reference}</strong></div><div className="flex justify-between"><span>Valor</span><strong>{item.amount}</strong></div><div className="flex justify-between"><span>Situação</span><strong>{item.status}</strong></div>{item.scheduledIssueDate&&<div className="flex justify-between"><span>Emissão prevista</span><strong>{formatIsoDate(item.scheduledIssueDate)}</strong></div>}</div><AlertDialogFooter><AlertDialogCancel>Fechar</AlertDialogCancel></AlertDialogFooter></AlertDialogContent></AlertDialog>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length&&<div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
+  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact&&<div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9"/></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Referência</TableHead><TableHead>Valor</TableHead><TableHead>Situação</TableHead><TableHead className="w-20"/></TableRow></TableHeader><TableBody>{obligations.map(item=><TableRow key={item.id}><TableCell className="py-4 pl-6"><p className="font-medium">{item.patient}</p><p className="mt-1 text-xs text-[#849087]">{item.unit}</p></TableCell><TableCell>{item.reference}{item.scheduledIssueDate&&<p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>}</TableCell><TableCell className="font-semibold">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued&&["ready","open"].includes(item.rawStatus)?<Button onClick={()=>onIssued(item.id)} variant="outline" size="sm">Marcar emitida</Button>:<AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm"><MoreHorizontal/><span className="sr-only">Ver detalhes</span></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{item.patient}</AlertDialogTitle><AlertDialogDescription>Confira os dados desta obrigação.</AlertDialogDescription></AlertDialogHeader><div className="grid gap-3 rounded-xl bg-[#f7f9f6] p-4 text-sm"><div className="flex justify-between"><span>Unidade</span><strong>{item.unit}</strong></div><div className="flex justify-between"><span>Referência</span><strong>{item.reference}</strong></div><div className="flex justify-between"><span>Valor</span><strong>{item.amount}</strong></div><div className="flex justify-between"><span>Situação</span><strong>{item.status}</strong></div>{item.scheduledIssueDate&&<div className="flex justify-between"><span>Emissão prevista</span><strong>{formatIsoDate(item.scheduledIssueDate)}</strong></div>}</div><AlertDialogFooter><AlertDialogCancel>Fechar</AlertDialogCancel></AlertDialogFooter></AlertDialogContent></AlertDialog>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length&&<div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
 }
 
 function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string; detail: string; icon: typeof FileText; accent: string }) {
@@ -1247,8 +1291,11 @@ function QuarterCard({ obligations }: { obligations: InvoiceObligation[] }) {
   return <div className="surface-card rounded-[24px] p-5 md:p-6"><div className="flex items-start justify-between"><div><p className="eyebrow">AGENDA FISCAL</p><h3 className="font-display mt-2 text-xl font-semibold">Próximas emissões</h3></div><div className="grid size-10 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><CalendarDays className="size-5" /></div></div><div className="mt-6"><p className="text-sm text-[#78857e]">Valor previsto nas obrigações abertas</p><p className="font-display mt-1 text-3xl font-semibold tracking-tight">{moneyValue(amount)}</p></div><div className="mt-5 flex justify-between gap-3 border-t border-[#e9eee7] pt-4 text-xs text-[#849087]"><span>{open.length} obrigação(ões)</span><span>{next?.scheduledIssueDate ? `Próxima: ${formatIsoDate(next.scheduledIssueDate)}` : "Sem emissão prevista"}</span></div></div>;
 }
 
-function ActivityCard() {
-  return <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">ATIVIDADE</p><h3 className="font-display mt-2 text-lg font-semibold">Movimentações recentes</h3><div className="mt-5 grid min-h-24 place-items-center rounded-2xl border border-dashed border-[#dfe6df] px-4 text-center"><p className="text-sm leading-6 text-[#7d8982]">Nenhuma movimentação financeira registrada.</p></div></div>;
+function ActivityCard({ obligations }: { obligations: InvoiceObligation[] }) {
+  const issued = obligations.filter((item) => item.rawStatus === "issued").length;
+  const pending = obligations.filter((item) => !["issued", "cancelled"].includes(item.rawStatus)).length;
+  const amount = obligations.reduce((sum, item) => sum + item.amountValue, 0);
+  return <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">RESUMO DA COMPETÊNCIA</p><h3 className="font-display mt-2 text-lg font-semibold">Leitura do período</h3><div className="mt-5 grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-[#f7f9f6] p-4"><p className="text-xs text-[#7d8982]">Emitidas</p><p className="mt-1 text-xl font-semibold text-[#26372e]">{issued}</p></div><div className="rounded-2xl bg-[#f7f9f6] p-4"><p className="text-xs text-[#7d8982]">Pendentes</p><p className="mt-1 text-xl font-semibold text-[#26372e]">{pending}</p></div></div><p className="mt-4 text-xs text-[#849087]">Valor total registrado na competência: <strong>{moneyValue(amount)}</strong></p></div>;
 }
 
 function RuleCard({ title, label, description }: { title: string; label: string; description: string }) {

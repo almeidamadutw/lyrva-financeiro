@@ -8,7 +8,7 @@ export type ParsedNfPatient = {
   treatment?: string | null;
   paymentMethod: "Cartão" | "Boleto" | "Misto";
   sourceSystem?: "Clinicorp" | "Saúde Service" | "Misto" | "Planilha";
-  recordType: "financial_plan" | "patient_directory";
+  recordType: "financial_plan" | "patient_directory" | "invoice_record";
   planAmountCents: number;
   installmentAmountCents: number;
   installments: number | null;
@@ -22,6 +22,11 @@ export type ParsedNfPatient = {
   invoiceStatus?: string | null;
   invoiceIssuedDate?: string | null;
   invoiceIssuedAmountCents?: number | null;
+  invoicePeriodAmountCents?: number | null;
+  paymentReceivedDate?: string | null;
+  competence?: string | null;
+  competenceStart?: string | null;
+  invoiceRecordKey?: string | null;
   invoiceRecipientName?: string | null;
   invoiceDisabled: boolean;
   invoiceDisabledReason?: string | null;
@@ -261,6 +266,36 @@ function parseDetailedSheet(
   return parsed;
 }
 
+function competenceFromSheetName(sheetName: string) {
+  const raw = text(sheetName);
+  const numeric = raw.match(/\b(0?[1-9]|1[0-2])\s*[-/]\s*(20\d{2})\b/);
+  if (numeric) {
+    const month = Number(numeric[1]);
+    const year = Number(numeric[2]);
+    return {
+      start: `${year}-${String(month).padStart(2, "0")}-01`,
+      label: `${String(month).padStart(2, "0")}/${year}`,
+    };
+  }
+
+  const yearMatch = raw.match(/\b(20\d{2})\b/);
+  if (!yearMatch) return null;
+  const year = Number(yearMatch[1]);
+  const key = normalize(raw);
+  const months: Array<[string, number]> = [
+    ["janeiro", 1], ["fevereiro", 2], ["marco", 3], ["abril", 4],
+    ["maio", 5], ["junho", 6], ["julho", 7], ["agosto", 8],
+    ["setembro", 9], ["outubro", 10], ["novembro", 11], ["dezembro", 12],
+  ];
+  const found = months.find(([name]) => key.includes(name));
+  if (!found) return null;
+  const month = found[1];
+  return {
+    start: `${year}-${String(month).padStart(2, "0")}-01`,
+    label: `${String(month).padStart(2, "0")}/${year}`,
+  };
+}
+
 function legacyNote(
   sourceSystem: "Clinicorp",
   paymentMethod: "Cartão" | "Boleto",
@@ -291,8 +326,10 @@ function parseLegacyBlock(
   paymentMethod: "Cartão" | "Boleto",
   sourceSystem: "Clinicorp",
   fileUnit: string,
+  XLSX: typeof import("xlsx"),
 ) {
   const parsed: ParsedNfPatient[] = [];
+  const competence = competenceFromSheetName(sheetName);
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
     const row = rows[index] ?? [];
@@ -306,15 +343,29 @@ function parseLegacyBlock(
     if (name.length < 2) continue;
 
     const invoiceStatus = text(row[offset + 3]).toUpperCase() || null;
+    const amount = moneyNumber(row[offset + 2]);
+    const amountCents = amount !== null ? Math.max(Math.round(amount * 100), 0) : 0;
+    const paymentReceivedDate = parseDate(row[offset + 1], XLSX);
+    const invoiceIssuedDate = parseDate(row[offset + 4], XLSX);
     const note = legacyNote(sourceSystem, paymentMethod, row, offset, sheetName);
     const unit = fileUnit || detectUnit(note);
+    const review: string[] = [];
+    if (!competence) review.push("competência da aba não identificada");
+
+    const invoiceRecordKey = [
+      "nf-workbook-record",
+      normalize(name),
+      normalize(unit || "sem-unidade"),
+      competence?.start?.slice(0, 7) ?? normalize(sheetName),
+      paymentMethod === "Boleto" ? "boleto" : "card",
+    ].join("|");
 
     parsed.push({
       name,
       unit,
       paymentMethod,
       sourceSystem,
-      recordType: "patient_directory",
+      recordType: "invoice_record",
       planAmountCents: 0,
       installmentAmountCents: 0,
       installments: null,
@@ -325,17 +376,22 @@ function parseLegacyBlock(
       invoiceScheduleMode: "automatic",
       invoiceIntervalMonths: 12,
       invoiceStatus,
-      invoiceIssuedDate: null,
-      invoiceIssuedAmountCents: null,
+      invoiceIssuedDate,
+      invoiceIssuedAmountCents: amountCents || null,
+      invoicePeriodAmountCents: amountCents,
+      paymentReceivedDate,
+      competence: competence?.label ?? null,
+      competenceStart: competence?.start ?? null,
+      invoiceRecordKey,
       invoiceRecipientName: null,
       invoiceDisabled: false,
       invoiceDisabledReason: null,
       notes: note,
       source: "import",
-      importKey: ["patient-directory", normalize(name), normalize(unit || "sem-unidade")].join("|"),
+      importKey: invoiceRecordKey,
       sourceSheet: sheetName,
       sourceRow: index + 1,
-      reviewReason: null,
+      reviewReason: review.length ? review.join(", ") : null,
     });
   }
 
@@ -405,11 +461,11 @@ export async function parseNfWorkbook(file: File): Promise<NfWorkbookParseResult
     // Regra operacional da planilha usada pela equipe:
     // esquerda = Boleto; direita = Cartão. As baixas dos dois são conciliadas pelo Clinicorp.
     if (isPatientHeader(header[0]) && normalize(header[2]).includes("valordanota")) {
-      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 0, "Boleto", "Clinicorp", fileUnit));
+      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 0, "Boleto", "Clinicorp", fileUnit, XLSX));
       foundLegacyBlock = true;
     }
     if (isPatientHeader(header[7]) && normalize(header[9]).includes("valordanota")) {
-      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 7, "Cartão", "Clinicorp", fileUnit));
+      parsedRows.push(...parseLegacyBlock(sheetName, rows, legacyHeaderIndex, 7, "Cartão", "Clinicorp", fileUnit, XLSX));
       foundLegacyBlock = true;
     }
 
@@ -422,11 +478,12 @@ export async function parseNfWorkbook(file: File): Promise<NfWorkbookParseResult
     throw new Error("Não encontrei o modelo detalhado nem o modelo mensal com Boleto à esquerda e Cartão à direita.");
   }
 
-  const readyCount = mergedRows.filter((row) => (
-    row.recordType === "patient_directory"
-      ? Boolean(row.name)
-      : !row.reviewReason && Boolean(row.startDate) && Boolean(row.installments) && row.installmentAmountCents > 0
-  )).length;
+  const readyCount = mergedRows.filter((row) => {
+    if (!row.name) return false;
+    if (row.recordType === "patient_directory") return true;
+    if (row.recordType === "invoice_record") return Boolean(row.competenceStart);
+    return !row.reviewReason && Boolean(row.startDate) && Boolean(row.installments) && row.installmentAmountCents > 0;
+  }).length;
   const explicitUnitCount = mergedRows.filter((row) => Boolean(row.unit)).length;
 
   return {

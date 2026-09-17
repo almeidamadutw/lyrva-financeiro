@@ -70,22 +70,37 @@ export function FinancialJourney({ unit, mode = "management" }: FinancialJourney
     if (!silent) setLoading(true);
     const supabase = getSupabaseBrowserClient();
     try {
-      const [taskResult, unitResult, profileResult] = await Promise.all([
-        supabase
+      const [unitResult, profileResult] = await Promise.all([
+        supabase.from("units").select("id,code,name").eq("is_active", true).order("name"),
+        supabase.from("profiles").select("user_id,full_name").eq("is_active", true),
+      ]);
+      if (unitResult.error) throw unitResult.error;
+      if (profileResult.error) throw profileResult.error;
+
+      const unitRows = (unitResult.data ?? []) as UnitRow[];
+      const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
+      const selectedUnit = selectedCode === "todas" ? null : unitRows.find((item) => item.code === selectedCode);
+      const taskRows: JourneyTask[] = [];
+      const pageSize = 500;
+
+      for (let offset = 0; ; offset += pageSize) {
+        let query = supabase
           .from("financial_tasks")
           .select("id,unit_id,title,description,kind,status,due_at,assigned_to")
           .in("status", ["pending", "in_progress"])
           .order("due_at", { ascending: true })
-          .limit(200),
-        supabase.from("units").select("id,code,name").eq("is_active", true).order("name"),
-        supabase.from("profiles").select("user_id,full_name").eq("is_active", true),
-      ]);
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (selectedUnit) query = query.eq("unit_id", selectedUnit.id);
+        const result = await query;
+        if (result.error) throw result.error;
+        const page = (result.data ?? []) as JourneyTask[];
+        taskRows.push(...page);
+        if (page.length < pageSize) break;
+      }
 
-      const firstError = taskResult.error ?? unitResult.error ?? profileResult.error;
-      if (firstError) throw firstError;
-
-      setTasks((taskResult.data ?? []) as JourneyTask[]);
-      setUnits((unitResult.data ?? []) as UnitRow[]);
+      setTasks(taskRows);
+      setUnits(unitRows);
       setProfiles((profileResult.data ?? []) as ProfileRow[]);
     } catch (error) {
       toast.error("Não foi possível carregar a jornada financeira", {
@@ -94,7 +109,7 @@ export function FinancialJourney({ unit, mode = "management" }: FinancialJourney
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [unit]);
 
   useEffect(() => {
     void load();

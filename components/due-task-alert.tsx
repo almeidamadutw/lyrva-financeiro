@@ -29,21 +29,27 @@ export function DueTaskAlert({ userId, onOpenJourney, onOpenCollections }: Props
     running.current = true;
     try {
       const supabase = getSupabaseBrowserClient();
-      const { data, error } = await supabase
-        .from("financial_tasks")
-        .select("id,title,description,due_at,kind")
-        .eq("assigned_to", userId)
-        .in("status", ["pending", "in_progress"])
-        .lte("due_at", new Date().toISOString())
-        .order("due_at", { ascending: true })
-        .limit(20);
-
-      if (error) return;
-      const due = (data ?? []) as DueTask[];
-      const unseen = due.filter((task) => {
-        const key = `lyvra:task-alert:${userId}:${task.id}:${task.due_at}`;
-        return window.localStorage.getItem(key) !== "1";
-      });
+      const unseen: DueTask[] = [];
+      const pageSize = 100;
+      for (let offset = 0; unseen.length < 20; offset += pageSize) {
+        const { data, error } = await supabase
+          .from("financial_tasks")
+          .select("id,title,description,due_at,kind")
+          .eq("assigned_to", userId)
+          .in("status", ["pending", "in_progress"])
+          .lte("due_at", new Date().toISOString())
+          .order("due_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) return;
+        const page = (data ?? []) as DueTask[];
+        unseen.push(...page.filter((task) => {
+          const key = `lyvra:task-alert:${userId}:${task.id}:${task.due_at}`;
+          return window.localStorage.getItem(key) !== "1";
+        }));
+        if (page.length < pageSize || offset > 5000) break;
+      }
+      unseen.splice(20);
       if (!unseen.length) return;
 
       for (const task of unseen) {

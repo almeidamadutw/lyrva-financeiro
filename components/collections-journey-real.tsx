@@ -214,24 +214,50 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     if (!silent) setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
-      const [queueResult, interactionResult, profileResult, settledResult] = await Promise.all([
-        supabase.from("collection_queue").select("*").order("eligible_at", { ascending: true }),
-        supabase.from("collection_interactions").select("id,collection_case_id,performed_by,channel,outcome,notes,occurred_at,next_action_at").order("occurred_at", { ascending: true }),
-        supabase.from("profiles").select("user_id,full_name").eq("is_active", true),
-        (supabase as any).from("patients").select("id").not("settled_at", "is", null),
-      ]);
-      const firstError = queueResult.error ?? interactionResult.error ?? profileResult.error ?? settledResult.error;
-      if (firstError) throw firstError;
-      const settledIds = new Set(((settledResult.data ?? []) as any[]).map((item) => Number(item.id)));
-      setQueue(((queueResult.data ?? []) as unknown as QueueRow[]).filter((row) => !settledIds.has(row.patient_id)));
-      setInteractions((interactionResult.data ?? []) as unknown as InteractionRow[]);
+      const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
+      const pageSize = 500;
+      const queueRows: QueueRow[] = [];
+      const interactionRows: InteractionRow[] = [];
+
+      for (let offset = 0; ; offset += pageSize) {
+        let query = (supabase as any)
+          .from("collection_queue")
+          .select("*")
+          .order("eligible_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (selectedCode !== "todas") query = query.eq("unit_code", selectedCode);
+        const result = await query;
+        if (result.error) throw result.error;
+        const page = (result.data ?? []) as unknown as QueueRow[];
+        queueRows.push(...page);
+        if (page.length < pageSize) break;
+      }
+
+      for (let offset = 0; ; offset += pageSize) {
+        const result = await supabase
+          .from("collection_interactions")
+          .select("id,collection_case_id,performed_by,channel,outcome,notes,occurred_at,next_action_at")
+          .order("occurred_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (result.error) throw result.error;
+        const page = (result.data ?? []) as unknown as InteractionRow[];
+        interactionRows.push(...page);
+        if (page.length < pageSize) break;
+      }
+
+      const profileResult = await supabase.from("profiles").select("user_id,full_name").eq("is_active", true);
+      if (profileResult.error) throw profileResult.error;
+      setQueue(queueRows);
+      setInteractions(interactionRows);
       setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
     } catch (error) {
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [unit]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {

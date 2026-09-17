@@ -15,7 +15,7 @@ export function WorkbookImportHub({ onImported }: { onImported: () => Promise<vo
         <Button type="button" onClick={() => setMode("nf")} variant={mode === "nf" ? "default" : "outline"} className="rounded-xl"><FileSpreadsheet /> Pacientes e NF</Button>
         <Button type="button" onClick={() => setMode("collections")} variant={mode === "collections" ? "default" : "outline"} className="rounded-xl"><WalletCards /> Régua de cobrança</Button>
       </div>
-      <p className="mt-3 text-xs leading-5 text-[#718078]">Importe primeiro a planilha atualizada de pacientes/NF. Depois, use a planilha da régua para trazer o histórico da Dai sem criar pacientes novos.</p>
+      <p className="mt-3 text-xs leading-5 text-[#718078]">Importe a planilha de pacientes/NF para atualizar cadastro e competências fiscais. A planilha da régua complementa o histórico de cobrança e mantém os registros vinculados à mesma base de pacientes.</p>
     </section>
     {mode === "nf" ? <NfWorkbookImportView onImported={onImported} /> : <CollectionsWorkbookImportView onImported={onImported} />}
   </div>;
