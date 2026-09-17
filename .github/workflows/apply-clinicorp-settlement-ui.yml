@@ -1,4 +1,4 @@
-name: Aplicar fluxo de baixa Clinicorp
+name: Aplicar auditoria de dados LYVRA
 
 on:
   push:
@@ -20,20 +20,20 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Aplicar interface de baixa
+      - name: Aplicar correções auditadas
         run: python3 .github/scripts/patch_clinicorp_settlement_ui.py
       - name: Validar build
         run: |
           npm ci
           npx next build
-      - name: Publicar ajuste
+      - name: Publicar ajustes
         run: |
           git config user.name "lyvra-automation"
           git config user.email "164823888+almeidamadutw@users.noreply.github.com"
-          git add components/lyvra-app.tsx
+          git add components/lyvra-app.tsx components/nf-workbook-import.tsx lib/nf-workbook.ts components/financial-journey.tsx components/collections-journey-real.tsx components/financial-notifications.tsx components/due-task-alert.tsx components/workbook-import-hub.tsx
           if git diff --cached --quiet; then
             echo "Nenhuma alteração necessária"
             exit 0
           fi
-          git commit -m "feat: add Clinicorp settlement request flow"
+          git commit -m "fix: audit LYVRA financial data flows"
           git push
