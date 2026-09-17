@@ -21,7 +21,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Aplicar correções auditadas
-        run: python3 .github/scripts/patch_clinicorp_settlement_ui.py
+        run: |
+          python3 .github/scripts/patch_clinicorp_settlement_ui.py
+          sed -i 's/let query = supabase$/let query = (supabase as any)/' components/collections-journey-real.tsx
       - name: Validar build
         run: |
           npm ci
