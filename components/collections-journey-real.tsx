@@ -110,10 +110,14 @@ type SpeechRecognitionEventLike = {
 
 type SpeechRecognitionErrorEventLike = { error?: string; message?: string };
 
+type SpeechAvailability = "available" | "downloadable" | "downloading" | "unavailable";
+type SpeechRecognitionOptionsLike = { langs: string[]; processLocally?: boolean; quality?: string };
+
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
+  processLocally?: boolean;
   start: () => void;
   stop: () => void;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
@@ -121,7 +125,11 @@ type SpeechRecognitionLike = {
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
 };
 
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type SpeechRecognitionConstructor = {
+  new (): SpeechRecognitionLike;
+  available?: (options: SpeechRecognitionOptionsLike) => Promise<SpeechAvailability>;
+  install?: (options: SpeechRecognitionOptionsLike) => Promise<boolean>;
+};
 
 declare global {
   interface Window {
@@ -464,18 +472,54 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
       return;
     }
 
+    const isOpera = /OPR\//.test(navigator.userAgent);
+    let useLocalRecognition = false;
+
+    if (Recognition.available) {
+      try {
+        const availability = await Recognition.available({ langs: ["pt-BR"], processLocally: true });
+        if (availability === "available") {
+          useLocalRecognition = true;
+        } else if ((availability === "downloadable" || availability === "downloading") && Recognition.install) {
+          toast.info("Preparando o ditado em português", { description: "Na primeira vez o navegador pode baixar o pacote de voz." });
+          useLocalRecognition = await Recognition.install({ langs: ["pt-BR"], processLocally: true });
+        }
+      } catch {
+        useLocalRecognition = false;
+      }
+    }
+
+    if (isOpera && !useLocalRecognition && !Recognition.available) {
+      toast.info("O Opera não liberou o reconhecimento local", { description: "O microfone funciona, mas esta versão do Opera pode não entregar a transcrição. O LYVRA ainda tentará o reconhecimento disponível." });
+    }
+
     const recognition = new Recognition();
     recognition.lang = "pt-BR";
-    recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    if (useLocalRecognition && "processLocally" in recognition) recognition.processLocally = true;
+
+    const noteBeforeDictation = note.trim();
+    let receivedTranscript = false;
     recognition.onresult = (event) => {
       const pieces: string[] = [];
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        if (event.results[index].isFinal) pieces.push(event.results[index][0].transcript.trim());
+      for (let index = 0; index < event.results.length; index += 1) {
+        const transcript = event.results[index][0]?.transcript?.trim();
+        if (transcript) pieces.push(transcript);
       }
-      if (pieces.length) setNote((current) => `${current}${current.trim() ? " " : ""}${pieces.join(" ")}`);
+      const spoken = pieces.join(" ").trim();
+      if (spoken) {
+        receivedTranscript = true;
+        setNote(`${noteBeforeDictation}${noteBeforeDictation ? " " : ""}${spoken}`);
+      }
     };
-    recognition.onend = () => { recognitionRef.current = null; setListening(false); };
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      setListening(false);
+      if (!receivedTranscript && isOpera) {
+        toast.info("O Opera encerrou o áudio sem devolver texto", { description: "Toque novamente no microfone. Se o pacote local estiver disponível, o LYVRA passa a usá-lo automaticamente." });
+      }
+    };
     recognition.onerror = (event) => {
       recognitionRef.current = null;
       setListening(false);
@@ -486,6 +530,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
         "audio-capture": "Nenhum microfone disponível foi encontrado neste computador.",
         "no-speech": "Não ouvi fala. Toque no microfone e fale novamente.",
         "network": "A transcrição por voz perdeu a conexão. Tente novamente.",
+        "language-not-supported": "O português ainda não está disponível para reconhecimento local neste navegador.",
       };
       toast.error("Não consegui transcrever o áudio", { description: descriptions[code] ?? "Confira o microfone e a permissão do navegador e tente novamente." });
     };
