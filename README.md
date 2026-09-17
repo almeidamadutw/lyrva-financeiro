@@ -12,6 +12,7 @@ Sistema financeiro interno da Casal Odonto para acompanhar pacientes, parcelas, 
 - lembrete D-1 de boleto atribuído à Maria Eduarda do financeiro;
 - régua de cobrança de boleto em aberto iniciada em D+3 dias úteis e atribuída à Daiane;
 - integração Clinicorp separada por unidade para leitura e baixa de pagamentos confirmados;
+- sincronização automática das baixas recentes do Clinicorp a cada 15 minutos;
 - banco PostgreSQL no Supabase com autenticação, perfis, RLS, auditoria e histórico de sincronização;
 - integração com WhatsApp Business preparada como próxima fase, sem disparos automáticos antes da aprovação do roteiro e da configuração oficial da Meta.
 
@@ -48,6 +49,11 @@ A Edge Function `clinicorp-sync` mantém as duas unidades separadas e possui doi
 2. **Sincronizar baixas**: processa pagamentos confirmados de boleto/cartão e tenta vinculá-los somente a registros já existentes no LYVRA.
 
 O vínculo é conservador. Quando paciente ou parcela não possuem correspondência segura, o movimento é ignorado e o motivo fica registrado no histórico técnico, sem criar dados automaticamente.
+
+A rotina automática compara o movimento com o último payload já aplicado e só
+reprocessa pagamentos novos ou alterados. Ela grava um resumo por execução; o
+histórico detalhado por movimento fica reservado à sincronização manual, evitando
+crescimento desnecessário do banco sem perder o diagnóstico operacional.
 
 ## Jornada financeira
 

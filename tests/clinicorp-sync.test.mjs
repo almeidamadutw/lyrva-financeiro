@@ -8,6 +8,11 @@ import {
   summarizePayments,
   validateDateRange,
 } from "../supabase/functions/clinicorp-sync/clinicorp.mjs";
+import {
+  eligibleAutomaticPayments,
+  externalPaymentId,
+  paymentChanged,
+} from "../supabase/functions/clinicorp-auto-sync/clinicorp.mjs";
 
 test("keeps Clinicorp subscribers separate and selects the matching unit", () => {
   assert.deepEqual(
@@ -81,4 +86,37 @@ test("maps only boleto and card movements for LYVRA", () => {
   assert.equal(mapping.skippedInstallments, 1);
   assert.equal(mapping.skippedReceipts, 1);
   assert.deepEqual(mapping.postedByMethod, { boleto: 1, card: 1, ignored: 1 });
+});
+
+test("automatic sync keeps only confirmed boleto and card rows", () => {
+  const eligible = eligibleAutomaticPayments([
+    { id: "boleto-1", PatientId: "10", PaymentConfirmed: "X", ConfirmedDate: "2026-09-17", PaymentForm: "Boleto" },
+    { id: "card-1", PatientId: "11", PaymentConfirmed: "X", ConfirmedDate: "2026-09-17", PaymentForm: "Cartão de Crédito" },
+    { id: "pix-1", PatientId: "12", PaymentConfirmed: "X", ConfirmedDate: "2026-09-17", PaymentForm: "Pix" },
+    { id: "pending-1", PatientId: "13", PaymentConfirmed: "", ConfirmedDate: "", PaymentForm: "Boleto" },
+  ]);
+
+  assert.deepEqual(eligible.map(externalPaymentId), ["boleto-1", "card-1"]);
+});
+
+test("automatic sync ignores unchanged raw Clinicorp payloads", () => {
+  const incoming = {
+    id: "payment-1",
+    PatientId: "10",
+    Amount: 120.5,
+    PaymentConfirmed: "X",
+    ConfirmedDate: "2026-09-17T12:00:00Z",
+    PaymentForm: "Boleto",
+  };
+  const reordered = {
+    PaymentForm: "Boleto",
+    ConfirmedDate: "2026-09-17T12:00:00Z",
+    PaymentConfirmed: "X",
+    Amount: 120.5,
+    PatientId: "10",
+    id: "payment-1",
+  };
+
+  assert.equal(paymentChanged(incoming, reordered), false);
+  assert.equal(paymentChanged({ ...incoming, Amount: 121 }, reordered), true);
 });
