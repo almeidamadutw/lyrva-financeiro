@@ -153,6 +153,7 @@ type InvoiceObligation = {
   scheduledIssueDate?: string | null;
   ruleCode?: string | null;
   issuedAmount?: number;
+  issuedAt?: string | null;
 };
 
 type ClinicorpUnitCode = "sorocaba" | "salto_de_pirapora";
@@ -464,9 +465,9 @@ export function LyvraApp() {
     };
   }, []);
 
-  const loadFinancialData = useCallback(async () => {
+  const loadFinancialData = useCallback(async (silent = false) => {
     const supabase = getSupabaseBrowserClient();
-    setLoadingPatients(true);
+    if (!silent) setLoadingPatients(true);
     try {
       const tomorrow = new Date();
       tomorrow.setHours(0, 0, 0, 0);
@@ -553,6 +554,7 @@ export function LyvraApp() {
           scheduledIssueDate: row.scheduled_issue_date,
           ruleCode: row.rule_code,
           issuedAmount: Number(row.issued_amount ?? 0),
+          issuedAt: row.invoice_issued_at ?? null,
         };
       }));
       setReminderCount(reminderResult.count ?? 0);
@@ -562,7 +564,7 @@ export function LyvraApp() {
       setReminderCount(0);
       throw error;
     } finally {
-      setLoadingPatients(false);
+      if (!silent) setLoadingPatients(false);
     }
   }, []);
 
@@ -604,6 +606,20 @@ export function LyvraApp() {
       listener.subscription.unsubscribe();
     };
   }, [loadFinancialData, loadProfile]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.operationalArea === "support") return;
+    const refresh = () => { void loadFinancialData(true).catch(() => undefined); };
+    const interval = window.setInterval(refresh, 60_000);
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [currentUser, loadFinancialData]);
 
   const unitFilter = <UnitSelect value={unit} onChange={setUnit} />;
 
@@ -749,11 +765,13 @@ function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: strin
   const pending = allFiltered.filter((item) => item.rawStatus !== "issued" && item.rawStatus !== "cancelled").slice(0, 4);
   const ready = allFiltered.filter((item) => item.rawStatus === "ready");
   const waiting = allFiltered.filter((item) => ["forecast", "awaiting_payment", "payment_unconfirmed", "open"].includes(item.rawStatus));
-  const issued = allFiltered.filter((item) => item.rawStatus === "issued");
+  const todayKey = saoPauloDate(new Date());
+  const currentMonthKey = todayKey.slice(0, 7);
+  const issued = allFiltered.filter((item) => item.rawStatus === "issued" && item.issuedAt && saoPauloDate(new Date(item.issuedAt)) <= todayKey && saoPauloDate(new Date(item.issuedAt)).slice(0, 7) === currentMonthKey);
   const total = (items: InvoiceObligation[]) => moneyValue(items.reduce((sum, item) => sum + item.amountValue, 0));
   return <div className="space-y-5">
     <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMECE POR AQUI</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira as pendências com prazo mais próximo.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Use os cards para acompanhar a operação. Entre na tela específica para executar a tarefa e registrar a conclusão.</p></div><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></section>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Notas emitidas" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Emitidas neste mês" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes amanhã" value={String(reminderCount)} detail="Agendados" icon={MessageCircle} accent="violet" /></section>
     <section className="lyvra-split-dashboard"><ObligationsTable title="Pendências operacionais" description="Abra a obrigação para conferir o que precisa ser feito." obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={allFiltered} /><ActivityCard /></div></section>
   </div>;
 }

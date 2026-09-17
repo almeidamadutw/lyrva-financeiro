@@ -66,8 +66,8 @@ export function FinancialJourney({ unit, mode = "management" }: FinancialJourney
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const supabase = getSupabaseBrowserClient();
     try {
       const [taskResult, unitResult, profileResult] = await Promise.all([
@@ -92,12 +92,21 @@ export function FinancialJourney({ unit, mode = "management" }: FinancialJourney
         description: error instanceof Error ? error.message : "Tente novamente.",
       });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
+    const refresh = () => { void load(true); };
+    const interval = window.setInterval(refresh, 60_000);
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("focus", refresh); };
   }, [load]);
 
   const unitById = useMemo(() => new Map(units.map((item) => [item.id, item])), [units]);

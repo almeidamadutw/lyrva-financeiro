@@ -108,6 +108,8 @@ type SpeechRecognitionEventLike = {
   results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>;
 };
 
+type SpeechRecognitionErrorEventLike = { error?: string; message?: string };
+
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
@@ -116,7 +118,7 @@ type SpeechRecognitionLike = {
   stop: () => void;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
 };
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
@@ -200,8 +202,8 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [yearFilter, setYearFilter] = useState("all");
   const [quickPeriod, setQuickPeriod] = useState("all");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
       const [queueResult, interactionResult, profileResult, settledResult] = await Promise.all([
@@ -219,11 +221,19 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     } catch (error) {
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const refresh = () => { void load(true); };
+    const interval = window.setInterval(refresh, 60_000);
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("focus", refresh); };
+  }, [load]);
   useEffect(() => {
     if (!openPatientId) return;
     onPatientOpened?.();
@@ -425,17 +435,70 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
   const [saving, setSaving] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
-  const stopListening = () => { recognitionRef.current?.stop(); recognitionRef.current = null; setListening(false); };
-  const toggleListening = () => {
+  const stopListening = () => {
+    try { recognitionRef.current?.stop(); } catch { /* reconhecimento já encerrado */ }
+    recognitionRef.current = null;
+    setListening(false);
+  };
+
+  const toggleListening = async () => {
     if (listening) { stopListening(); return; }
+    if (!window.isSecureContext) {
+      toast.error("O microfone precisa de uma conexão segura", { description: "Abra o LYVRA pelo endereço HTTPS oficial." });
+      return;
+    }
+
     const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!Recognition) { toast.info("Transcrição indisponível neste navegador", { description: "Você ainda pode escrever a negociação normalmente." }); return; }
+    if (!Recognition) {
+      toast.info("Este navegador não oferece transcrição por voz", { description: "No Chrome ou Edge o botão de ditado funciona diretamente. Você também pode usar o ditado do Windows com Win + H dentro do campo." });
+      return;
+    }
+
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch {
+      toast.error("Permissão do microfone bloqueada", { description: "Libere o microfone para este site nas permissões do navegador e tente novamente." });
+      return;
+    }
+
     const recognition = new Recognition();
-    recognition.lang = "pt-BR"; recognition.continuous = true; recognition.interimResults = false;
-    recognition.onresult = (event) => { const pieces: string[] = []; for (let index = event.resultIndex; index < event.results.length; index += 1) if (event.results[index].isFinal) pieces.push(event.results[index][0].transcript.trim()); if (pieces.length) setNote((current) => `${current}${current.trim() ? " " : ""}${pieces.join(" ")}`); };
+    recognition.lang = "pt-BR";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const pieces: string[] = [];
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        if (event.results[index].isFinal) pieces.push(event.results[index][0].transcript.trim());
+      }
+      if (pieces.length) setNote((current) => `${current}${current.trim() ? " " : ""}${pieces.join(" ")}`);
+    };
     recognition.onend = () => { recognitionRef.current = null; setListening(false); };
-    recognition.onerror = () => { recognitionRef.current = null; setListening(false); toast.error("Não consegui ouvir o áudio", { description: "Confira a permissão do microfone ou digite a observação." }); };
-    recognitionRef.current = recognition; recognition.start(); setListening(true);
+    recognition.onerror = (event) => {
+      recognitionRef.current = null;
+      setListening(false);
+      const code = event?.error ?? "unknown";
+      const descriptions: Record<string, string> = {
+        "not-allowed": "O navegador bloqueou o microfone. Libere a permissão do site e tente novamente.",
+        "service-not-allowed": "O serviço de transcrição foi bloqueado pelo navegador. Tente Chrome ou Edge.",
+        "audio-capture": "Nenhum microfone disponível foi encontrado neste computador.",
+        "no-speech": "Não ouvi fala. Toque no microfone e fale novamente.",
+        "network": "A transcrição por voz perdeu a conexão. Tente novamente.",
+      };
+      toast.error("Não consegui transcrever o áudio", { description: descriptions[code] ?? "Confira o microfone e a permissão do navegador e tente novamente." });
+    };
+
+    try {
+      recognitionRef.current = recognition;
+      recognition.start();
+      setListening(true);
+    } catch {
+      recognitionRef.current = null;
+      setListening(false);
+      toast.error("O ditado não pôde ser iniciado", { description: "Feche qualquer gravação de voz aberta e tente novamente." });
+    }
   };
 
   const register = async () => {
