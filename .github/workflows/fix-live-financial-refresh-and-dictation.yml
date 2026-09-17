@@ -1,0 +1,34 @@
+name: Corrigir atualização financeira e ditado
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-live-financial-refresh-and-dictation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Aplicar correções
+        run: python3 .github/scripts/fix_live_financial_refresh_and_dictation.py
+      - name: Validar produção
+        run: |
+          npm ci
+          npx next build
+      - name: Publicar
+        run: |
+          git config user.name "lyvra-automation"
+          git config user.email "164823888+almeidamadutw@users.noreply.github.com"
+          git add components/lyvra-app.tsx components/collections-journey-real.tsx components/financial-journey.tsx components/payment-reminder-review.tsx
+          git commit -m "fix: atualiza dados financeiros e corrige ditado"
+          git push
