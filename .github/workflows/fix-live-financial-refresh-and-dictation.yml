@@ -20,7 +20,14 @@ jobs:
           node-version: 22
           cache: npm
       - name: Aplicar correções
-        run: python3 .github/scripts/fix_live_financial_refresh_and_dictation.py
+        run: |
+          python3 .github/scripts/fix_live_financial_refresh_and_dictation.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('components/lyvra-app.tsx')
+          s = p.read_text(encoding='utf-8').replace('const todayKey = saoPauloDate();', 'const todayKey = saoPauloDate(new Date());', 1)
+          p.write_text(s, encoding='utf-8')
+          PY
       - name: Validar produção
         run: |
           npm ci
