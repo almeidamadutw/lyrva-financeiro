@@ -15,12 +15,10 @@ import { parseNfWorkbook, type ParsedNfPatient } from "@/lib/nf-workbook";
 type Props = { onImported: () => Promise<void> };
 
 const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
-const financialBlocking = (row: ParsedNfPatient) => {
-  if (!row.name) return true;
-  if (row.recordType === "patient_directory") return false;
-  if (row.recordType === "invoice_record") return !row.competenceStart;
-  return !row.startDate || !row.installments || row.installmentAmountCents <= 0;
-};
+const patientKey = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+const financialBlocking = (row: ParsedNfPatient) => !row.name;
+const hasIncompletePlan = (row: ParsedNfPatient) => row.recordType === "financial_plan"
+  && (!row.startDate || !row.installments || row.installmentAmountCents <= 0);
 const needsReview = (row: ParsedNfPatient) => financialBlocking(row) || !row.unit;
 
 export function NfWorkbookImportView({ onImported }: Props) {
@@ -41,8 +39,29 @@ export function NfWorkbookImportView({ onImported }: Props) {
     setFileName(file.name);
     try {
       const result = await parseNfWorkbook(file);
-      setRows(result.rows);
-      setSheetNames(result.sheets);
+      const supabase = getSupabaseBrowserClient();
+      const settledResult = await (supabase as any).from("patients").select("full_name,cpf").not("settled_at", "is", null);
+      if (settledResult.error) throw settledResult.error;
+      const settledNames = new Set(((settledResult.data ?? []) as any[]).map((item) => patientKey(String(item.full_name ?? ""))));
+      const settledCpfs = new Set(((settledResult.data ?? []) as any[]).map((item) => String(item.cpf ?? "").replace(/\D/g, "")).filter(Boolean));
+      let preservedAsDirectory = 0;
+      const importableRows = result.rows.map((row) => {
+        const settled = settledNames.has(patientKey(row.name))
+          || Boolean(row.cpf && settledCpfs.has(String(row.cpf).replace(/\D/g, "")));
+        if ((settled || hasIncompletePlan(row)) && row.recordType === "financial_plan") {
+          preservedAsDirectory += 1;
+          return {
+            ...row,
+            recordType: "patient_directory" as const,
+            reviewReason: settled
+              ? "Paciente quitado: registro preservado sem reativar o plano."
+              : "Dados financeiros incompletos: cadastro preservado sem inventar parcelamento.",
+          };
+        }
+        return row;
+      });
+      setRows(importableRows); setSheetNames(result.sheets);
+      if (preservedAsDirectory) toast.info(`${preservedAsDirectory} registro(s) preservado(s) como cadastro`, { description: "Nenhuma linha foi descartada; planos incompletos ou quitados não geram cobranças novas." });
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Não foi possível ler a planilha.");
     }
@@ -262,7 +281,7 @@ export function NfWorkbookImportView({ onImported }: Props) {
 
           {(blocking.length > 0 || warnings.length > 0 || unitPending.length > 0) && <div className="border-t border-[#e7ebe7] bg-[#fffaf3] px-5 py-4 text-sm text-[#765a32] md:px-6">
             {unitPending.length > 0 && <p><strong>{unitPending.length} registro(s) ainda precisam de unidade.</strong> Os registros já identificados podem ser importados sem bloquear o lote inteiro.</p>}
-            {blocking.length > 0 && <p className={unitPending.length ? "mt-1" : ""}><strong>{blocking.length} linha(s) precisam de revisão.</strong> Quando tiverem nome e unidade, elas são enviadas e ficam registradas no relatório, mesmo se algum dado fiscal estiver incompleto.</p>}
+            {blocking.length > 0 && <p className={unitPending.length ? "mt-1" : ""}><strong>{blocking.length} linha(s) sem nome</strong> não podem formar um cadastro.</p>}
             {warnings.length > 0 && <p className={unitPending.length || blocking.length ? "mt-1" : ""}>{warnings.length} registro(s) têm alerta de conferência, mas podem ser importados.</p>}
           </div>}
 

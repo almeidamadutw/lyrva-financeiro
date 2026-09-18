@@ -181,7 +181,7 @@ function paymentMethodFromSheet(sheetName: string): "Cartão" | "Boleto" | null 
   return null;
 }
 
-function detailedSourceSystem(paymentMethod: "Cartão" | "Boleto") {
+function detailedSourceSystem() {
   return "Clinicorp" as const;
 }
 
@@ -199,9 +199,8 @@ function parseDetailedSheet(
     const row = rows[index] ?? [];
     const rawName = text(row[0]);
     if (!rawName) continue;
-    if (/\b(?:pago|paga|quitado|quitada)\b/i.test(rawName)) continue;
-
-    const { name, annotation } = splitNameAnnotation(rawName);
+    const cleanedName = cleanLegacyPatientName(rawName);
+    const { name, annotation } = splitNameAnnotation(cleanedName);
     const observation = text(row[13]);
     const combinedNote = [annotation, observation].filter(Boolean).join(" • ");
     const startDate = parseDate(row[1], XLSX);
@@ -237,7 +236,7 @@ function parseDetailedSheet(
       name,
       unit,
       paymentMethod,
-      sourceSystem: detailedSourceSystem(paymentMethod),
+      sourceSystem: detailedSourceSystem(),
       recordType: "financial_plan",
       planAmountCents,
       installmentAmountCents,
@@ -335,7 +334,6 @@ function parseLegacyBlock(
     const row = rows[index] ?? [];
     const rawName = text(row[offset]);
     if (!rawName || isPatientHeader(rawName)) continue;
-    if (/\b(?:pago|paga|quitado|quitada)\b/i.test(rawName)) continue;
     const key = normalize(rawName);
     if (!key || key.startsWith("total") || key.startsWith("soma")) continue;
 

@@ -1,18 +1,258 @@
 "use client";
-import {useMemo,useRef,useState} from "react";
-import {AlertCircle,CheckCircle2,FileSpreadsheet,LoaderCircle,Search,ShieldAlert,UploadCloud} from "lucide-react";
-import {toast} from "sonner";
-import {Badge} from "@/components/ui/badge";import {Button} from "@/components/ui/button";import {Input} from "@/components/ui/input";import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from "@/components/ui/table";import {getSupabaseBrowserClient} from "@/lib/supabase/client";import {parseCollectionsWorkbook,type ParsedCollectionRow,type ParsedNegotiation} from "@/lib/collections-workbook";
-const norm=(v:string)=>v.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");const money=(c:number)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(c/100);const dateLabel=(iso:string)=>new Intl.DateTimeFormat("pt-BR",{timeZone:"UTC"}).format(new Date(`${iso}T12:00:00Z`));function addBusinessDays(iso:string,n:number){const d=new Date(`${iso}T12:00:00Z`);while(n>0){d.setUTCDate(d.getUTCDate()+1);if(![0,6].includes(d.getUTCDay()))n--}return d.toISOString().slice(0,10)}
-function caseState(row:ParsedCollectionRow){if(row.protested)return{status:"protested",next:null};const note=row.notes??"";const m=[...note.matchAll(/(?:dia\s*)?(\d{1,2})\/(\d{1,2})/gi)].at(-1);const y=Number(row.dueDate.slice(0,4));const next=m?`${y}-${String(+m[2]).padStart(2,"0")}-${String(+m[1]).padStart(2,"0")}T12:00:00-03:00`:null;if(/renegoci/i.test(note))return{status:"negotiating",next};if(/vai\s+pagar|paga\s+dia|pagamento\s+(?:no|dia)|promet/i.test(note))return{status:"promise",next};return{status:"pending_contact",next:null}}
-function chunks<T>(a:T[],n:number){const r:T[][]=[];for(let i=0;i<a.length;i+=n)r.push(a.slice(i,i+n));return r}
-export function CollectionsWorkbookImportView({onImported}:{onImported?:()=>Promise<void>|void}){const inputRef=useRef<HTMLInputElement>(null);const[fileName,setFileName]=useState("");const[rows,setRows]=useState<ParsedCollectionRow[]>([]);const[negotiations,setNegotiations]=useState<ParsedNegotiation[]>([]);const[sheets,setSheets]=useState<string[]>([]);const[error,setError]=useState("");const[search,setSearch]=useState("");const[importing,setImporting]=useState(false);
-const parseFile=async(file:File)=>{setFileName(file.name);setError("");setRows([]);try{const p=await parseCollectionsWorkbook(file);setRows(p.rows);setNegotiations(p.negotiations);setSheets(p.sheets)}catch(e){setError(e instanceof Error?e.message:"Não foi possível ler a planilha.")}};const openRows=rows.filter(r=>!r.settled),settled=rows.filter(r=>r.settled),protested=openRows.filter(r=>r.protested);const visible=useMemo(()=>{const q=norm(search);return q?rows.filter(r=>norm(`${r.patientName} ${r.cpf??""} ${r.sourceSheet}`).includes(q)):rows},[rows,search]);
-const submit=async()=>{if(!openRows.length)return;setImporting(true);try{const supabase=getSupabaseBrowserClient();let preparedCreated=0,preparedUpdated=0,preparedInstallments=0,preparedSkipped=0;for(const g of chunks(openRows,100)){const prep=await (supabase as any).rpc("prepare_collection_import_targets",{p_unit_code:"sorocaba",p_rows:JSON.parse(JSON.stringify(g))});if(prep.error)throw prep.error;const summary=prep.data?.[0];preparedCreated+=Number(summary?.created_patients??0);preparedUpdated+=Number(summary?.updated_patients??0);preparedInstallments+=Number(summary?.created_installments??0);preparedSkipped+=Number(summary?.skipped_settled??0)}const[pRes,planRes,instRes,uRes]=await Promise.all([supabase.from("patient_directory").select("patient_unit_id,patient_id,full_name,cpf,unit_id,unit_name"),supabase.from("payment_plans").select("id,patient_unit_id,status"),supabase.from("installments").select("id,payment_plan_id,due_date,expected_amount,status"),supabase.from("units").select("id,collection_assignee_user_id").eq("code","sorocaba").maybeSingle()]);const err=pRes.error??planRes.error??instRes.error??uRes.error;if(err)throw err;if(!uRes.data)throw new Error("Sorocaba não foi encontrada.");const unitId=Number((uRes.data as any).id),assignee=(uRes.data as any).collection_assignee_user_id;const patients=(pRes.data??[]) as any[],plans=(planRes.data??[]) as any[],insts=(instRes.data??[]) as any[];const byCpf=new Map<string,any>(),byName=new Map<string,any>();patients.filter(p=>Number(p.unit_id)===unitId).forEach(p=>{if(p.cpf)byCpf.set(String(p.cpf).replace(/\D/g,""),p);byName.set(norm(p.full_name),p)});const planIds=new Map<number,number[]>();plans.filter(p=>["active","completed","suspended"].includes(p.status)).forEach(p=>planIds.set(Number(p.patient_unit_id),[...(planIds.get(Number(p.patient_unit_id))??[]),Number(p.id)]));const byPlan=new Map<number,any[]>();insts.forEach(i=>byPlan.set(Number(i.payment_plan_id),[...(byPlan.get(Number(i.payment_plan_id))??[]),i]));const mapped:Array<{row:ParsedCollectionRow;patient:any;installment:any}>=[],unmatched:ParsedCollectionRow[]=[];for(const row of openRows){const p=(row.cpf?byCpf.get(row.cpf):undefined)??byName.get(norm(row.patientName));if(!p){unmatched.push(row);continue}const candidates=(planIds.get(Number(p.patient_unit_id))??[]).flatMap(id=>byPlan.get(id)??[]).filter(i=>i.due_date===row.dueDate);if(!candidates.length){unmatched.push(row);continue}const target=row.openAmountCents/100;const installment=[...candidates].sort((a,b)=>Math.abs(Number(a.expected_amount)-target)-Math.abs(Number(b.expected_amount)-target))[0];mapped.push({row,patient:p,installment})}
-const ids=[...new Set(mapped.map(x=>Number(x.installment.id)))];const existing:any[]=[];for(const g of chunks(ids,100)){if(!g.length)continue;const r=await (supabase as any).from("collection_cases").select("id,installment_id,status,notes,protested_at").in("installment_id",g);if(r.error)throw r.error;existing.push(...(r.data??[]))}const caseByInst=new Map(existing.map(x=>[Number(x.installment_id),x]));const insert=mapped.filter(x=>!caseByInst.has(Number(x.installment.id))).map(x=>{const state=caseState(x.row),eligible=addBusinessDays(x.row.dueDate,3);return{unit_id:unitId,patient_unit_id:x.patient.patient_unit_id,installment_id:x.installment.id,responsible_user_id:assignee,eligible_at:eligible,status:state.status,next_action_at:state.next??`${eligible}T12:00:00-03:00`,protested_at:x.row.protested?`${x.row.dueDate}T12:00:00-03:00`:null,notes:x.row.notes??`Importado da régua ${x.row.sourceSheet}.`}});for(const g of chunks(insert,50)){const r=await (supabase as any).from("collection_cases").insert(g);if(r.error)throw r.error}
-for(const x of mapped){const old=caseByInst.get(Number(x.installment.id));if(!old)continue;const state=caseState(x.row),changes:any={};if(x.row.protested&&old.status!=="protested"){changes.status="protested";changes.protested_at=old.protested_at??`${x.row.dueDate}T12:00:00-03:00`}else if(old.status==="pending_contact"&&state.status!=="pending_contact"){changes.status=state.status;changes.next_action_at=state.next}if(!old.notes&&x.row.notes)changes.notes=x.row.notes;if(Object.keys(changes).length){const r=await (supabase as any).from("collection_cases").update(changes).eq("id",old.id);if(r.error)throw r.error}}
-const refreshed:any[]=[];for(const g of chunks(ids,100)){const r=await (supabase as any).from("collection_cases").select("id,installment_id").in("installment_id",g);if(r.error)throw r.error;refreshed.push(...(r.data??[]))}const refreshedMap=new Map(refreshed.map(x=>[Number(x.installment_id),x]));const caseIds=refreshed.map(x=>Number(x.id));const oldInteractions:any[]=[];for(const g of chunks(caseIds,100)){if(!g.length)continue;const r=await (supabase as any).from("collection_interactions").select("collection_case_id,notes").in("collection_case_id",g);if(r.error)throw r.error;oldInteractions.push(...(r.data??[]))}const keys=new Set(oldInteractions.map(x=>`${x.collection_case_id}|${x.notes}`));const interactions:any[]=[];const caseHistory=new Map<number,Array<{caseId:number;dueDate:string}>>();for(const x of mapped){const c=refreshedMap.get(Number(x.installment.id));if(!c)continue;caseHistory.set(Number(x.patient.patient_id),[...(caseHistory.get(Number(x.patient.patient_id))??[]),{caseId:Number(c.id),dueDate:x.row.dueDate}]);const source=x.row.notes||(x.row.protested?"Paciente marcado como protestado na planilha.":"");if(!source)continue;const note=`Planilha ${x.row.sourceSheet}: ${source}`,key=`${c.id}|${note}`;if(keys.has(key))continue;keys.add(key);interactions.push({unit_id:unitId,collection_case_id:c.id,channel:"system",outcome:x.row.protested?"protest":"note",notes:note,occurred_at:`${x.row.dueDate}T12:00:00-03:00`})}
-for(const n of negotiations){const p=byName.get(norm(n.patientName));if(!p)continue;const h=[...(caseHistory.get(Number(p.patient_id))??[])].sort((a,b)=>a.dueDate.localeCompare(b.dueDate));const c=h.filter(x=>x.dueDate<=n.date).at(-1)??h.at(-1);if(!c)continue;const note=[`Negociação de ${dateLabel(n.date)}`,n.negotiatedAmountCents?`negociado ${money(n.negotiatedAmountCents)}`:"",n.receivedAmountCents?`recebido ${money(n.receivedAmountCents)}`:"",n.paymentMethod??"",n.notes??""].filter(Boolean).join(" • ");const key=`${c.caseId}|${note}`;if(keys.has(key))continue;keys.add(key);interactions.push({unit_id:unitId,collection_case_id:c.caseId,channel:"system",outcome:n.receivedAmountCents>0?"payment":"negotiation",notes:note,occurred_at:`${n.date}T12:00:00-03:00`})}for(const g of chunks(interactions,50)){const r=await (supabase as any).from("collection_interactions").insert(g);if(r.error)throw r.error}
-for(const row of settled){const p=(row.cpf?byCpf.get(row.cpf):undefined)??byName.get(norm(row.patientName));if(!p)continue;const installment=(planIds.get(Number(p.patient_unit_id))??[]).flatMap(id=>byPlan.get(id)??[]).find(i=>i.due_date===row.dueDate);if(!installment)continue;await (supabase as any).from("collection_cases").update({status:"paid",outcome:"paid",closed_at:new Date().toISOString()}).eq("installment_id",installment.id)}toast.success("Régua importada",{description:`${mapped.length} caso(s) vinculados • ${preparedCreated} paciente(s) criado(s) • ${preparedUpdated} atualizado(s) • ${preparedInstallments} parcela(s) técnica(s) criada(s) • ${interactions.length} histórico(s) trazidos • ${settled.length} quitado(s) fora da cobrança.`});if(preparedSkipped)toast.info(`${preparedSkipped} paciente(s) quitado(s) foram ignorados.`);if(unmatched.length)toast.warning(`${unmatched.length} registro(s) ficaram para revisão`,{description:"Não foi possível vincular esses registros com segurança."});await onImported?.()}catch(e){toast.error("Não foi possível importar a régua",{description:e instanceof Error?e.message:"Tente novamente."})}finally{setImporting(false)}};
-return <div className="space-y-5"><section className="grid gap-5 xl:grid-cols-[.72fr_1.28fr]"><div className="surface-card rounded-[24px] p-5 md:p-7"><p className="eyebrow">RÉGUA DA DAI</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Importar histórico de cobrança</h2><p className="mt-2 text-sm leading-6 text-[#718078]">A Régua procura primeiro os pacientes e parcelas já cadastrados. Quando faltar cadastro ou parcela, ela cria/atualiza o necessário sem duplicar e traz o histórico da Dai.</p><input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.xls" onChange={e=>{const f=e.target.files?.[0];if(f)void parseFile(f)}}/><button type="button" onClick={()=>inputRef.current?.click()} className="mt-5 flex min-h-44 w-full flex-col items-center justify-center rounded-[22px] border border-dashed border-[#b7c4ba] bg-[#fafbf8] px-6 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><UploadCloud className="size-6"/></div><p className="mt-4 font-medium">{fileName||"Escolher planilha da régua"}</p><p className="mt-1 text-xs text-[#87928c]">Régua de Cobrança — Sorocaba</p></button>{error&&<div className="mt-4 flex gap-2 rounded-2xl bg-[#fae8e3] p-4 text-sm text-[#934e3f]"><AlertCircle className="size-4"/>{error}</div>}</div><div className="surface-card overflow-hidden rounded-[24px]"><div className="border-b border-[#e7ebe7] p-5 md:px-6"><div className="flex justify-between"><div><p className="eyebrow">CONFERÊNCIA</p><h2 className="font-display mt-2 text-xl font-semibold">Antes de trazer para a Dai</h2></div>{rows.length>0&&<Badge variant="secondary">{rows.length} registros</Badge>}</div>{sheets.length>0&&<p className="mt-2 text-xs text-[#87928c]">Abas lidas: {sheets.join(", ")}</p>}</div>{rows.length?<><div className="grid grid-cols-2 gap-px bg-[#e8ece8] sm:grid-cols-4"><Summary value={openRows.length} label="Em aberto"/><Summary value={settled.length} label="Quitados"/><Summary value={protested.length} label="Protestados"/><Summary value={negotiations.length} label="Negociações"/></div><div className="border-b p-4 md:px-6"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9aa49e]"/><Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar paciente, CPF ou mês" className="h-10 rounded-xl pl-9"/></div></div><div className="max-h-[520px] overflow-auto"><Table><TableHeader className="sticky top-0 bg-[#fafbf8]"><TableRow><TableHead className="pl-6">Paciente</TableHead><TableHead>Vencimento</TableHead><TableHead>Em aberto</TableHead><TableHead>Recebido</TableHead><TableHead>Situação</TableHead></TableRow></TableHeader><TableBody>{visible.map(r=><TableRow key={`${r.sourceSheet}-${r.sourceRow}`}><TableCell className="py-4 pl-6"><p className="font-medium">{r.patientName}</p><p className="mt-1 text-xs text-[#87928c]">{r.cpf||"CPF não informado"} • {r.sourceSheet}</p></TableCell><TableCell>{dateLabel(r.dueDate)}</TableCell><TableCell>{money(r.openAmountCents)}</TableCell><TableCell>{r.receivedAmountCents?money(r.receivedAmountCents):"—"}</TableCell><TableCell>{r.settled?<Badge className="bg-[#e8f5df] text-[#55762e]"><CheckCircle2/> Quitado</Badge>:r.protested?<Badge className="bg-[#fae8e3] text-[#934e3f]"><ShieldAlert/> Protestado</Badge>:<Badge variant="secondary">Em aberto</Badge>}</TableCell></TableRow>)}</TableBody></Table></div><div className="flex flex-col gap-3 border-t p-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#7d8982]">A Régua atualiza pacientes existentes e cria somente o que estiver faltando. Pacientes quitados continuam fora da cobrança.</p><Button onClick={()=>void submit()} disabled={importing||!openRows.length}>{importing?<><LoaderCircle className="animate-spin"/> Importando…</>:<><FileSpreadsheet/> Trazer histórico para a régua</>}</Button></div></>:<div className="grid min-h-80 place-items-center text-center text-sm text-[#7d8982]">Selecione a planilha da régua.</div>}</div></section></div>}
-function Summary({value,label}:{value:number;label:string}){return <div className="bg-white p-5 text-center"><p className="font-display text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-[#7f8b84]">{label}</p></div>}
+
+import { useMemo, useRef, useState } from "react";
+import { AlertCircle, CheckCircle2, FileSpreadsheet, LoaderCircle, Search, ShieldAlert, UploadCloud } from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { parseCollectionsWorkbook, type ParsedCollectionRow, type ParsedNegotiation } from "@/lib/collections-workbook";
+
+const norm = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const money = (cents: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+const dateLabel = (iso: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${iso}T12:00:00Z`));
+
+function addBusinessDays(iso: string, days: number) {
+  const date = new Date(`${iso}T12:00:00Z`);
+  while (days > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    if (![0, 6].includes(date.getUTCDay())) days -= 1;
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function caseState(row: ParsedCollectionRow) {
+  if (row.protested) return { status: "protested", next: null };
+  const note = row.notes ?? "";
+  const match = [...note.matchAll(/(?:dia\s*)?(\d{1,2})\/(\d{1,2})/gi)].at(-1);
+  const year = Number(row.dueDate.slice(0, 4));
+  const next = match ? `${year}-${String(Number(match[2])).padStart(2, "0")}-${String(Number(match[1])).padStart(2, "0")}T12:00:00-03:00` : null;
+  if (/renegoci/i.test(note)) return { status: "negotiating", next };
+  if (/vai\s+pagar|paga\s+dia|pagamento\s+(?:no|dia)|promet/i.test(note)) return { status: "promise", next };
+  return { status: "pending_contact", next: null };
+}
+
+function chunks<T>(items: T[], size: number) {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+  return result;
+}
+
+async function fetchAllRows<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
+  const pageSize = 1000;
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await fetchPage(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
+}
+
+export function CollectionsWorkbookImportView({ onImported }: { onImported?: () => Promise<void> | void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState("");
+  const [rows, setRows] = useState<ParsedCollectionRow[]>([]);
+  const [negotiations, setNegotiations] = useState<ParsedNegotiation[]>([]);
+  const [sheets, setSheets] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  const parseFile = async (file: File) => {
+    setFileName(file.name);
+    setError("");
+    setRows([]);
+    try {
+      const parsed = await parseCollectionsWorkbook(file);
+      setRows(parsed.rows);
+      setNegotiations(parsed.negotiations);
+      setSheets(parsed.sheets);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível ler a planilha.");
+    }
+  };
+
+  const openRows = rows.filter((row) => !row.settled);
+  const settled = rows.filter((row) => row.settled);
+  const protested = openRows.filter((row) => row.protested);
+  const visible = useMemo(() => {
+    const query = norm(search);
+    return query ? rows.filter((row) => norm(`${row.patientName} ${row.cpf ?? ""} ${row.sourceSheet}`).includes(query)) : rows;
+  }, [rows, search]);
+
+  const submit = async () => {
+    if (!openRows.length) return;
+    setImporting(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      let preparedCreated = 0;
+      let preparedUpdated = 0;
+      let preparedInstallments = 0;
+      let preparedSkipped = 0;
+      let preparedErrors = 0;
+
+      for (const group of chunks(openRows, 100)) {
+        const prepared = await (supabase as any).rpc("prepare_collection_import_targets", { p_unit_code: "sorocaba", p_rows: JSON.parse(JSON.stringify(group)) });
+        if (prepared.error) throw prepared.error;
+        const summary = prepared.data?.[0];
+        preparedCreated += Number(summary?.created_patients ?? 0);
+        preparedUpdated += Number(summary?.updated_patients ?? 0);
+        preparedInstallments += Number(summary?.created_installments ?? 0);
+        preparedSkipped += Number(summary?.skipped_settled ?? 0);
+        preparedErrors += Number(summary?.error_count ?? 0);
+      }
+      if (preparedErrors) throw new Error(`${preparedErrors} linha(s) não puderam ser preparadas no banco.`);
+
+      const unitResult = await supabase.from("units").select("id,collection_assignee_user_id").eq("code", "sorocaba").maybeSingle();
+      if (unitResult.error) throw unitResult.error;
+      if (!unitResult.data) throw new Error("Sorocaba não foi encontrada.");
+      const unitId = Number((unitResult.data as any).id);
+      const assignee = (unitResult.data as any).collection_assignee_user_id;
+
+      const [patients, plans, installments] = await Promise.all([
+        fetchAllRows<any>((from, to) => supabase.from("patient_directory").select("patient_unit_id,patient_id,full_name,cpf,unit_id,unit_name").eq("unit_id", unitId).range(from, to) as any),
+        fetchAllRows<any>((from, to) => supabase.from("payment_plans").select("id,patient_unit_id,status").eq("unit_id", unitId).range(from, to) as any),
+        fetchAllRows<any>((from, to) => supabase.from("installments").select("id,payment_plan_id,due_date,expected_amount,status").eq("unit_id", unitId).range(from, to) as any),
+      ]);
+
+      const byCpf = new Map<string, any>();
+      const byName = new Map<string, any>();
+      patients.forEach((patient) => {
+        if (patient.cpf) byCpf.set(String(patient.cpf).replace(/\D/g, ""), patient);
+        byName.set(norm(patient.full_name), patient);
+      });
+      const planIds = new Map<number, number[]>();
+      plans.filter((plan) => ["active", "completed", "suspended"].includes(plan.status)).forEach((plan) => {
+        const patientUnitId = Number(plan.patient_unit_id);
+        planIds.set(patientUnitId, [...(planIds.get(patientUnitId) ?? []), Number(plan.id)]);
+      });
+      const byPlan = new Map<number, any[]>();
+      installments.forEach((installment) => {
+        const planId = Number(installment.payment_plan_id);
+        byPlan.set(planId, [...(byPlan.get(planId) ?? []), installment]);
+      });
+
+      const mapped: Array<{ row: ParsedCollectionRow; patient: any; installment: any }> = [];
+      const unmatched: ParsedCollectionRow[] = [];
+      for (const row of openRows) {
+        const patient = (row.cpf ? byCpf.get(row.cpf) : undefined) ?? byName.get(norm(row.patientName));
+        if (!patient) { unmatched.push(row); continue; }
+        const candidates = (planIds.get(Number(patient.patient_unit_id)) ?? []).flatMap((id) => byPlan.get(id) ?? []).filter((installment) => installment.due_date === row.dueDate);
+        if (!candidates.length) { unmatched.push(row); continue; }
+        const target = row.openAmountCents / 100;
+        const installment = [...candidates].sort((a, b) => Math.abs(Number(a.expected_amount) - target) - Math.abs(Number(b.expected_amount) - target))[0];
+        mapped.push({ row, patient, installment });
+      }
+      if (unmatched.length) throw new Error(`${unmatched.length} linha(s) foram gravadas, mas não reapareceram na conferência final. Recarregue a tela antes de importar novamente.`);
+
+      const installmentIds = [...new Set(mapped.map((item) => Number(item.installment.id)))];
+      const existingCases: any[] = [];
+      for (const group of chunks(installmentIds, 100)) {
+        if (!group.length) continue;
+        const result = await (supabase as any).from("collection_cases").select("id,installment_id,status,notes,protested_at").in("installment_id", group);
+        if (result.error) throw result.error;
+        existingCases.push(...(result.data ?? []));
+      }
+      const caseByInstallment = new Map(existingCases.map((item) => [Number(item.installment_id), item]));
+      const casesToInsert = mapped.filter((item) => !caseByInstallment.has(Number(item.installment.id))).map((item) => {
+        const state = caseState(item.row);
+        const eligible = addBusinessDays(item.row.dueDate, 3);
+        return { unit_id: unitId, patient_unit_id: item.patient.patient_unit_id, installment_id: item.installment.id, responsible_user_id: assignee, eligible_at: eligible, status: state.status, next_action_at: state.next ?? `${eligible}T12:00:00-03:00`, protested_at: item.row.protested ? `${item.row.dueDate}T12:00:00-03:00` : null, notes: item.row.notes ?? `Importado da régua ${item.row.sourceSheet}.` };
+      });
+      for (const group of chunks(casesToInsert, 50)) {
+        const result = await (supabase as any).from("collection_cases").insert(group);
+        if (result.error) throw result.error;
+      }
+
+      for (const item of mapped) {
+        const old = caseByInstallment.get(Number(item.installment.id));
+        if (!old) continue;
+        const state = caseState(item.row);
+        const changes: Record<string, unknown> = {};
+        if (item.row.protested && old.status !== "protested") { changes.status = "protested"; changes.protested_at = old.protested_at ?? `${item.row.dueDate}T12:00:00-03:00`; }
+        else if (old.status === "pending_contact" && state.status !== "pending_contact") { changes.status = state.status; changes.next_action_at = state.next; }
+        if (!old.notes && item.row.notes) changes.notes = item.row.notes;
+        if (Object.keys(changes).length) {
+          const result = await (supabase as any).from("collection_cases").update(changes).eq("id", old.id);
+          if (result.error) throw result.error;
+        }
+      }
+
+      const refreshedCases: any[] = [];
+      for (const group of chunks(installmentIds, 100)) {
+        const result = await (supabase as any).from("collection_cases").select("id,installment_id").in("installment_id", group);
+        if (result.error) throw result.error;
+        refreshedCases.push(...(result.data ?? []));
+      }
+      const refreshedMap = new Map(refreshedCases.map((item) => [Number(item.installment_id), item]));
+      const caseIds = refreshedCases.map((item) => Number(item.id));
+      const oldInteractions: any[] = [];
+      for (const group of chunks(caseIds, 100)) {
+        if (!group.length) continue;
+        const result = await (supabase as any).from("collection_interactions").select("collection_case_id,notes").in("collection_case_id", group);
+        if (result.error) throw result.error;
+        oldInteractions.push(...(result.data ?? []));
+      }
+      const interactionKeys = new Set(oldInteractions.map((item) => `${item.collection_case_id}|${item.notes}`));
+      const interactions: any[] = [];
+      const caseHistory = new Map<number, Array<{ caseId: number; dueDate: string }>>();
+      for (const item of mapped) {
+        const collectionCase = refreshedMap.get(Number(item.installment.id));
+        if (!collectionCase) continue;
+        const patientId = Number(item.patient.patient_id);
+        caseHistory.set(patientId, [...(caseHistory.get(patientId) ?? []), { caseId: Number(collectionCase.id), dueDate: item.row.dueDate }]);
+        const source = item.row.notes || (item.row.protested ? "Paciente marcado como protestado na planilha." : "");
+        if (!source) continue;
+        const note = `Planilha ${item.row.sourceSheet}: ${source}`;
+        const key = `${collectionCase.id}|${note}`;
+        if (interactionKeys.has(key)) continue;
+        interactionKeys.add(key);
+        interactions.push({ unit_id: unitId, collection_case_id: collectionCase.id, channel: "system", outcome: item.row.protested ? "protest" : "note", notes: note, occurred_at: `${item.row.dueDate}T12:00:00-03:00` });
+      }
+      for (const negotiation of negotiations) {
+        const patient = byName.get(norm(negotiation.patientName));
+        if (!patient) continue;
+        const history = [...(caseHistory.get(Number(patient.patient_id)) ?? [])].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+        const collectionCase = history.filter((item) => item.dueDate <= negotiation.date).at(-1) ?? history.at(-1);
+        if (!collectionCase) continue;
+        const note = [`Negociação de ${dateLabel(negotiation.date)}`, negotiation.negotiatedAmountCents ? `negociado ${money(negotiation.negotiatedAmountCents)}` : "", negotiation.receivedAmountCents ? `recebido ${money(negotiation.receivedAmountCents)}` : "", negotiation.paymentMethod ?? "", negotiation.notes ?? ""].filter(Boolean).join(" • ");
+        const key = `${collectionCase.caseId}|${note}`;
+        if (interactionKeys.has(key)) continue;
+        interactionKeys.add(key);
+        interactions.push({ unit_id: unitId, collection_case_id: collectionCase.caseId, channel: "system", outcome: negotiation.receivedAmountCents > 0 ? "payment" : "negotiation", notes: note, occurred_at: `${negotiation.date}T12:00:00-03:00` });
+      }
+      for (const group of chunks(interactions, 50)) {
+        const result = await (supabase as any).from("collection_interactions").insert(group);
+        if (result.error) throw result.error;
+      }
+
+      for (const row of settled) {
+        const patient = (row.cpf ? byCpf.get(row.cpf) : undefined) ?? byName.get(norm(row.patientName));
+        if (!patient) continue;
+        const installment = (planIds.get(Number(patient.patient_unit_id)) ?? []).flatMap((id) => byPlan.get(id) ?? []).find((item) => item.due_date === row.dueDate);
+        if (!installment) continue;
+        await (supabase as any).from("collection_cases").update({ status: "paid", outcome: "paid", closed_at: new Date().toISOString() }).eq("installment_id", installment.id);
+      }
+
+      toast.success("Régua importada sem pendências", { description: `${mapped.length} caso(s) vinculados • ${preparedCreated} paciente(s) criado(s) • ${preparedUpdated} atualizado(s) • ${preparedInstallments} parcela(s) técnica(s) criada(s) • ${interactions.length} histórico(s) trazidos • ${settled.length} quitado(s) fora da cobrança.` });
+      if (preparedSkipped) toast.info(`${preparedSkipped} paciente(s) quitado(s) permaneceram fora da cobrança.`);
+      await onImported?.();
+    } catch (caught) {
+      toast.error("Não foi possível importar a régua", { description: caught instanceof Error ? caught.message : "Tente novamente." });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return <div className="space-y-5"><section className="grid gap-5 xl:grid-cols-[.72fr_1.28fr]"><div className="surface-card rounded-[24px] p-5 md:p-7"><p className="eyebrow">RÉGUA DA DAI</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Importar histórico de cobrança</h2><p className="mt-2 text-sm leading-6 text-[#718078]">A Régua procura primeiro os pacientes e parcelas já cadastrados. Quando faltar cadastro ou parcela, ela cria/atualiza o necessário sem duplicar e traz o histórico da Dai.</p><input ref={inputRef} className="sr-only" type="file" accept=".xlsx,.xls" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parseFile(file); }} /><button type="button" onClick={() => inputRef.current?.click()} className="mt-5 flex min-h-44 w-full flex-col items-center justify-center rounded-[22px] border border-dashed border-[#b7c4ba] bg-[#fafbf8] px-6 text-center"><div className="grid size-14 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><UploadCloud className="size-6" /></div><p className="mt-4 font-medium">{fileName || "Escolher planilha da régua"}</p><p className="mt-1 text-xs text-[#87928c]">Régua de Cobrança — Sorocaba</p></button>{error && <div className="mt-4 flex gap-2 rounded-2xl bg-[#fae8e3] p-4 text-sm text-[#934e3f]"><AlertCircle className="size-4" />{error}</div>}</div><div className="surface-card overflow-hidden rounded-[24px]"><div className="border-b border-[#e7ebe7] p-5 md:px-6"><div className="flex justify-between"><div><p className="eyebrow">CONFERÊNCIA</p><h2 className="font-display mt-2 text-xl font-semibold">Antes de trazer para a Dai</h2></div>{rows.length > 0 && <Badge variant="secondary">{rows.length} registros</Badge>}</div>{sheets.length > 0 && <p className="mt-2 text-xs text-[#87928c]">Abas lidas: {sheets.join(", ")}</p>}</div>{rows.length ? <><div className="grid grid-cols-2 gap-px bg-[#e8ece8] sm:grid-cols-4"><Summary value={openRows.length} label="Em aberto" /><Summary value={settled.length} label="Quitados" /><Summary value={protested.length} label="Protestados" /><Summary value={negotiations.length} label="Negociações" /></div><div className="border-b p-4 md:px-6"><div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9aa49e]" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar paciente, CPF ou mês" className="h-10 rounded-xl pl-9" /></div></div><div className="max-h-[520px] overflow-auto"><Table><TableHeader className="sticky top-0 bg-[#fafbf8]"><TableRow><TableHead className="pl-6">Paciente</TableHead><TableHead>Vencimento</TableHead><TableHead>Em aberto</TableHead><TableHead>Recebido</TableHead><TableHead>Situação</TableHead></TableRow></TableHeader><TableBody>{visible.map((row) => <TableRow key={`${row.sourceSheet}-${row.sourceRow}`}><TableCell className="py-4 pl-6"><p className="font-medium">{row.patientName}</p><p className="mt-1 text-xs text-[#87928c]">{row.cpf || "CPF não informado"} • {row.sourceSheet}</p></TableCell><TableCell>{dateLabel(row.dueDate)}</TableCell><TableCell>{money(row.openAmountCents)}</TableCell><TableCell>{row.receivedAmountCents ? money(row.receivedAmountCents) : "—"}</TableCell><TableCell>{row.settled ? <Badge className="bg-[#e8f5df] text-[#55762e]"><CheckCircle2 /> Quitado</Badge> : row.protested ? <Badge className="bg-[#fae8e3] text-[#934e3f]"><ShieldAlert /> Protestado</Badge> : <Badge variant="secondary">Em aberto</Badge>}</TableCell></TableRow>)}</TableBody></Table></div><div className="flex flex-col gap-3 border-t p-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#7d8982]">A Régua atualiza pacientes existentes e cria somente o que estiver faltando. Pacientes quitados continuam fora da cobrança.</p><Button onClick={() => void submit()} disabled={importing || !openRows.length}>{importing ? <><LoaderCircle className="animate-spin" /> Importando…</> : <><FileSpreadsheet /> Trazer histórico para a régua</>}</Button></div></> : <div className="grid min-h-80 place-items-center text-center text-sm text-[#7d8982]">Selecione a planilha da régua.</div>}</div></section></div>;
+}
+
+function Summary({ value, label }: { value: number; label: string }) {
+  return <div className="bg-white p-5 text-center"><p className="font-display text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-[#7f8b84]">{label}</p></div>;
+}

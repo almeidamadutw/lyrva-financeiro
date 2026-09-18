@@ -45,19 +45,20 @@ function chunks<T>(items: T[], size: number) {
   return result;
 }
 
-async function clinicorpPayments(
+async function clinicorpGet(
+  path: string,
   subscriberId: string,
   credentials: { username: string; token: string },
   from: string,
   to: string,
+  extraQuery: Record<string, string> = {},
 ) {
-  const url = new URL(`${API_BASE}/payment/list`);
+  const url = new URL(`${API_BASE}${path}`);
   for (const [key, value] of Object.entries({
     subscriber_id: subscriberId,
     from,
     to,
-    include_total_amount: "X",
-    get_amount_with_discounts: "X",
+    ...extraQuery,
   })) url.searchParams.set(key, value);
 
   const response = await fetch(url, {
@@ -132,6 +133,7 @@ Deno.serve(async (req) => {
 
   const to = saoPauloDate();
   const from = addDays(to, -7);
+  const invoiceFrom = `${to.slice(0, 7)}-01`;
   const results: Array<Record<string, unknown>> = [];
 
   for (const unitCode of ["sorocaba", "salto_de_pirapora"] as UnitCode[]) {
@@ -159,6 +161,7 @@ Deno.serve(async (req) => {
 
       const config = (connection.non_secret_config ?? {}) as Record<string, unknown>;
       const subscriberId = String(config.subscriber_id ?? "").trim();
+      const businessId = String(config.business_id ?? "").trim();
       if (!subscriberId) throw new Error("Assinante do Clinicorp não identificado.");
 
       const names = SECRET_NAMES[unitCode];
@@ -203,15 +206,23 @@ Deno.serve(async (req) => {
           from,
           to,
           lookback_days: 7,
-          creates_new_patients: false,
+          creates_new_patients: true,
           requires_payment_confirmed: true,
+          preserves_unconfirmed_rows: true,
+          syncs_invoices: true,
           row_events: false,
         },
       }).select("id").single();
       if (runError || !syncRun) throw new Error("Não foi possível registrar a sincronização automática.");
       syncRunId = syncRun.id;
 
-      const payload = await clinicorpPayments(subscriberId, { username, token }, from, to);
+      const [payload, invoicePayload] = await Promise.all([
+        clinicorpGet("/payment/list", subscriberId, { username, token }, from, to, {
+          include_total_amount: "X",
+          get_amount_with_discounts: "X",
+        }),
+        clinicorpGet("/financial/list_invoices", subscriberId, { username, token }, invoiceFrom, to, businessId ? { business_id: businessId } : {}),
+      ]);
       const fetchedRows = normalizeClinicorpRows(payload) as JsonRecord[];
       const eligibleRows = eligibleAutomaticPayments(fetchedRows) as JsonRecord[];
       const existing = await existingPaymentsByExternalId(admin, unit.id, eligibleRows);
@@ -223,7 +234,7 @@ Deno.serve(async (req) => {
       const filteredCount = fetchedRows.length - eligibleRows.length;
 
       const { data: appliedRows, error: applyError } = await admin.rpc(
-        "apply_clinicorp_confirmed_payments",
+        "ingest_clinicorp_payments",
         {
           p_unit_id: unit.id,
           p_rows: rowsToApply,
@@ -234,14 +245,29 @@ Deno.serve(async (req) => {
       );
       if (applyError) throw new Error(`As baixas não puderam ser aplicadas: ${applyError.message}`);
 
+      const invoiceRows = normalizeClinicorpRows(invoicePayload) as JsonRecord[];
+      const { data: invoiceAppliedRows, error: invoiceApplyError } = await admin.rpc(
+        "ingest_clinicorp_invoices",
+        { p_unit_id: unit.id, p_rows: invoiceRows, p_sync_run_id: null },
+      );
+      if (invoiceApplyError) throw new Error(`As notas não puderam ser aplicadas: ${invoiceApplyError.message}`);
+
       const applied = appliedRows?.[0] ?? {};
       const appliedSummary = {
         appliedCount: Number(applied.processed_count ?? 0),
         createdCount: Number(applied.created_count ?? 0),
         updatedCount: Number(applied.updated_count ?? 0),
-        unmatchedCount: Number(applied.skipped_count ?? 0),
+        pendingCount: Number(applied.skipped_count ?? 0),
         failedCount: Number(applied.failed_count ?? 0),
         paidInstallments: Number(applied.paid_installments ?? 0),
+      };
+      const invoiceApplied = invoiceAppliedRows?.[0] ?? {};
+      const invoiceSummary = {
+        fetchedCount: invoiceRows.length,
+        createdCount: Number(invoiceApplied.created_count ?? 0),
+        updatedCount: Number(invoiceApplied.updated_count ?? 0),
+        pendingCount: Number(invoiceApplied.skipped_count ?? 0),
+        failedCount: Number(invoiceApplied.failed_count ?? 0),
       };
       const summary = {
         fetchedCount: fetchedRows.length,
@@ -249,25 +275,30 @@ Deno.serve(async (req) => {
         filteredCount,
         unchangedCount,
         ...appliedSummary,
+        invoices: invoiceSummary,
       };
       const completedAt = new Date().toISOString();
-      const skippedCount = filteredCount + unchangedCount + appliedSummary.unmatchedCount;
+      const skippedCount = appliedSummary.pendingCount + invoiceSummary.pendingCount;
+      const failedCount = appliedSummary.failedCount + invoiceSummary.failedCount;
 
       await Promise.all([
         admin.from("sync_runs").update({
-          status: appliedSummary.failedCount ? "partial" : "completed",
-          processed_count: fetchedRows.length,
-          created_count: appliedSummary.createdCount,
-          updated_count: appliedSummary.updatedCount,
+          status: failedCount ? "partial" : "completed",
+          processed_count: fetchedRows.length + invoiceRows.length,
+          created_count: appliedSummary.createdCount + invoiceSummary.createdCount,
+          updated_count: appliedSummary.updatedCount + invoiceSummary.updatedCount,
           skipped_count: skippedCount,
-          error_count: appliedSummary.failedCount,
+          error_count: failedCount,
           metadata: {
             mode: "automatic_recent_sync",
             from,
             to,
+            invoice_from: invoiceFrom,
             lookback_days: 7,
-            creates_new_patients: false,
+            creates_new_patients: true,
             requires_payment_confirmed: true,
+            preserves_unconfirmed_rows: true,
+            syncs_invoices: true,
             row_events: false,
             result: summary,
           },
@@ -301,5 +332,5 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ ok: results.every((item) => item.ok), from, to, results });
+  return json({ ok: results.every((item) => item.ok), from, invoiceFrom, to, results });
 });

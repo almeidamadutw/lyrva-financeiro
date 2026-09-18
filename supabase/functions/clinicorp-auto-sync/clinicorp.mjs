@@ -7,14 +7,6 @@ function safeString(value) {
   return String(value).trim();
 }
 
-function normalizeForMatch(value) {
-  return safeString(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!isRecord(value)) return value;
@@ -42,20 +34,14 @@ export function externalPaymentId(row) {
 }
 
 export function isEligibleAutomaticPayment(row) {
-  if (!isRecord(row)) return false;
-  const method = normalizeForMatch(row.PaymentForm);
-  return safeString(row.PaymentConfirmed).toUpperCase() === "X"
-    && Boolean(safeString(row.ConfirmedDate))
-    && Boolean(safeString(row.PatientId))
-    && Boolean(externalPaymentId(row))
-    && (method.includes("boleto") || method.includes("cartao"));
+  return isRecord(row);
 }
 
 export function eligibleAutomaticPayments(rows) {
   const byExternalId = new Map();
   for (const row of rows) {
     if (!isEligibleAutomaticPayment(row)) continue;
-    byExternalId.set(externalPaymentId(row), row);
+    byExternalId.set(externalPaymentId(row) ?? `derived:${paymentFingerprint(row)}`, row);
   }
   return [...byExternalId.values()];
 }

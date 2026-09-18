@@ -65,8 +65,8 @@ function normalizeRows(payload: unknown): Record<string, unknown>[] {
   return [record];
 }
 
-async function clinicorpGet(query: Record<string, string>, credentials: { username: string; token: string }) {
-  const url = new URL(`${API_BASE}/payment/list`);
+async function clinicorpGet(path: string, query: Record<string, string>, credentials: { username: string; token: string }) {
+  const url = new URL(`${API_BASE}${path}`);
   for (const [key, value] of Object.entries(query)) if (value) url.searchParams.set(key, value);
   const response = await fetch(url, {
     method: "GET",
@@ -122,6 +122,7 @@ Deno.serve(withSupabase({ auth: "user", cors: true, errors: { detailed: false } 
 
   const currentConfig = configOf(connection.non_secret_config);
   const subscriberId = String(currentConfig.subscriber_id ?? "").trim();
+  const businessId = String(currentConfig.business_id ?? "").trim();
   if (!subscriberId) return json({ ok: false, message: "O assinante do Clinicorp ainda não foi identificado." }, 409);
 
   if (currentConfig.historical_bootstrap_completed_at) {
@@ -169,8 +170,10 @@ Deno.serve(withSupabase({ auth: "user", cors: true, errors: { detailed: false } 
         from,
         to,
         windows: windows.length,
-        creates_new_patients: false,
+        creates_new_patients: true,
         requires_payment_confirmed: true,
+        preserves_unconfirmed_rows: true,
+        syncs_invoices: true,
       },
     })
     .select("id")
@@ -184,22 +187,36 @@ Deno.serve(withSupabase({ auth: "user", cors: true, errors: { detailed: false } 
     skippedCount: 0,
     failedCount: 0,
     paidInstallments: 0,
+    invoices: {
+      processedCount: 0,
+      createdCount: 0,
+      updatedCount: 0,
+      pendingCount: 0,
+      failedCount: 0,
+    },
   };
 
   try {
     for (const window of windows) {
-      const payload = await clinicorpGet({
-        subscriber_id: subscriberId,
-        from: window.from,
-        to: window.to,
-        include_total_amount: "X",
-        get_amount_with_discounts: "X",
-      }, { username, token });
+      const [payload, invoicePayload] = await Promise.all([
+        clinicorpGet("/payment/list", {
+          subscriber_id: subscriberId,
+          from: window.from,
+          to: window.to,
+          include_total_amount: "X",
+          get_amount_with_discounts: "X",
+        }, { username, token }),
+        clinicorpGet("/financial/list_invoices", {
+          subscriber_id: subscriberId,
+          business_id: businessId,
+          from: window.from,
+          to: window.to,
+        }, { username, token }),
+      ]);
       const rows = normalizeRows(payload);
-      if (!rows.length) continue;
 
       const { data: appliedRows, error: applyError } = await ctx.supabaseAdmin.rpc(
-        "apply_clinicorp_confirmed_payments",
+        "ingest_clinicorp_payments",
         { p_unit_id: unit.id, p_rows: rows, p_sync_run_id: syncRun.id },
       );
       if (applyError) throw new Error(`As baixas da janela ${window.from} a ${window.to} não puderam ser aplicadas: ${applyError.message}`);
@@ -210,6 +227,19 @@ Deno.serve(withSupabase({ auth: "user", cors: true, errors: { detailed: false } 
       total.skippedCount += Number(applied.skipped_count ?? 0);
       total.failedCount += Number(applied.failed_count ?? 0);
       total.paidInstallments += Number(applied.paid_installments ?? 0);
+
+      const invoiceRows = normalizeRows(invoicePayload);
+      const { data: appliedInvoiceRows, error: invoiceError } = await ctx.supabaseAdmin.rpc(
+        "ingest_clinicorp_invoices",
+        { p_unit_id: unit.id, p_rows: invoiceRows, p_sync_run_id: syncRun.id },
+      );
+      if (invoiceError) throw new Error(`As notas da janela ${window.from} a ${window.to} não puderam ser aplicadas: ${invoiceError.message}`);
+      const invoices = appliedInvoiceRows?.[0] ?? {};
+      total.invoices.processedCount += Number(invoices.processed_count ?? 0);
+      total.invoices.createdCount += Number(invoices.created_count ?? 0);
+      total.invoices.updatedCount += Number(invoices.updated_count ?? 0);
+      total.invoices.pendingCount += Number(invoices.skipped_count ?? 0);
+      total.invoices.failedCount += Number(invoices.failed_count ?? 0);
     }
 
     const completedAt = new Date().toISOString();
@@ -223,19 +253,21 @@ Deno.serve(withSupabase({ auth: "user", cors: true, errors: { detailed: false } 
 
     const [{ error: runError }, { error: connectionError }] = await Promise.all([
       ctx.supabaseAdmin.from("sync_runs").update({
-        status: total.failedCount ? "partial" : "completed",
-        processed_count: total.processedCount,
-        created_count: total.createdCount,
-        updated_count: total.updatedCount,
-        skipped_count: total.skippedCount,
-        error_count: total.failedCount,
+        status: total.failedCount + total.invoices.failedCount ? "partial" : "completed",
+        processed_count: total.processedCount + total.invoices.processedCount,
+        created_count: total.createdCount + total.invoices.createdCount,
+        updated_count: total.updatedCount + total.invoices.updatedCount,
+        skipped_count: total.skippedCount + total.invoices.pendingCount,
+        error_count: total.failedCount + total.invoices.failedCount,
         metadata: {
           mode: "historical_bootstrap",
           from,
           to,
           windows: windows.length,
-          creates_new_patients: false,
+          creates_new_patients: true,
           requires_payment_confirmed: true,
+          preserves_unconfirmed_rows: true,
+          syncs_invoices: true,
           result: total,
         },
         completed_at: completedAt,
@@ -258,7 +290,7 @@ Deno.serve(withSupabase({ auth: "user", cors: true, errors: { detailed: false } 
       to,
       windows: windows.length,
       sync: total,
-      createsNewPatients: false,
+      createsNewPatients: true,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "A conciliação histórica não foi concluída.";

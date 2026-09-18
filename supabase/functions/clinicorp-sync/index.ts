@@ -379,10 +379,12 @@ Deno.serve(withSupabase({
       direction: "inbound",
       status: "running",
       metadata: {
-        mode: action === "sync_existing_payments" ? "existing_only" : "read_only_preview",
+        mode: action === "sync_existing_payments" ? "preserve_all" : "read_only_preview",
         date_range: dateRange,
         patient_data_persisted: false,
-        creates_new_patients: false,
+        creates_new_patients: action === "sync_existing_payments",
+        preserves_unconfirmed_rows: action === "sync_existing_payments",
+        syncs_invoices: action === "sync_existing_payments",
       },
     })
     .select("id")
@@ -400,14 +402,21 @@ Deno.serve(withSupabase({
       include_total_amount: "X",
       get_amount_with_discounts: "X",
     };
-    const [postedPayload, receivedPayload] = await Promise.all([
+    const invoiceFrom = `${dateRange.to.slice(0, 7)}-01`;
+    const [postedPayload, receivedPayload, invoicePayload] = await Promise.all([
       clinicorpGet("/payment/list", { ...commonQuery, date_type: "postDate" }, credentials),
       clinicorpGet("/payment/list", commonQuery, credentials),
+      clinicorpGet("/financial/list_invoices", {
+        subscriber_id: subscriberId,
+        business_id: businessId,
+        from: invoiceFrom,
+        to: dateRange.to,
+      }, credentials),
     ]);
     if (action === "sync_existing_payments") {
       const receivedRows = normalizeClinicorpRows(receivedPayload);
       const { data: appliedRows, error: applyError } = await ctx.supabaseAdmin.rpc(
-        "apply_clinicorp_confirmed_payments",
+        "ingest_clinicorp_payments",
         {
           p_unit_id: unit.id,
           p_rows: receivedRows,
@@ -415,6 +424,13 @@ Deno.serve(withSupabase({
         },
       );
       if (applyError) throw new Error(`A leitura do Clinicorp terminou, mas as baixas não puderam ser aplicadas: ${applyError.message}`);
+
+      const invoiceRows = normalizeClinicorpRows(invoicePayload);
+      const { data: appliedInvoices, error: invoiceError } = await ctx.supabaseAdmin.rpc(
+        "ingest_clinicorp_invoices",
+        { p_unit_id: unit.id, p_rows: invoiceRows, p_sync_run_id: syncRun.id },
+      );
+      if (invoiceError) throw new Error(`A leitura do Clinicorp terminou, mas as notas não puderam ser aplicadas: ${invoiceError.message}`);
 
       const applied = appliedRows?.[0] as {
         processed_count?: number;
@@ -433,27 +449,37 @@ Deno.serve(withSupabase({
         skippedCount: Number(applied.skipped_count ?? 0),
         failedCount: Number(applied.failed_count ?? 0),
         paidInstallments: Number(applied.paid_installments ?? 0),
+        invoices: {
+          processedCount: Number(appliedInvoices?.[0]?.processed_count ?? 0),
+          createdCount: Number(appliedInvoices?.[0]?.created_count ?? 0),
+          updatedCount: Number(appliedInvoices?.[0]?.updated_count ?? 0),
+          pendingCount: Number(appliedInvoices?.[0]?.skipped_count ?? 0),
+          failedCount: Number(appliedInvoices?.[0]?.failed_count ?? 0),
+        },
       };
       const completedAt = new Date().toISOString();
-      const runStatus = result.failedCount > 0 ? "partial" : "completed";
+      const runStatus = result.failedCount + result.invoices.failedCount > 0 ? "partial" : "completed";
 
       const [{ error: runUpdateError }, { error: connectionUpdateError }] = await Promise.all([
         ctx.supabaseAdmin
           .from("sync_runs")
           .update({
             status: runStatus,
-            processed_count: result.processedCount,
-            created_count: result.createdCount,
-            updated_count: result.updatedCount,
-            skipped_count: result.skippedCount,
-            error_count: result.failedCount,
+            processed_count: result.processedCount + result.invoices.processedCount,
+            created_count: result.createdCount + result.invoices.createdCount,
+            updated_count: result.updatedCount + result.invoices.updatedCount,
+            skipped_count: result.skippedCount + result.invoices.pendingCount,
+            error_count: result.failedCount + result.invoices.failedCount,
             metadata: {
-              mode: "existing_only",
+              mode: "preserve_all",
               date_range: dateRange,
-              endpoint: "/payment/list",
-              creates_new_patients: false,
+              invoice_from: invoiceFrom,
+              endpoints: ["/payment/list", "/financial/list_invoices"],
+              creates_new_patients: true,
               requires_payment_confirmed: true,
-              supported_methods: ["boleto", "card"],
+              preserves_unconfirmed_rows: true,
+              syncs_invoices: true,
+              supported_methods: ["boleto", "card", "pix", "cash", "transfer", "other"],
               result,
             },
             completed_at: completedAt,
@@ -476,7 +502,7 @@ Deno.serve(withSupabase({
         dateRange,
         sync: result,
         persisted: true,
-        createsNewPatients: false,
+        createsNewPatients: true,
       });
     }
 

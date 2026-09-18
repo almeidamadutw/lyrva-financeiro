@@ -211,6 +211,13 @@ type ClinicorpFunctionResponse = {
     skippedCount: number;
     failedCount: number;
     paidInstallments: number;
+    invoices?: {
+      processedCount: number;
+      createdCount: number;
+      updatedCount: number;
+      pendingCount: number;
+      failedCount: number;
+    };
   };
   bootstrap?: boolean;
   alreadyComplete?: boolean;
@@ -790,8 +797,20 @@ const competenceLabel = (key: string) => {
   return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, 1)));
 };
 
+const visibleFiscalRows = (rows: InvoiceObligation[]) => {
+  const clinicorpKeys = new Set(rows
+    .filter((item) => item.ruleCode === "clinicorp_invoice")
+    .map((item) => `${item.unit}|${obligationMonthKey(item)}`));
+  return rows.filter((item) => item.rawStatus !== "cancelled" && !(
+    item.rawStatus === "issued"
+    && item.ruleCode !== "clinicorp_invoice"
+    && clinicorpKeys.has(`${item.unit}|${obligationMonthKey(item)}`)
+  ));
+};
+
 function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: string; obligations: InvoiceObligation[]; reminderCount: number; goTo: (view: View) => void }) {
-  const currentMonthKey = saoPauloDate(new Date()).slice(0, 7);
+  const todayKey = saoPauloDate(new Date());
+  const currentMonthKey = todayKey.slice(0, 7);
   const unitFiltered = useMemo(() => obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")), [obligations, unit]);
   const monthKeys = useMemo(() => [...new Set([currentMonthKey, ...unitFiltered.map(obligationMonthKey).filter((value): value is string => Boolean(value))])].sort((a, b) => b.localeCompare(a)), [currentMonthKey, unitFiltered]);
   const [competence, setCompetence] = useState(currentMonthKey);
@@ -800,16 +819,18 @@ function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: strin
     if (!monthKeys.includes(competence)) setCompetence(monthKeys[0] ?? currentMonthKey);
   }, [competence, currentMonthKey, monthKeys]);
 
-  const scoped = unitFiltered.filter((item) => obligationMonthKey(item) === competence);
-  const pending = scoped.filter((item) => item.rawStatus !== "issued" && item.rawStatus !== "cancelled").slice(0, 4);
-  const ready = scoped.filter((item) => item.rawStatus === "ready");
-  const waiting = scoped.filter((item) => ["forecast", "awaiting_payment", "payment_unconfirmed", "open", "missing_data", "divergence", "cycle_in_progress"].includes(item.rawStatus));
+  const scoped = visibleFiscalRows(unitFiltered).filter((item) => obligationMonthKey(item) === competence);
   const issued = scoped.filter((item) => item.rawStatus === "issued");
+  const notIssued = scoped.filter((item) => item.rawStatus !== "issued");
+  const overdue = notIssued.filter((item) => item.scheduledIssueDate && item.scheduledIssueDate < todayKey);
+  const pending = [...notIssued].sort((a, b) => String(a.scheduledIssueDate ?? "9999").localeCompare(String(b.scheduledIssueDate ?? "9999"))).slice(0, 4);
   const total = (items: InvoiceObligation[]) => moneyValue(items.reduce((sum, item) => sum + item.amountValue, 0));
+  const visibleUnits = unit === "sorocaba" ? ["Sorocaba"] : unit === "salto" ? ["Salto de Pirapora"] : ["Sorocaba", "Salto de Pirapora"];
 
   return <div className="space-y-5">
     <section className="hero-panel overflow-hidden rounded-[28px] px-5 py-6 text-white md:px-8 md:py-7"><div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><Badge className="mb-4 border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/8">COMPETÊNCIA {competenceLabel(competence).toUpperCase()}</Badge><h2 className="font-display max-w-2xl text-3xl font-medium leading-tight tracking-[-0.035em] md:text-[38px]">Confira o financeiro do mês selecionado.</h2><p className="mt-3 max-w-xl text-sm leading-6 text-white/65">Todos os cards fiscais abaixo usam a mesma competência. Troque o mês para consultar o histórico sem misturar períodos.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Select value={competence} onValueChange={setCompetence}><SelectTrigger className="h-11 min-w-52 rounded-xl border-white/15 bg-white/10 text-white"><SelectValue /></SelectTrigger><SelectContent>{monthKeys.map((key) => <SelectItem key={key} value={key}>{competenceLabel(key)}</SelectItem>)}</SelectContent></Select><Button onClick={() => goTo("invoices")} className="h-11 rounded-xl bg-[#00BF63] px-5 text-[#10221f] shadow-none hover:bg-[#00D66F]">Abrir notas fiscais <ChevronRight /></Button></div></div></section>
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Prontas para emissão" value={String(ready.length)} detail={total(ready)} icon={FileText} accent="lime" /><MetricCard label="Em acompanhamento" value={String(waiting.length)} detail={total(waiting)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Emitidas na competência" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Lembretes de hoje" value={String(reminderCount)} detail="D-1 do boleto" icon={MessageCircle} accent="violet" /></section>
+    <section className="surface-card rounded-[22px] p-5"><p className="eyebrow">SITUAÇÃO POR UNIDADE</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{visibleUnits.map((unitName) => { const rows = scoped.filter((item) => item.unit === unitName); const emitted = rows.filter((item) => item.rawStatus === "issued").length; const pendingCount = rows.length - emitted; return <div key={unitName} className={`rounded-2xl border px-4 py-3 ${rows.length ? "border-[#dfe7df] bg-[#fafbf8]" : "border-[#efd8ab] bg-[#fff9ec]"}`}><div className="flex items-center justify-between gap-3"><strong className="text-sm text-[#26372e]">{unitName}</strong><Badge variant="outline">{rows.length} notas</Badge></div><p className="mt-2 text-xs text-[#718078]">{rows.length ? `${emitted} emitida(s) • ${pendingCount} não emitida(s)` : "Sem base fiscal nesta competência — sincronização necessária."}</p></div>; })}</div></section>
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Emitidas na competência" value={String(issued.length)} detail={total(issued)} icon={CheckCircle2} accent="blue" /><MetricCard label="Não emitidas na competência" value={String(notIssued.length)} detail={total(notIssued)} icon={FileText} accent="lime" /><MetricCard label="Atrasadas para emissão" value={String(overdue.length)} detail={total(overdue)} icon={CircleDollarSign} accent="amber" /><MetricCard label="Lembretes de hoje" value={String(reminderCount)} detail="D-1 do boleto" icon={MessageCircle} accent="violet" /></section>
     <section className="lyvra-split-dashboard"><ObligationsTable title="Pendências da competência" description={`${pending.length} pendência(s) em ${competenceLabel(competence)}`} obligations={pending} compact /><div className="space-y-5"><QuarterCard obligations={scoped} /><ActivityCard obligations={scoped} /></div></section>
   </div>;
 }
@@ -820,11 +841,12 @@ function InvoicesView({ unit, obligations, onIssued }: { unit: string; obligatio
   const unitFiltered = useMemo(() => obligations.filter((item) => unit === "todas" || (unit === "sorocaba" ? item.unit === "Sorocaba" : item.unit === "Salto de Pirapora")), [obligations, unit]);
   const monthKeys = useMemo(() => [...new Set([currentMonthKey, ...unitFiltered.map(obligationMonthKey).filter((value): value is string => Boolean(value))])].sort((a, b) => b.localeCompare(a)), [currentMonthKey, unitFiltered]);
   const [competence, setCompetence] = useState(currentMonthKey);
-  const filtered = unitFiltered.filter((item) => (competence === "all" || obligationMonthKey(item) === competence) && (status === "todos" || item.tone === status));
+  const filtered = visibleFiscalRows(unitFiltered).filter((item) => (competence === "all" || obligationMonthKey(item) === competence) && (status === "todos" || item.tone === status));
   const competenceText = competence === "all" ? "todas as competências" : competenceLabel(competence);
 
   return <div className="space-y-5">
     <section className="flex flex-col justify-between gap-4 rounded-[24px] border border-[#dfe5df] bg-white p-5 md:flex-row md:items-center md:p-6"><div><p className="eyebrow">COMPETÊNCIA FISCAL</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Notas fiscais</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#718078]">A planilha mensal e os planos financeiros aparecem juntos, mas cada registro permanece na competência correta.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Select value={competence} onValueChange={setCompetence}><SelectTrigger className="h-10 min-w-52 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todas as competências</SelectItem>{monthKeys.map((key) => <SelectItem key={key} value={key}>{competenceLabel(key)}</SelectItem>)}</SelectContent></Select><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 min-w-48 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="todos">Todas as situações</SelectItem><SelectItem value="ready">Prontas para emissão</SelectItem><SelectItem value="waiting">Aguardando / em aberto</SelectItem><SelectItem value="cycle">Ciclo em andamento</SelectItem><SelectItem value="issue">Com pendência</SelectItem><SelectItem value="done">Emitidas</SelectItem></SelectContent></Select></div></section>
+    {!filtered.length && !unitFiltered.length && <div className="rounded-2xl border border-[#efd8ab] bg-[#fff9ec] px-5 py-4 text-sm text-[#805f29]">Esta unidade ainda não possui base fiscal no LYVRA. Use a sincronização do Clinicorp para importar as notas sem descarte.</div>}
     <ObligationsTable title="Obrigações fiscais" description={`${filtered.length} registro(s) em ${competenceText}`} obligations={filtered} onIssued={onIssued} />
     <div className="grid gap-4 md:grid-cols-2"><RuleCard title="Planilha mensal" label="Competência preservada" description="Cada aba mensal vira uma obrigação fiscal do próprio mês, mantendo valor e status informados na planilha." /><RuleCard title="Planos detalhados" label="Agenda automática" description="Quando o parcelamento está completo no LYVRA, as obrigações continuam sendo calculadas pelas regras cadastradas no plano, sem misturar com a planilha mensal." /></div>
   </div>;
@@ -1213,7 +1235,7 @@ function IntegrationsView() {
         const sync = bootstrap.sync;
         if (!sync) throw new Error("O resumo da conciliação histórica não foi retornado.");
         toast.success("Histórico do Clinicorp conciliado", {
-          description: `${sync.paidInstallments} parcela(s) ficaram pagas • ${sync.createdCount + sync.updatedCount} pagamento(s) vinculados • ${sync.skippedCount} item(ns) ficaram para revisão.`,
+          description: `${sync.paidInstallments} parcela(s) pagas • ${sync.createdCount + sync.updatedCount} pagamento(s) • ${(sync.invoices?.createdCount ?? 0) + (sync.invoices?.updatedCount ?? 0)} nota(s). ${sync.skippedCount} movimento(s) foram preservados aguardando confirmação.`,
         });
         await loadStatuses();
         return;
@@ -1229,15 +1251,16 @@ function IntegrationsView() {
       if (!sync) throw new Error("O resumo da sincronização não foi retornado.");
 
       const changed = sync.createdCount + sync.updatedCount;
-      if (changed > 0) {
-        toast.success("Baixas sincronizadas", {
-          description: `${sync.paidInstallments} parcela(s) ficaram pagas • ${changed} pagamento(s) vinculados.`,
+      const changedInvoices = (sync.invoices?.createdCount ?? 0) + (sync.invoices?.updatedCount ?? 0);
+      if (changed > 0 || changedInvoices > 0) {
+        toast.success("Clinicorp sincronizado", {
+          description: `${sync.paidInstallments} parcela(s) pagas • ${changed} pagamento(s) • ${changedInvoices} nota(s).`,
         });
       } else {
-        toast.info("Nenhuma baixa vinculada", {
+        toast.info("Nenhuma alteração nova", {
           description: sync.skippedCount
-            ? `${sync.skippedCount} movimento(s) foram ignorados porque ainda não há correspondência segura no LYVRA.`
-            : "Não há novas baixas confirmadas para os pacientes cadastrados.",
+            ? `${sync.skippedCount} movimento(s) foram preservados e aguardam confirmação ou complemento no Clinicorp.`
+            : "Pagamentos e notas já estavam atualizados.",
         });
       }
       if (sync.failedCount) {
@@ -1252,7 +1275,7 @@ function IntegrationsView() {
   };
 
   return <div className="space-y-5">
-    <section className="rounded-[24px] border border-[#dfe5df] bg-white p-6"><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Clinicorp por unidade</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">Use “Sincronizar baixas” quando precisar atualizar pagamentos. Faça uma unidade por vez e confira a mensagem final antes de iniciar a próxima.</p></section>
+    <section className="rounded-[24px] border border-[#dfe5df] bg-white p-6"><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Clinicorp por unidade</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">Use “Sincronizar Clinicorp” para atualizar pagamentos e notas fiscais. Todas as linhas são preservadas; itens ainda não confirmados permanecem aguardando atualização.</p></section>
 
     <section className="grid gap-4 xl:grid-cols-2">
       {clinicorpUnits.map((item) => {
@@ -1266,8 +1289,8 @@ function IntegrationsView() {
           <div className="mt-6 grid gap-3 rounded-2xl bg-[#fafbf8] p-4 text-sm text-[#65736b] sm:grid-cols-2"><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#929c96]">Assinante</p><p className="mt-1 font-medium text-[#405148]">{connection?.subscriberId ?? "A identificar"}</p></div><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#929c96]">Clínica</p><p className="mt-1 font-medium text-[#405148]">{connection?.businessId ?? "A identificar"}</p></div></div>
           {response?.message && !response.ok && <p className="mt-4 rounded-xl bg-[#fff6ee] px-4 py-3 text-sm text-[#8a5b35]">{response.message}</p>}
           {connection?.lastError && <p className="mt-4 rounded-xl bg-[#fae8e3] px-4 py-3 text-sm text-[#934e3f]">{connection.lastError}</p>}
-          {summary && <div className="mt-4 space-y-3 rounded-2xl border border-[#dfe7df] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#86918a]">Amostra dos últimos 7 dias</p><div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-[#7c8981]">Parcelas lançadas</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.posted.totalRows}</p></div><div><p className="text-[#7c8981]">Recebimentos</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.received.totalRows}</p></div><div><p className="text-[#7c8981]">Pacientes com novos acordos</p><p className="mt-1 font-semibold text-[#26372e]">{summary.posted.uniquePatients}</p></div><div><p className="text-[#7c8981]">Pacientes com baixas</p><p className="mt-1 font-semibold text-[#26372e]">{summary.received.uniquePatients}</p></div><div><p className="text-[#7c8981]">Valor recebido</p><p className="mt-1 font-semibold text-[#26372e]">{moneyValue(summary.received.totalAmount)}</p></div></div><div className="rounded-xl bg-[#edf8f1] px-3 py-3 text-xs leading-5 text-[#326249]"><strong>Mapeamento financeiro pronto:</strong> {summary.mapping.eligibleInstallments} parcelas e {summary.mapping.eligibleReceipts} baixas de boleto/cartão. {summary.mapping.skippedInstallments + summary.mapping.skippedReceipts} movimentações de Pix, dinheiro ou transferência ficarão fora do LYVRA.</div></div>}
-          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap"><Button disabled={busy || !response?.credentialsConfigured} onClick={() => void discover(item.code)} className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Validar conexão</Button><Button disabled={busy || !connected} onClick={() => void readPreview(item.code)} variant="outline" className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <Eye />} Ler últimos 7 dias</Button><Button disabled={busy || !connected} onClick={() => void syncPayments(item.code)} variant="outline" className="h-10 rounded-xl border-[#b8dbc7] bg-[#edf8f1] text-[#27704b] hover:bg-[#e2f4e9]">{busy ? <LoaderCircle className="animate-spin" /> : <CheckCircle2 />} Sincronizar baixas</Button></div><p className="mt-3 text-xs leading-5 text-[#718078]">A primeira sincronização concilia o histórico desde o início dos planos. Depois, o LYVRA atualiza somente o período recente. Nenhum paciente novo é criado pelo Clinicorp, e a baixa só é aplicada quando o pagamento está confirmado.</p>
+          {summary && <div className="mt-4 space-y-3 rounded-2xl border border-[#dfe7df] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#86918a]">Amostra dos últimos 7 dias</p><div className="grid grid-cols-2 gap-3 text-sm"><div><p className="text-[#7c8981]">Parcelas lançadas</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.posted.totalRows}</p></div><div><p className="text-[#7c8981]">Recebimentos</p><p className="mt-1 text-lg font-semibold text-[#26372e]">{summary.received.totalRows}</p></div><div><p className="text-[#7c8981]">Pacientes com novos acordos</p><p className="mt-1 font-semibold text-[#26372e]">{summary.posted.uniquePatients}</p></div><div><p className="text-[#7c8981]">Pacientes com baixas</p><p className="mt-1 font-semibold text-[#26372e]">{summary.received.uniquePatients}</p></div><div><p className="text-[#7c8981]">Valor recebido</p><p className="mt-1 font-semibold text-[#26372e]">{moneyValue(summary.received.totalAmount)}</p></div></div><div className="rounded-xl bg-[#edf8f1] px-3 py-3 text-xs leading-5 text-[#326249]"><strong>Importação sem descarte:</strong> boleto, cartão, Pix, dinheiro, transferência e outras formas entram no LYVRA. Linhas pendentes ficam preservadas até a confirmação.</div></div>}
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap"><Button disabled={busy || !response?.credentialsConfigured} onClick={() => void discover(item.code)} className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Validar conexão</Button><Button disabled={busy || !connected} onClick={() => void readPreview(item.code)} variant="outline" className="h-10 rounded-xl">{busy ? <LoaderCircle className="animate-spin" /> : <Eye />} Ler últimos 7 dias</Button><Button disabled={busy || !connected} onClick={() => void syncPayments(item.code)} variant="outline" className="h-10 rounded-xl border-[#b8dbc7] bg-[#edf8f1] text-[#27704b] hover:bg-[#e2f4e9]">{busy ? <LoaderCircle className="animate-spin" /> : <CheckCircle2 />} Sincronizar Clinicorp</Button></div><p className="mt-3 text-xs leading-5 text-[#718078]">A primeira sincronização concilia todo o histórico; depois o LYVRA atualiza o período recente e as notas do mês. Se um paciente ou parcela ainda não existir, a integração cria um vínculo técnico seguro sem perder a linha original.</p>
           {!response?.credentialsConfigured && <p className="mt-3 text-xs leading-5 text-[#87928c]">Aguardando o Usuário API e o Token API desta assinatura nos segredos protegidos do servidor.</p>}
         </article>;
       })}
@@ -1277,7 +1300,7 @@ function IntegrationsView() {
 }
 
 function ObligationsTable({ title, description, obligations, compact = false, onIssued }: { title: string; description: string; obligations: InvoiceObligation[]; compact?: boolean; onIssued?: (id: number) => void | Promise<void> }) {
-  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact&&<div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9"/></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Referência</TableHead><TableHead>Valor</TableHead><TableHead>Situação</TableHead><TableHead className="w-20"/></TableRow></TableHeader><TableBody>{obligations.map(item=><TableRow key={item.id}><TableCell className="py-4 pl-6"><p className="font-medium">{item.patient}</p><p className="mt-1 text-xs text-[#849087]">{item.unit}</p></TableCell><TableCell>{item.reference}{item.scheduledIssueDate&&<p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>}</TableCell><TableCell className="font-semibold">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued&&["ready","open"].includes(item.rawStatus)?<Button onClick={()=>onIssued(item.id)} variant="outline" size="sm">Marcar emitida</Button>:<AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm"><MoreHorizontal/><span className="sr-only">Ver detalhes</span></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{item.patient}</AlertDialogTitle><AlertDialogDescription>Confira os dados desta obrigação.</AlertDialogDescription></AlertDialogHeader><div className="grid gap-3 rounded-xl bg-[#f7f9f6] p-4 text-sm"><div className="flex justify-between"><span>Unidade</span><strong>{item.unit}</strong></div><div className="flex justify-between"><span>Referência</span><strong>{item.reference}</strong></div><div className="flex justify-between"><span>Valor</span><strong>{item.amount}</strong></div><div className="flex justify-between"><span>Situação</span><strong>{item.status}</strong></div>{item.scheduledIssueDate&&<div className="flex justify-between"><span>Emissão prevista</span><strong>{formatIsoDate(item.scheduledIssueDate)}</strong></div>}</div><AlertDialogFooter><AlertDialogCancel>Fechar</AlertDialogCancel></AlertDialogFooter></AlertDialogContent></AlertDialog>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length&&<div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação neste filtro.</div>}</div>;
+  return <div className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:px-6"><div><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 text-sm text-[#718078]">{description}</p></div>{compact&&<div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input placeholder="Buscar paciente" className="h-10 rounded-xl bg-[#fafbf8] pl-9"/></div>}</div><Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Referência</TableHead><TableHead>Valor</TableHead><TableHead>Situação</TableHead><TableHead className="w-20"/></TableRow></TableHeader><TableBody>{obligations.map(item=><TableRow key={item.id}><TableCell className="py-4 pl-6"><p className="font-medium">{item.patient}</p><p className="mt-1 text-xs text-[#849087]">{item.unit}</p></TableCell><TableCell>{item.reference}{item.rawStatus==="issued"&&item.issuedAt?<p className="mt-1 text-xs text-[#4f7b61]">Emitida {new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(item.issuedAt))}</p>:item.scheduledIssueDate?<p className="mt-1 text-xs text-[#839087]">Prevista {formatIsoDate(item.scheduledIssueDate)}</p>:null}</TableCell><TableCell className="font-semibold">{item.amount}</TableCell><TableCell><StatusBadge tone={item.tone}>{item.status}</StatusBadge></TableCell><TableCell>{onIssued&&["ready","open"].includes(item.rawStatus)?<Button onClick={()=>onIssued(item.id)} variant="outline" size="sm">Marcar emitida</Button>:<AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm"><MoreHorizontal/><span className="sr-only">Ver detalhes</span></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{item.patient}</AlertDialogTitle><AlertDialogDescription>Confira os dados desta obrigação.</AlertDialogDescription></AlertDialogHeader><div className="grid gap-3 rounded-xl bg-[#f7f9f6] p-4 text-sm"><div className="flex justify-between"><span>Unidade</span><strong>{item.unit}</strong></div><div className="flex justify-between"><span>Referência</span><strong>{item.reference}</strong></div><div className="flex justify-between"><span>Valor</span><strong>{item.amount}</strong></div><div className="flex justify-between"><span>Situação</span><strong>{item.status}</strong></div>{item.issuedAt&&<div className="flex justify-between"><span>Emitida em</span><strong>{new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(item.issuedAt))}</strong></div>}{item.scheduledIssueDate&&<div className="flex justify-between"><span>Emissão prevista</span><strong>{formatIsoDate(item.scheduledIssueDate)}</strong></div>}</div><AlertDialogFooter><AlertDialogCancel>Fechar</AlertDialogCancel></AlertDialogFooter></AlertDialogContent></AlertDialog>}</TableCell></TableRow>)}</TableBody></Table>{!obligations.length&&<div className="grid min-h-44 place-items-center text-sm text-[#7d8982]">Nenhuma obrigação nesta competência e filtro.</div>}</div>;
 }
 
 function MetricCard({ label, value, detail, icon: Icon, accent }: { label: string; value: string; detail: string; icon: typeof FileText; accent: string }) {

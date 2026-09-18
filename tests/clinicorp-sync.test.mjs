@@ -88,7 +88,7 @@ test("maps only boleto and card movements for LYVRA", () => {
   assert.deepEqual(mapping.postedByMethod, { boleto: 1, card: 1, ignored: 1 });
 });
 
-test("automatic sync keeps only confirmed boleto and card rows", () => {
+test("automatic sync preserves every Clinicorp movement before applying business status", () => {
   const eligible = eligibleAutomaticPayments([
     { id: "boleto-1", PatientId: "10", PaymentConfirmed: "X", ConfirmedDate: "2026-09-17", PaymentForm: "Boleto" },
     { id: "card-1", PatientId: "11", PaymentConfirmed: "X", ConfirmedDate: "2026-09-17", PaymentForm: "Cartão de Crédito" },
@@ -96,7 +96,7 @@ test("automatic sync keeps only confirmed boleto and card rows", () => {
     { id: "pending-1", PatientId: "13", PaymentConfirmed: "", ConfirmedDate: "", PaymentForm: "Boleto" },
   ]);
 
-  assert.deepEqual(eligible.map(externalPaymentId), ["boleto-1", "card-1"]);
+  assert.deepEqual(eligible.map(externalPaymentId), ["boleto-1", "card-1", "pix-1", "pending-1"]);
 });
 
 test("automatic sync ignores unchanged raw Clinicorp payloads", () => {
