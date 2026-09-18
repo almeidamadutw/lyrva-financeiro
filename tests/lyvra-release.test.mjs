@@ -57,3 +57,34 @@ test("keeps renegotiated patients easy to find", async () => {
   assert.match(collections, /new Date\(b\.updatedAt\)/);
   assert.match(collections, /new Date\(a\.updatedAt\)/);
 });
+
+test("scopes settlement and operational blocking to the patient unit", async () => {
+  const [migration, app, workbook] = await Promise.all([
+    read("supabase/migrations/20260918183039_scope_patient_settlement_by_unit.sql"),
+    read("components/lyvra-app.tsx"),
+    read("components/nf-workbook-import.tsx"),
+  ]);
+
+  assert.match(migration, /add column if not exists settled_at timestamptz/);
+  assert.match(migration, /pu\.patient_id = new\.patient_id\s+and pu\.unit_id = new\.unit_id/);
+  assert.match(migration, /where pu\.settled_at is null/);
+  assert.match(migration, /where pp\.patient_unit_id = v_plan\.patient_unit_id/);
+  assert.match(app, /settledAt: row\.settled_at/);
+  assert.doesNotMatch(app, /patientStateMap/);
+  assert.match(workbook, /`\$\{unitKey\}::\$\{patientKey\(row\.name\)\}`/);
+});
+
+test("keeps collection imports in the Clinicorp unit", async () => {
+  const [migration, importer] = await Promise.all([
+    read("supabase/migrations/20260918184147_reassign_collection_imports_to_clinicorp_unit.sql"),
+    read("components/collections-workbook-import.tsx"),
+  ]);
+
+  assert.match(migration, /pu_target\.clinicorp_patient_id is not null/);
+  assert.match(migration, /unit_corrected_from/);
+  assert.match(migration, /guard_collection_import_unit/);
+  assert.match(migration, /where pu\.is_active/);
+  assert.match(importer, /Unidade desta planilha/);
+  assert.match(importer, /p_unit_code: unitCode/);
+  assert.doesNotMatch(importer, /p_unit_code: "sorocaba"/);
+});

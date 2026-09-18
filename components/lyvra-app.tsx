@@ -486,7 +486,7 @@ export function LyvraApp() {
       const reminderStart = `${todayKey}T00:00:00-03:00`;
       const reminderEnd = `${tomorrowKey}T00:00:00-03:00`;
 
-      const [patientResult, obligationResult, reminderResult, patientStateResult, unitResult] = await Promise.all([
+      const [patientResult, obligationResult, reminderResult, unitResult] = await Promise.all([
         supabase.from("patient_directory").select("*").order("full_name"),
         supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
         supabase
@@ -496,11 +496,10 @@ export function LyvraApp() {
           .gte("due_at", reminderStart)
           .lt("due_at", reminderEnd)
           .in("status", ["pending", "in_progress"]),
-        (supabase as any).from("patients").select("id,settled_at,settled_reason,reminder_opt_out,reminder_opt_out_reason"),
         supabase.from("units").select("id,code").eq("is_active", true),
       ]);
 
-      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error ?? patientStateResult.error ?? unitResult.error;
+      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error ?? unitResult.error;
       if (firstError) throw firstError;
 
       const paymentLabels: Record<string, string> = {
@@ -511,8 +510,6 @@ export function LyvraApp() {
         transfer: "Transferência",
         other: "Outro",
       };
-
-      const patientStateMap = new Map(((patientStateResult.data ?? []) as any[]).map((item) => [Number(item.id), item]));
 
       setPatients(((patientResult.data ?? []) as unknown as any[]).map((row) => {
         if (row.patient_id === null || row.full_name === null || row.unit_name === null) throw new Error("Cadastro de paciente incompleto no banco.");
@@ -541,10 +538,10 @@ export function LyvraApp() {
         invoiceDisabled: Boolean(row.invoice_disabled),
         invoiceDisabledReason: row.invoice_disabled_reason,
         notes: row.notes,
-        settledAt: patientStateMap.get(Number(row.patient_id))?.settled_at ?? null,
-        settledReason: patientStateMap.get(Number(row.patient_id))?.settled_reason ?? null,
-        reminderOptOut: Boolean(patientStateMap.get(Number(row.patient_id))?.reminder_opt_out),
-        reminderOptOutReason: patientStateMap.get(Number(row.patient_id))?.reminder_opt_out_reason ?? null,
+        settledAt: row.settled_at ?? null,
+        settledReason: row.settled_reason ?? null,
+        reminderOptOut: Boolean(row.reminder_opt_out),
+        reminderOptOutReason: row.reminder_opt_out_reason ?? null,
       }); }));
 
       setObligations(((obligationResult.data ?? []) as unknown as any[]).map((row) => {

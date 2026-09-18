@@ -40,14 +40,20 @@ export function NfWorkbookImportView({ onImported }: Props) {
     try {
       const result = await parseNfWorkbook(file);
       const supabase = getSupabaseBrowserClient();
-      const settledResult = await (supabase as any).from("patients").select("full_name,cpf").not("settled_at", "is", null);
+      const settledResult = await (supabase as any)
+        .from("patient_directory")
+        .select("unit_name,full_name,cpf")
+        .not("settled_at", "is", null);
       if (settledResult.error) throw settledResult.error;
-      const settledNames = new Set(((settledResult.data ?? []) as any[]).map((item) => patientKey(String(item.full_name ?? ""))));
-      const settledCpfs = new Set(((settledResult.data ?? []) as any[]).map((item) => String(item.cpf ?? "").replace(/\D/g, "")).filter(Boolean));
+      const settledNames = new Set(((settledResult.data ?? []) as any[]).map((item) => `${String(item.unit_name ?? "")}::${patientKey(String(item.full_name ?? ""))}`));
+      const settledCpfs = new Set(((settledResult.data ?? []) as any[])
+        .map((item) => `${String(item.unit_name ?? "")}::${String(item.cpf ?? "").replace(/\D/g, "")}`)
+        .filter((item) => !item.endsWith("::")));
       let preservedAsDirectory = 0;
       const importableRows = result.rows.map((row) => {
-        const settled = settledNames.has(patientKey(row.name))
-          || Boolean(row.cpf && settledCpfs.has(String(row.cpf).replace(/\D/g, "")));
+        const unitKey = String(row.unit ?? "");
+        const settled = settledNames.has(`${unitKey}::${patientKey(row.name)}`)
+          || Boolean(row.cpf && settledCpfs.has(`${unitKey}::${String(row.cpf).replace(/\D/g, "")}`));
         if ((settled || hasIncompletePlan(row)) && row.recordType === "financial_plan") {
           preservedAsDirectory += 1;
           return {
