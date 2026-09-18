@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isDictationActive, onDictationStateChange } from "@/lib/dictation-activity";
 
 type Props = {
   userId: string;
@@ -23,9 +24,14 @@ const collectionKinds = new Set(["collection_call", "payment_promise"]);
 
 export function DueTaskAlert({ userId, onOpenJourney, onOpenCollections }: Props) {
   const running = useRef(false);
+  const deferredByDictation = useRef(false);
 
   const check = useCallback(async () => {
     if (running.current) return;
+    if (isDictationActive()) {
+      deferredByDictation.current = true;
+      return;
+    }
     running.current = true;
     try {
       const supabase = getSupabaseBrowserClient();
@@ -51,6 +57,13 @@ export function DueTaskAlert({ userId, onOpenJourney, onOpenCollections }: Props
       }
       unseen.splice(20);
       if (!unseen.length) return;
+
+      // Alguns navegadores encerram o reconhecimento de voz quando uma região
+      // de alerta aparece. Adie o aviso sem marcá-lo como visto.
+      if (isDictationActive()) {
+        deferredByDictation.current = true;
+        return;
+      }
 
       for (const task of unseen) {
         window.localStorage.setItem(`lyvra:task-alert:${userId}:${task.id}:${task.due_at}`, "1");
@@ -79,10 +92,17 @@ export function DueTaskAlert({ userId, onOpenJourney, onOpenCollections }: Props
     void check();
     const timer = window.setInterval(() => void check(), 60_000);
     const onFocus = () => void check();
+    const unsubscribeDictation = onDictationStateChange((active) => {
+      if (!active && deferredByDictation.current) {
+        deferredByDictation.current = false;
+        void check();
+      }
+    });
     window.addEventListener("focus", onFocus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      unsubscribeDictation();
     };
   }, [check]);
 

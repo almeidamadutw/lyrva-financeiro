@@ -35,3 +35,25 @@ test("passes subscriber_id before asking Clinicorp for businesses", async () => 
   assert.match(integration, /\{ subscriber_id: credentials\.username \}/);
   assert.match(integration, /usedCredentialAsSubscriber/);
 });
+
+test("postpones due alerts while collection dictation is active", async () => {
+  const [alerts, collections, activity] = await Promise.all([
+    read("components/due-task-alert.tsx"),
+    read("components/collections-journey-real.tsx"),
+    read("lib/dictation-activity.ts"),
+  ]);
+
+  assert.match(alerts, /isDictationActive\(\)/);
+  assert.match(alerts, /deferredByDictation/);
+  assert.match(collections, /setDictationActive\(true\)/);
+  assert.match(collections, /setDictationActive\(false\)/);
+  assert.match(activity, /lyvra:dictation-state/);
+});
+
+test("keeps renegotiated patients easy to find", async () => {
+  const collections = await read("components/collections-journey-real.tsx");
+
+  assert.match(collections, /placeholder="Buscar paciente"/);
+  assert.match(collections, /new Date\(b\.updatedAt\)/);
+  assert.match(collections, /new Date\(a\.updatedAt\)/);
+});

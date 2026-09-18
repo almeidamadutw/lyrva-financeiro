@@ -14,6 +14,7 @@ import {
   Mic,
   PhoneCall,
   RefreshCw,
+  Search,
   Send,
   ShieldAlert,
   Square,
@@ -33,6 +34,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { setDictationActive } from "@/lib/dictation-activity";
 
 type CollectionStage = "call" | "negotiation" | "promise" | "protested";
 
@@ -56,6 +58,7 @@ type QueueRow = {
   protested_at: string | null;
   notes: string | null;
   installment_status: string | null;
+  updated_at: string;
 };
 
 type InteractionRow = {
@@ -101,6 +104,7 @@ type CollectionPatient = {
   owner: string;
   installmentNumber?: number | null;
   history: HistoryEntry[];
+  updatedAt: string;
 };
 
 type SpeechRecognitionEventLike = {
@@ -209,6 +213,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
   const [quickPeriod, setQuickPeriod] = useState("all");
+  const [patientQuery, setPatientQuery] = useState("");
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -322,6 +327,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         owner: row.responsible_name || "Daiane",
         installmentNumber: row.installment_number,
         history,
+        updatedAt: row.updated_at,
       };
     }), [queue, interactionsByCase, profileById]);
 
@@ -363,7 +369,13 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     setYearFilter("all");
   };
 
-  const actionable = periodFiltered.filter((patient) => {
+  const searched = useMemo(() => {
+    const normalized = patientQuery.trim().toLocaleLowerCase("pt-BR");
+    if (!normalized) return periodFiltered;
+    return periodFiltered.filter((patient) => patient.name.toLocaleLowerCase("pt-BR").includes(normalized));
+  }, [periodFiltered, patientQuery]);
+
+  const actionable = searched.filter((patient) => {
     if (patient.stage === "protested") return true;
     if (patient.stage === "negotiation") return true;
     if (patient.stage === "promise") return true;
@@ -375,7 +387,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     if (patient.stage === "promise") return patient.nextActionAt ? saoPauloDayKey(new Date(patient.nextActionAt)) <= todayKey : true;
     return false;
   });
-  const negotiating = actionable.filter((patient) => patient.stage === "negotiation" || patient.stage === "promise");
+  const negotiating = actionable
+    .filter((patient) => patient.stage === "negotiation" || patient.stage === "promise")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const protested = actionable.filter((patient) => patient.stage === "protested");
   const selectedId = openPatientId ?? internalSelectedId;
   const selected = patients.find((patient) => patient.id === selectedId) ?? null;
@@ -403,7 +417,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
           <div><Label className="mb-1.5 block text-xs text-[#718078]">Mês</Label><Select value={monthFilter} onValueChange={(value) => { setMonthFilter(value); setQuickPeriod("all"); }}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os meses</SelectItem><SelectItem value="01">Janeiro</SelectItem><SelectItem value="02">Fevereiro</SelectItem><SelectItem value="03">Março</SelectItem><SelectItem value="04">Abril</SelectItem><SelectItem value="05">Maio</SelectItem><SelectItem value="06">Junho</SelectItem><SelectItem value="07">Julho</SelectItem><SelectItem value="08">Agosto</SelectItem><SelectItem value="09">Setembro</SelectItem><SelectItem value="10">Outubro</SelectItem><SelectItem value="11">Novembro</SelectItem><SelectItem value="12">Dezembro</SelectItem></SelectContent></Select></div>
           <div><Label className="mb-1.5 block text-xs text-[#718078]">Ano</Label><Select value={yearFilter} onValueChange={(value) => { setYearFilter(value); setQuickPeriod("all"); }}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os anos</SelectItem>{availableYears.map((year) => <SelectItem key={year} value={year}>{year}</SelectItem>)}</SelectContent></Select></div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-[#718078]"><Badge variant="secondary">{periodFiltered.length} caso(s) no período</Badge>{dateFrom && <span>De {dateOnly(dateFrom)}</span>}{dateTo && <span>até {dateOnly(dateTo)}</span>}{monthFilter !== "all" && <span>Mês {monthFilter}</span>}{yearFilter !== "all" && <span>Ano {yearFilter}</span>}</div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[#718078]"><Badge variant="secondary">{searched.length} caso(s) encontrado(s)</Badge>{dateFrom && <span>De {dateOnly(dateFrom)}</span>}{dateTo && <span>até {dateOnly(dateTo)}</span>}{monthFilter !== "all" && <span>Mês {monthFilter}</span>}{yearFilter !== "all" && <span>Ano {yearFilter}</span>}</div>
       </div>
     </section>
 
@@ -417,7 +431,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     <section className="lyvra-split-collections">
       <div className="surface-card min-w-0 overflow-hidden rounded-[24px]">
         <Tabs defaultValue="all">
-          <div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 md:flex-row md:items-center md:justify-between md:px-6"><div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div><TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 md:w-auto"><TabsTrigger value="all" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{actionable.length}</Badge></TabsTrigger><TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger><TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger><TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger></TabsList></div>
+          <div className="border-b border-[#e7ebe7] p-5 md:px-6"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="relative sm:w-64"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={patientQuery} onChange={(event) => setPatientQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 rounded-xl pl-9" /></div><TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 sm:w-auto"><TabsTrigger value="all" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{actionable.length}</Badge></TabsTrigger><TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger><TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger><TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[10px] text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger></TabsList></div></div></div>
           <TabsContent value="all" className="m-0"><CollectionTable patients={actionable} onOpen={setSelectedId} loading={loading} /></TabsContent>
           <TabsContent value="today" className="m-0"><CollectionTable patients={today} onOpen={setSelectedId} loading={loading} /></TabsContent>
           <TabsContent value="negotiating" className="m-0"><CollectionTable patients={negotiating} onOpen={setSelectedId} loading={loading} /></TabsContent>
@@ -472,8 +486,11 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
   const stopListening = () => {
     try { recognitionRef.current?.stop(); } catch { /* reconhecimento já encerrado */ }
     recognitionRef.current = null;
+    setDictationActive(false);
     setListening(false);
   };
+
+  useEffect(() => () => setDictationActive(false), []);
 
   const toggleListening = async () => {
     if (listening) { stopListening(); return; }
@@ -541,6 +558,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     };
     recognition.onend = () => {
       recognitionRef.current = null;
+      setDictationActive(false);
       setListening(false);
       if (!receivedTranscript && isOpera) {
         toast.info("O Opera encerrou o áudio sem devolver texto", { description: "Toque novamente no microfone. Se o pacote local estiver disponível, o LYVRA passa a usá-lo automaticamente." });
@@ -548,6 +566,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     };
     recognition.onerror = (event) => {
       recognitionRef.current = null;
+      setDictationActive(false);
       setListening(false);
       const code = event?.error ?? "unknown";
       const descriptions: Record<string, string> = {
@@ -563,10 +582,12 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
 
     try {
       recognitionRef.current = recognition;
+      setDictationActive(true);
       recognition.start();
       setListening(true);
     } catch {
       recognitionRef.current = null;
+      setDictationActive(false);
       setListening(false);
       toast.error("O ditado não pôde ser iniciado", { description: "Feche qualquer gravação de voz aberta e tente novamente." });
     }
