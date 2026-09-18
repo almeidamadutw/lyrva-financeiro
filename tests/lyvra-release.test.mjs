@@ -59,8 +59,9 @@ test("keeps renegotiated patients easy to find", async () => {
 });
 
 test("scopes settlement and operational blocking to the patient unit", async () => {
-  const [migration, app, workbook] = await Promise.all([
+  const [migration, rollupGuard, app, workbook] = await Promise.all([
     read("supabase/migrations/20260918183039_scope_patient_settlement_by_unit.sql"),
+    read("supabase/migrations/20260918185100_allow_internal_unit_settlement_rollup.sql"),
     read("components/lyvra-app.tsx"),
     read("components/nf-workbook-import.tsx"),
   ]);
@@ -69,6 +70,7 @@ test("scopes settlement and operational blocking to the patient unit", async () 
   assert.match(migration, /pu\.patient_id = new\.patient_id\s+and pu\.unit_id = new\.unit_id/);
   assert.match(migration, /where pu\.settled_at is null/);
   assert.match(migration, /where pp\.patient_unit_id = v_plan\.patient_unit_id/);
+  assert.match(rollupGuard, /pg_trigger_depth\(\) <= 1/);
   assert.match(app, /settledAt: row\.settled_at/);
   assert.doesNotMatch(app, /patientStateMap/);
   assert.match(workbook, /`\$\{unitKey\}::\$\{patientKey\(row\.name\)\}`/);
