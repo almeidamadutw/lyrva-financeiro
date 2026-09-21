@@ -157,6 +157,9 @@ const channelLabels: Record<string, string> = {
   system: "LYVRA",
 };
 
+const COLLECTION_PAGE_SIZE = 1_000;
+const COLLECTION_RENDER_BATCH = 200;
+
 const brl = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const dateOnly = (value: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 const dateTime = (value: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
@@ -220,36 +223,39 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     try {
       const supabase = getSupabaseBrowserClient();
       const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
-      const pageSize = 500;
+      const todayKey = saoPauloDayKey();
       const queueRows: QueueRow[] = [];
       const interactionRows: InteractionRow[] = [];
 
-      for (let offset = 0; ; offset += pageSize) {
+      for (let offset = 0; ; offset += COLLECTION_PAGE_SIZE) {
         let query = (supabase as any)
           .from("collection_queue")
-          .select("*")
+          .select("id,unit_id,unit_name,unit_code,patient_id,patient_name,phone,installment_id,installment_number,due_date,open_amount,eligible_at,status,responsible_user_id,responsible_name,next_action_at,protested_at,notes,installment_status,updated_at")
+          .in("status", ["pending_contact", "negotiating", "promise", "protested"])
+          .not("installment_status", "in", "(paid,cancelled,refunded)")
+          .or(`status.neq.pending_contact,eligible_at.lte.${todayKey}`)
           .order("eligible_at", { ascending: true })
           .order("id", { ascending: true })
-          .range(offset, offset + pageSize - 1);
+          .range(offset, offset + COLLECTION_PAGE_SIZE - 1);
         if (selectedCode !== "todas") query = query.eq("unit_code", selectedCode);
         const result = await query;
         if (result.error) throw result.error;
         const page = (result.data ?? []) as unknown as QueueRow[];
         queueRows.push(...page);
-        if (page.length < pageSize) break;
+        if (page.length < COLLECTION_PAGE_SIZE) break;
       }
 
-      for (let offset = 0; ; offset += pageSize) {
+      for (let offset = 0; ; offset += COLLECTION_PAGE_SIZE) {
         const result = await supabase
           .from("collection_interactions")
           .select("id,collection_case_id,performed_by,channel,outcome,notes,occurred_at,next_action_at")
           .order("occurred_at", { ascending: true })
           .order("id", { ascending: true })
-          .range(offset, offset + pageSize - 1);
+          .range(offset, offset + COLLECTION_PAGE_SIZE - 1);
         if (result.error) throw result.error;
         const page = (result.data ?? []) as unknown as InteractionRow[];
         interactionRows.push(...page);
-        if (page.length < pageSize) break;
+        if (page.length < COLLECTION_PAGE_SIZE) break;
       }
 
       const profileResult = await supabase.from("profiles").select("user_id,full_name").eq("is_active", true);
@@ -454,9 +460,11 @@ function JourneyStep({ number, title, detail, last = false }: { number: string; 
 }
 
 function CollectionTable({ patients, onOpen, loading }: { patients: CollectionPatient[]; onOpen: (id: number) => void; loading: boolean }) {
+  const [visibleCount, setVisibleCount] = useState(COLLECTION_RENDER_BATCH);
   if (loading) return <div className="grid min-h-56 place-items-center"><LoaderCircle className="size-5 animate-spin text-[#00BF63]" /></div>;
   if (!patients.length) return <div className="grid min-h-56 place-items-center p-6 text-sm text-[#7d8982]">Nenhum paciente nesta etapa.</div>;
-  return <div className="collection-responsive-list divide-y divide-[#e7ebe7]">{patients.map((patient) => <div key={patient.id} className="collection-responsive-row">
+  const visiblePatients = patients.slice(0, visibleCount);
+  return <div className="collection-responsive-list divide-y divide-[#e7ebe7]">{visiblePatients.map((patient) => <div key={patient.id} className="collection-responsive-row">
     <div className="collection-field collection-patient-field">
       <span className="collection-field-label">Paciente</span>
       <div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{patient.initials}</div><div className="min-w-0"><p className="truncate font-medium text-[#213128]">{patient.name}</p><p className="mt-0.5 truncate text-xs text-[#849087]">{patient.unit} • {patient.owner}</p></div></div>
@@ -466,7 +474,7 @@ function CollectionTable({ patients, onOpen, loading }: { patients: CollectionPa
     <div className="collection-field"><span className="collection-field-label">Situação</span><div><Badge className={`border-0 font-medium hover:opacity-100 ${stageTone[patient.stage]}`}>{patient.status}</Badge></div></div>
     <div className="collection-field collection-next-field"><span className="collection-field-label">Próxima ação</span><p className="break-words text-sm font-medium leading-5 text-[#405148]">{patient.nextAction}</p></div>
     <div className="collection-action-field"><Button onClick={() => onOpen(patient.id)} variant="outline" size="sm" className="w-full rounded-lg whitespace-nowrap">Negociar <ChevronRight /></Button></div>
-  </div>)}</div>;
+  </div>)}{visibleCount < patients.length && <div className="flex items-center justify-center border-t border-[#e7ebe7] p-4"><Button type="button" variant="outline" className="rounded-xl" onClick={() => setVisibleCount((count) => count + COLLECTION_RENDER_BATCH)}>Mostrar mais {Math.min(COLLECTION_RENDER_BATCH, patients.length - visibleCount)} casos</Button></div>}</div>;
 }
 
 function ProtestedBlock({ patients, onOpen, loading }: { patients: CollectionPatient[]; onOpen: (id: number) => void; loading: boolean }) {
