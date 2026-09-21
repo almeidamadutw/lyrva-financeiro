@@ -223,22 +223,15 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     try {
       const supabase = getSupabaseBrowserClient();
       const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
-      const todayKey = saoPauloDayKey();
       const queueRows: QueueRow[] = [];
       const interactionRows: InteractionRow[] = [];
 
       for (let offset = 0; ; offset += COLLECTION_PAGE_SIZE) {
-        let query = (supabase as any)
-          .from("collection_queue")
-          .select("id,unit_id,unit_name,unit_code,patient_id,patient_name,phone,installment_id,installment_number,due_date,open_amount,eligible_at,status,responsible_user_id,responsible_name,next_action_at,protested_at,notes,installment_status,updated_at")
-          .in("status", ["pending_contact", "negotiating", "promise", "protested"])
-          .not("installment_status", "in", "(paid,cancelled,refunded)")
-          .or(`status.neq.pending_contact,eligible_at.lte.${todayKey}`)
-          .order("eligible_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(offset, offset + COLLECTION_PAGE_SIZE - 1);
-        if (selectedCode !== "todas") query = query.eq("unit_code", selectedCode);
-        const result = await query;
+        const result = await (supabase as any).rpc("get_collection_queue_page", {
+          p_unit_code: selectedCode === "todas" ? null : selectedCode,
+          p_offset: offset,
+          p_limit: COLLECTION_PAGE_SIZE,
+        });
         if (result.error) throw result.error;
         const page = (result.data ?? []) as unknown as QueueRow[];
         queueRows.push(...page);
