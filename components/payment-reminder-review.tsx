@@ -30,6 +30,8 @@ type ReminderException = {
   reminder_opt_out_reason: string | null;
 };
 
+const MANUAL_REMINDER_EXCEPTION_REASON = "Exceção definida ao desmarcar na lista de lembrete";
+
 const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 
@@ -117,6 +119,7 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
             .from("patients")
             .select("id,full_name,reminder_opt_out_reason")
             .eq("reminder_opt_out", true)
+            .eq("reminder_opt_out_reason", MANUAL_REMINDER_EXCEPTION_REASON)
             .order("full_name"),
         ]);
 
@@ -207,7 +210,7 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
       .from("patients")
       .update({
         reminder_opt_out: true,
-        reminder_opt_out_reason: "Exceção definida ao desmarcar na lista de lembrete",
+        reminder_opt_out_reason: MANUAL_REMINDER_EXCEPTION_REASON,
         reminder_opt_out_at: new Date().toISOString(),
         reminder_opt_out_by: userData.user?.id ?? null,
       })

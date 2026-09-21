@@ -50,6 +50,30 @@ test("postpones due alerts while collection dictation is active", async () => {
   assert.match(activity, /lyvra:dictation-state/);
 });
 
+test("lets the team close persistent collection notifications", async () => {
+  const [app, alerts] = await Promise.all([
+    read("components/lyvra-app.tsx"),
+    read("components/due-task-alert.tsx"),
+  ]);
+
+  assert.match(app, /<Toaster[\s\S]*closeButton/);
+  assert.match(app, /closeButtonAriaLabel: "Fechar notificação"/);
+  assert.match(alerts, /duration: Infinity/);
+});
+
+test("keeps reminder exceptions manual and separate from settlement", async () => {
+  const [review, migration] = await Promise.all([
+    read("components/payment-reminder-review.tsx"),
+    read("supabase/migrations/20260921143000_separate_settlement_from_reminder_exceptions.sql"),
+  ]);
+
+  assert.match(review, /MANUAL_REMINDER_EXCEPTION_REASON/);
+  assert.match(review, /\.eq\("reminder_opt_out_reason", MANUAL_REMINDER_EXCEPTION_REASON\)/);
+  assert.match(migration, /where reminder_opt_out_reason = 'Paciente quitado'/);
+  assert.match(migration, /pu\.settled_at is not null/);
+  assert.doesNotMatch(migration, /reminder_opt_out = true/);
+});
+
 test("keeps renegotiated patients easy to find", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 

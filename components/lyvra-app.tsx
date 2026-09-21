@@ -707,7 +707,12 @@ export function LyvraApp() {
 
   return (
     <SidebarProvider className="app-density">
-      <Toaster position="top-right" richColors />
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        toastOptions={{ closeButtonAriaLabel: "Fechar notificação" }}
+      />
       {currentUser.operationalArea !== "support" && <DueTaskAlert userId={currentUser.id} onOpenJourney={() => allowedViews.has("journey") && setView("journey")} onOpenCollections={() => allowedViews.has("collections") && setView("collections")} />}
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
