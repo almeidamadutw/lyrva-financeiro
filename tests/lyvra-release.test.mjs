@@ -82,6 +82,16 @@ test("keeps renegotiated patients easy to find", async () => {
   assert.match(collections, /new Date\(a\.updatedAt\)/);
 });
 
+test("loads only actionable collection rows and renders them in batches", async () => {
+  const collections = await read("components/collections-journey-real.tsx");
+
+  assert.match(collections, /COLLECTION_PAGE_SIZE = 1_000/);
+  assert.match(collections, /\.in\("status", \["pending_contact", "negotiating", "promise", "protested"\]\)/);
+  assert.match(collections, /status\.neq\.pending_contact,eligible_at\.lte\.\$\{todayKey\}/);
+  assert.match(collections, /COLLECTION_RENDER_BATCH = 200/);
+  assert.match(collections, /patients\.slice\(0, visibleCount\)/);
+});
+
 test("scopes settlement and operational blocking to the patient unit", async () => {
   const [migration, rollupGuard, app, workbook] = await Promise.all([
     read("supabase/migrations/20260918183039_scope_patient_settlement_by_unit.sql"),
