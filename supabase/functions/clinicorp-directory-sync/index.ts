@@ -12,7 +12,6 @@ const HISTORY_FLOOR="2015-01-01";
 const RPC_BATCH=80;
 const PAYMENT_BATCH=35;
 const RECEIVABLE_BATCH=100;
-const SCHEDULE_REPAIR_DAYS=8;
 const SECRETS:Record<UnitCode,{username:string;token:string}>={
   sorocaba:{username:"CLINICORP_SOROCABA_USERNAME",token:"CLINICORP_SOROCABA_TOKEN"},
   salto_de_pirapora:{username:"CLINICORP_SALTO_USERNAME",token:"CLINICORP_SALTO_TOKEN"},
@@ -83,9 +82,7 @@ async function repairScheduleDays(
   if(explicitDates?.length){
     dates=[...new Set(explicitDates.filter((value)=>/^\d{4}-\d{2}-\d{2}$/.test(value)))].slice(0,20);
   }else{
-    const {data,error}=await admin.rpc("get_clinicorp_schedule_repair_days",{p_unit_id:unitId,p_limit:SCHEDULE_REPAIR_DAYS});
-    if(error)throw new Error(`A fila de reparo financeiro não pôde ser consultada: ${error.message}`);
-    dates=(data??[]).map((row:Row)=>String(row.post_date??"")).filter(Boolean);
+    return{requestedDays:0,repairedDays:0,repairedRows:0,failedDays:0,repairedDates:[] as string[]};
   }
 
   let repairedRows=0,failedDays=0;
@@ -135,7 +132,9 @@ Deno.serve(async req=>{
     const requestedRepairDates=String(requestBody.repair_unit_code??"")===unitCode&&Array.isArray(requestBody.repair_post_dates)
       ? (requestBody.repair_post_dates as unknown[]).map(String)
       : undefined;
-    const scheduleRepair=await repairScheduleDays(admin,Number(unit.id),subscriber,credentials,directory,receivables,payments,requestedRepairDates);
+    const scheduleRepair=requestedRepairDates?.length
+      ? await repairScheduleDays(admin,Number(unit.id),subscriber,credentials,directory,receivables,payments,requestedRepairDates)
+      : {requestedDays:0,repairedDays:0,repairedRows:0,failedDays:0,repairedDates:[] as string[]};
 
     // Reconcile every overdue open boleto already known by Clinicorp, not only
     // rows created in the last seven days. This covers long payment plans whose
@@ -152,5 +151,9 @@ Deno.serve(async req=>{
     return{unit:unit.name,ok:true,backfillCompleted:completed,backfillBefore:cursor,scheduleRepair,windows,result};
   }catch(error){const message=error instanceof Error?error.message.slice(0,500):"Falha na sincronização canônica.",finishedAt=new Date().toISOString();if(runId)await admin.from("sync_runs").update({status:"failed",error_count:1,error_summary:message,completed_at:finishedAt}).eq("id",runId);if(connectionId)await admin.from("integration_connections").update({last_error:message}).eq("id",connectionId);return{unit:unitCode,ok:false,message}}};
 
-  const results=await Promise.all([syncUnit("sorocaba"),syncUnit("salto_de_pirapora")]);return reply({ok:results.every(r=>r.ok),recentFrom,today,results});
+  const requestedUnit=String(requestBody.repair_unit_code??"");
+  const unitCodes:UnitCode[]=requestedUnit==="sorocaba"||requestedUnit==="salto_de_pirapora"
+    ? [requestedUnit as UnitCode]
+    : ["sorocaba","salto_de_pirapora"];
+  const results=await Promise.all(unitCodes.map(syncUnit));return reply({ok:results.every(r=>r.ok),recentFrom,today,results});
 });
