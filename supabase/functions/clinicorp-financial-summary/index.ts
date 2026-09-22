@@ -35,7 +35,7 @@ async function fetchFinancialSummary(
   businessId: string,
   credentials: { username: string; token: string },
   range: RangeInput,
-): Promise<Summary> {
+): Promise<{ summary: Summary; raw: unknown }> {
   const url = new URL(`${API_BASE}/financial/list_payments`);
   url.searchParams.set("subscriber_id", subscriberId);
   url.searchParams.set("business_id", businessId);
@@ -57,11 +57,16 @@ async function fetchFinancialSummary(
     throw new Error(`O Clinicorp respondeu com HTTP ${response.status}.`);
   }
 
-  const payload = await response.json() as Record<string, unknown>;
+  const raw = await response.json() as unknown;
+  const candidate = Array.isArray(raw) ? (raw[0] ?? {}) : raw;
+  const payload = (candidate && typeof candidate === "object" ? candidate : {}) as Record<string, unknown>;
   return {
-    totalInForecastAmount: numberValue(payload.totalInForecastAmount),
-    totalPaymentsAmount: numberValue(payload.totalPaymentsAmount),
-    totalDebitAmount: numberValue(payload.totalDebitAmount),
+    raw,
+    summary: {
+      totalInForecastAmount: numberValue(payload.totalInForecastAmount ?? payload.TotalInForecastAmount),
+      totalPaymentsAmount: numberValue(payload.totalPaymentsAmount ?? payload.TotalPaymentsAmount),
+      totalDebitAmount: numberValue(payload.totalDebitAmount ?? payload.TotalDebitAmount),
+    },
   };
 }
 
@@ -180,14 +185,15 @@ Deno.serve(async (req) => {
     }
 
     for (const range of ranges) {
-      const summary = await fetchFinancialSummary(subscriberId, businessId, { username, token }, range);
+      const { summary, raw } = await fetchFinancialSummary(subscriberId, businessId, { username, token }, range);
       results.push({
         unitCode,
         unitName: unit.name,
         from: range.from,
         to: range.to,
         ...summary,
-      });
+        ...(internalCall ? { raw } : {}),
+      } as typeof results[number]);
     }
   }
 
