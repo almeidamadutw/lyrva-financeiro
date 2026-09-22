@@ -121,6 +121,26 @@ Deno.serve(async req=>{
     addPayments(payments,await syncPayments(admin,Number(unit.id),combined));
     addReceivables(receivables,await syncReceivables(admin,Number(unit.id),posted));
 
+    // Some Clinicorp tenants expose due-date filtering although it is not listed
+    // in every public REST reference. Use it opportunistically and validate the
+    // returned DueDate before applying anything.
+    const currentMonthFrom=`${today.slice(0,7)}-01`;
+    let dueDateRows:Row[]=[];
+    try{
+      const dueDatePayload=await fetchPayments(subscriber,credentials,currentMonthFrom,today,"dueDate");
+      dueDateRows=dedupe(rowsOf(dueDatePayload).filter((row)=>{
+        const due=String(row.DueDate??"").slice(0,10);
+        return due>=currentMonthFrom&&due<=today;
+      }));
+      if(dueDateRows.length){
+        addDirectory(directory,await syncDirectory(admin,Number(unit.id),dueDateRows));
+        addPayments(payments,await syncPayments(admin,Number(unit.id),dueDateRows));
+        addReceivables(receivables,await syncReceivables(admin,Number(unit.id),dueDateRows));
+      }
+    }catch{
+      dueDateRows=[];
+    }
+
     // Reconcile every overdue open boleto already known by Clinicorp, not only
     // rows created in the last seven days. This covers long payment plans whose
     // PostDate is months/years older than the current due date.
@@ -132,7 +152,7 @@ Deno.serve(async req=>{
     if(!completed&&cursor>=HISTORY_FLOOR){const daysBack=unitCode==="salto_de_pirapora"?7:14;const windowTo=cursor,windowFrom=maxDate(HISTORY_FLOOR,addDays(windowTo,-daysBack));const history=rowsOf(await fetchPayments(subscriber,credentials,windowFrom,windowTo,"postDate"));addDirectory(directory,await syncDirectory(admin,Number(unit.id),history));addPayments(payments,await syncPayments(admin,Number(unit.id),history));addReceivables(receivables,await syncReceivables(admin,Number(unit.id),history));windows.push({from:windowFrom,to:windowTo,rows:history.length});cursor=addDays(windowFrom,-1);completed=cursor<HISTORY_FLOOR}
 
     const finishedAt=new Date().toISOString(),result={directory,receivables,payments};const nextConfig:Row={...config,directory_source:"payment/list",directory_last_sync_at:finishedAt,directory_recent_from:recentFrom,directory_recent_to:today,directory_backfill_floor:HISTORY_FLOOR,directory_backfill_before:cursor,directory_backfill_last_windows:windows,directory_backfill_completed_at:completed?(config.directory_backfill_completed_at??finishedAt):null,directory_last_summary:directory,collection_receivables_last_summary:receivables,collection_receivables_last_sync_at:finishedAt};
-    await Promise.all([admin.from("sync_runs").update({status:payments.failedCount||receivables.failedCount?"partial":"completed",processed_count:directory.processedCount,created_count:directory.createdPatients+receivables.createdCount+payments.createdCount,updated_count:directory.updatedPatients+directory.linkedPatients+receivables.updatedCount+payments.updatedCount,skipped_count:directory.reviewCount+directory.invalidCount+receivables.skippedCount+payments.skippedCount,error_count:payments.failedCount+receivables.failedCount,metadata:{mode:"clinicorp_canonical_collection_receivables",recent_from:recentFrom,recent_to:today,overdue_snapshot_rows:overdueSnapshot.length,historical_windows:windows,backfill_before:cursor,backfill_completed:completed,result},completed_at:finishedAt}).eq("id",run.id),admin.from("integration_connections").update({non_secret_config:nextConfig,last_error:null}).eq("id",connection.id)]);
+    await Promise.all([admin.from("sync_runs").update({status:payments.failedCount||receivables.failedCount?"partial":"completed",processed_count:directory.processedCount,created_count:directory.createdPatients+receivables.createdCount+payments.createdCount,updated_count:directory.updatedPatients+directory.linkedPatients+receivables.updatedCount+payments.updatedCount,skipped_count:directory.reviewCount+directory.invalidCount+receivables.skippedCount+payments.skippedCount,error_count:payments.failedCount+receivables.failedCount,metadata:{mode:"clinicorp_canonical_collection_receivables",recent_from:recentFrom,recent_to:today,due_date_rows:dueDateRows.length,overdue_snapshot_rows:overdueSnapshot.length,historical_windows:windows,backfill_before:cursor,backfill_completed:completed,result},completed_at:finishedAt}).eq("id",run.id),admin.from("integration_connections").update({non_secret_config:nextConfig,last_error:null}).eq("id",connection.id)]);
     return{unit:unit.name,ok:true,backfillCompleted:completed,backfillBefore:cursor,windows,result};
   }catch(error){const message=error instanceof Error?error.message.slice(0,500):"Falha na sincronização canônica.",finishedAt=new Date().toISOString();if(runId)await admin.from("sync_runs").update({status:"failed",error_count:1,error_summary:message,completed_at:finishedAt}).eq("id",runId);if(connectionId)await admin.from("integration_connections").update({last_error:message}).eq("id",connectionId);return{unit:unitCode,ok:false,message}}};
 
