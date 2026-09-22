@@ -217,6 +217,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [yearFilter, setYearFilter] = useState("all");
   const [quickPeriod, setQuickPeriod] = useState("all");
   const [patientQuery, setPatientQuery] = useState("");
+  const [pendingToNegotiate, setPendingToNegotiate] = useState(0);
+  const [pendingToNegotiateCount, setPendingToNegotiateCount] = useState(0);
+  const [loadingPendingTotal, setLoadingPendingTotal] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -352,6 +355,76 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     });
   }, [selectedUnit, quickPeriod, todayKey, dateFrom, dateTo, yearFilter, monthFilter]);
 
+  const pendingRanges = useMemo(() => {
+    if (quickPeriod !== "all") {
+      const start = new Date(`${todayKey}T12:00:00-03:00`);
+      start.setDate(start.getDate() - (Number(quickPeriod) - 1));
+      return [{ from_date: saoPauloDayKey(start), to_date: todayKey }];
+    }
+
+    if (dateFrom || dateTo) {
+      return [{ from_date: dateFrom || "2015-01-01", to_date: dateTo || todayKey }];
+    }
+
+    if (monthFilter !== "all") {
+      const currentYear = Number(todayKey.slice(0, 4));
+      const years = yearFilter !== "all"
+        ? [yearFilter]
+        : Array.from({ length: currentYear - 2015 + 1 }, (_, index) => String(2015 + index));
+      return years.map((year) => {
+        const monthNumber = Number(monthFilter);
+        const lastDay = new Date(Date.UTC(Number(year), monthNumber, 0)).getUTCDate();
+        return {
+          from_date: `${year}-${monthFilter}-01`,
+          to_date: `${year}-${monthFilter}-${String(lastDay).padStart(2, "0")}`,
+        };
+      });
+    }
+
+    if (yearFilter !== "all") {
+      return [{ from_date: `${yearFilter}-01-01`, to_date: `${yearFilter}-12-31` }];
+    }
+
+    return [{ from_date: "2015-01-01", to_date: todayKey }];
+  }, [quickPeriod, todayKey, dateFrom, dateTo, monthFilter, yearFilter]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const refreshPendingTotal = async () => {
+      setLoadingPendingTotal(true);
+      try {
+        const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
+        const { data, error } = await (getSupabaseBrowserClient() as any).rpc("get_clinicorp_pending_total", {
+          p_unit_code: selectedCode === "todas" ? null : selectedCode,
+          p_ranges: pendingRanges,
+        });
+        if (error) throw error;
+        if (disposed) return;
+        const row = data?.[0] ?? {};
+        setPendingToNegotiate(Number(row.pending_amount ?? 0));
+        setPendingToNegotiateCount(Number(row.pending_count ?? 0));
+      } catch (error) {
+        if (!disposed) {
+          setPendingToNegotiate(0);
+          setPendingToNegotiateCount(0);
+          toast.error("Não foi possível atualizar o valor pendente do Clinicorp", {
+            description: error instanceof Error ? error.message : "Tente novamente.",
+          });
+        }
+      } finally {
+        if (!disposed) setLoadingPendingTotal(false);
+      }
+    };
+
+    void refreshPendingTotal();
+    const interval = window.setInterval(refreshPendingTotal, 60_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [unit, pendingRanges]);
+
   const clearPeriodFilters = () => {
     setQuickPeriod("all");
     setDateFrom("");
@@ -374,10 +447,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     return periodFiltered.filter((patient) => patient.name.toLocaleLowerCase("pt-BR").includes(normalized));
   }, [periodFiltered, patientQuery]);
 
-  const pendingToNegotiate = useMemo(
-    () => periodFiltered.reduce((total, patient) => total + patient.amountValue, 0),
-    [periodFiltered],
-  );
+
 
   const actionable = searched.filter((patient) => {
     if (patient.stage === "protested") return true;
@@ -426,7 +496,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     </section>
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <CollectionMetric icon={WalletCards} label="Pendente para negociar" value={brl(pendingToNegotiate)} detail="Boletos em aberto no Clinicorp dentro do período filtrado" tone="bg-[#e4f8ee] text-[#00884a]" />
+      <CollectionMetric icon={WalletCards} label="Pendente para negociar" value={loadingPendingTotal ? "Atualizando…" : brl(pendingToNegotiate)} detail={`${pendingToNegotiateCount} lançamento(s) em aberto no Clinicorp • todas as formas de pagamento`} tone="bg-[#e4f8ee] text-[#00884a]" />
       <CollectionMetric icon={PhoneCall} label="Ligações para fazer" value={String(today.filter((patient) => patient.stage === "call").length)} detail="Casos que já chegaram no prazo" tone="bg-[#fff1d8] text-[#946614]" />
       <CollectionMetric icon={CalendarClock} label="Promessas para conferir" value={String(today.filter((patient) => patient.stage === "promise").length)} detail="Pagamento combinado para confirmar" tone="bg-[#e6f6ed] text-[#137044]" />
       <CollectionMetric icon={MessageSquareText} label="Em negociação" value={String(negotiating.length)} detail="Histórico e próximo retorno salvos" tone="bg-[#e9f2f3] text-[#397174]" />
