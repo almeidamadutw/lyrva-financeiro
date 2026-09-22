@@ -77,6 +77,28 @@ Deno.serve(async req=>{
   const admin=createClient(url,key,{auth:{persistSession:false}});
   const incoming=req.headers.get("x-lyvra-cron-key")??"";
   const {data:secret,error:secretError}=await admin.from("system_secrets").select("secret").eq("key","clinicorp_auto_sync_key").maybeSingle();if(secretError||!secret?.secret||incoming!==secret.secret)return reply({ok:false,message:"Chamada não autorizada."},401);
+  let requestBody:Row={};try{requestBody=await req.json()}catch{}
+  if(requestBody.probe_overdue_patient_id&&requestBody.probe_unit_code){
+    const unitCode=String(requestBody.probe_unit_code) as UnitCode;
+    if(!["sorocaba","salto_de_pirapora"].includes(unitCode))return reply({ok:false,message:"Unidade inválida."},400);
+    const {data:connection}=await admin.from("integration_connections").select("non_secret_config").eq("provider","clinicorp").eq("unit_id",(await admin.from("units").select("id").eq("code",unitCode).single()).data?.id).maybeSingle();
+    const config=(connection?.non_secret_config??{}) as Row,subscriber=String(config.subscriber_id??"").trim();
+    const names=SECRETS[unitCode],username=Deno.env.get(names.username)?.trim()??"",token=Deno.env.get(names.token)?.trim()??"";
+    const personId=String(requestBody.probe_overdue_patient_id);
+    const attempts=[] as Row[];
+    for(const base of [API_BASE,"https://api.clinicorp.com/api"]){
+      const endpoint=new URL(`${base}/payment/list_overdue_payments`);
+      endpoint.searchParams.set("subscriber_id",subscriber);
+      endpoint.searchParams.set("person_id",personId);
+      endpoint.searchParams.set("__caller","export");
+      try{
+        const res=await fetch(endpoint,{headers:{accept:"application/json",authorization:`Basic ${btoa(`${username}:${token}`)}`},signal:AbortSignal.timeout(20000)});
+        const raw=await res.text();
+        attempts.push({base,status:res.status,body:raw.slice(0,12000)});
+      }catch(error){attempts.push({base,error:error instanceof Error?error.message:String(error)})}
+    }
+    return reply({ok:true,unitCode,personId,attempts});
+  }
   const today=day(),recentFrom=addDays(today,-7);
 
   const syncUnit=async(unitCode:UnitCode)=>{let runId:number|null=null,connectionId:number|null=null;try{
