@@ -48,6 +48,28 @@ function addPayments(a:PaymentSummary,b:PaymentSummary){for(const k of Object.ke
 async function syncDirectory(admin:ReturnType<typeof createClient>,unitId:number,rows:Row[]){const total=emptyDirectory();for(const batch of chunks(rows,RPC_BATCH)){const {data,error}=await admin.rpc("upsert_clinicorp_financial_directory",{p_unit_id:unitId,p_rows:batch,p_sync_run_id:null});if(error)throw new Error(`A base canônica não pôde ser atualizada: ${error.message}`);const r=data?.[0]??{};addDirectory(total,{processedCount:Number(r.processed_count??0),createdPatients:Number(r.created_patients??0),linkedPatients:Number(r.linked_patients??0),updatedPatients:Number(r.updated_patients??0),reviewCount:Number(r.review_count??0),invalidCount:Number(r.invalid_count??0)})}return total}
 async function syncReceivables(admin:ReturnType<typeof createClient>,unitId:number,rows:Row[]){const total=emptyReceivables();for(const batch of chunks(rows,RECEIVABLE_BATCH)){const {data,error}=await admin.rpc("upsert_clinicorp_boleto_receivables",{p_unit_id:unitId,p_rows:batch,p_sync_run_id:null});if(error)throw new Error(`Os boletos do Clinicorp não puderam ser atualizados: ${error.message}`);const r=data?.[0]??{};addReceivables(total,{processedCount:Number(r.processed_count??0),createdCount:Number(r.created_count??0),updatedCount:Number(r.updated_count??0),paidCount:Number(r.paid_count??0),openCount:Number(r.open_count??0),skippedCount:Number(r.skipped_count??0),failedCount:Number(r.failed_count??0)})}return total}
 async function syncPayments(admin:ReturnType<typeof createClient>,unitId:number,rows:Row[]){const total=emptyPayments();for(const batch of chunks(confirmed(rows),RPC_BATCH)){const {data,error}=await admin.rpc("ingest_clinicorp_payments",{p_unit_id:unitId,p_rows:batch,p_sync_run_id:null});if(error)throw new Error(`As baixas confirmadas não puderam ser aplicadas: ${error.message}`);const r=data?.[0]??{};addPayments(total,{processedCount:Number(r.processed_count??0),createdCount:Number(r.created_count??0),updatedCount:Number(r.updated_count??0),skippedCount:Number(r.skipped_count??0),failedCount:Number(r.failed_count??0),paidInstallments:Number(r.paid_installments??0)})}return total}
+async function openOverdueSnapshotRows(admin:ReturnType<typeof createClient>,unitId:number,today:string){
+  const rows:Row[]=[];
+  for(let offset=0;;offset+=1000){
+    const {data,error}=await admin
+      .from("clinicorp_payment_snapshot")
+      .select("raw")
+      .eq("unit_id",unitId)
+      .eq("payment_received",false)
+      .eq("payment_confirmed",false)
+      .eq("cancelled",false)
+      .ilike("payment_form","%Boleto%")
+      .gt("amount",0)
+      .lte("due_date",today)
+      .order("due_date",{ascending:true})
+      .range(offset,offset+999);
+    if(error)throw new Error(`Os recebíveis vencidos do Clinicorp não puderam ser conferidos: ${error.message}`);
+    const page=(data??[]).map((item:Row)=>(item.raw??{}) as Row).filter((item:Row)=>rowId(item));
+    rows.push(...page);
+    if((data??[]).length<1000)break;
+  }
+  return dedupe(rows);
+}
 
 Deno.serve(async req=>{
   if(req.method!=="POST")return reply({ok:false,message:"Use POST."},405);
@@ -71,11 +93,18 @@ Deno.serve(async req=>{
     addPayments(payments,await syncPayments(admin,Number(unit.id),combined));
     addReceivables(receivables,await syncReceivables(admin,Number(unit.id),posted));
 
+    // Reconcile every overdue open boleto already known by Clinicorp, not only
+    // rows created in the last seven days. This covers long payment plans whose
+    // PostDate is months/years older than the current due date.
+    const overdueSnapshot=await openOverdueSnapshotRows(admin,Number(unit.id),today);
+    addDirectory(directory,await syncDirectory(admin,Number(unit.id),overdueSnapshot));
+    addReceivables(receivables,await syncReceivables(admin,Number(unit.id),overdueSnapshot));
+
     let cursor=String(config.directory_backfill_before??today),completed=Boolean(config.directory_backfill_completed_at);const windows:Array<{from:string;to:string;rows:number}>=[];
     if(!completed&&cursor>=HISTORY_FLOOR){const daysBack=unitCode==="salto_de_pirapora"?7:14;const windowTo=cursor,windowFrom=maxDate(HISTORY_FLOOR,addDays(windowTo,-daysBack));const history=rowsOf(await fetchPayments(subscriber,credentials,windowFrom,windowTo,"postDate"));addDirectory(directory,await syncDirectory(admin,Number(unit.id),history));addPayments(payments,await syncPayments(admin,Number(unit.id),history));addReceivables(receivables,await syncReceivables(admin,Number(unit.id),history));windows.push({from:windowFrom,to:windowTo,rows:history.length});cursor=addDays(windowFrom,-1);completed=cursor<HISTORY_FLOOR}
 
     const finishedAt=new Date().toISOString(),result={directory,receivables,payments};const nextConfig:Row={...config,directory_source:"payment/list",directory_last_sync_at:finishedAt,directory_recent_from:recentFrom,directory_recent_to:today,directory_backfill_floor:HISTORY_FLOOR,directory_backfill_before:cursor,directory_backfill_last_windows:windows,directory_backfill_completed_at:completed?(config.directory_backfill_completed_at??finishedAt):null,directory_last_summary:directory,collection_receivables_last_summary:receivables,collection_receivables_last_sync_at:finishedAt};
-    await Promise.all([admin.from("sync_runs").update({status:payments.failedCount||receivables.failedCount?"partial":"completed",processed_count:directory.processedCount,created_count:directory.createdPatients+receivables.createdCount+payments.createdCount,updated_count:directory.updatedPatients+directory.linkedPatients+receivables.updatedCount+payments.updatedCount,skipped_count:directory.reviewCount+directory.invalidCount+receivables.skippedCount+payments.skippedCount,error_count:payments.failedCount+receivables.failedCount,metadata:{mode:"clinicorp_canonical_collection_receivables",recent_from:recentFrom,recent_to:today,historical_windows:windows,backfill_before:cursor,backfill_completed:completed,result},completed_at:finishedAt}).eq("id",run.id),admin.from("integration_connections").update({non_secret_config:nextConfig,last_error:null}).eq("id",connection.id)]);
+    await Promise.all([admin.from("sync_runs").update({status:payments.failedCount||receivables.failedCount?"partial":"completed",processed_count:directory.processedCount,created_count:directory.createdPatients+receivables.createdCount+payments.createdCount,updated_count:directory.updatedPatients+directory.linkedPatients+receivables.updatedCount+payments.updatedCount,skipped_count:directory.reviewCount+directory.invalidCount+receivables.skippedCount+payments.skippedCount,error_count:payments.failedCount+receivables.failedCount,metadata:{mode:"clinicorp_canonical_collection_receivables",recent_from:recentFrom,recent_to:today,overdue_snapshot_rows:overdueSnapshot.length,historical_windows:windows,backfill_before:cursor,backfill_completed:completed,result},completed_at:finishedAt}).eq("id",run.id),admin.from("integration_connections").update({non_secret_config:nextConfig,last_error:null}).eq("id",connection.id)]);
     return{unit:unit.name,ok:true,backfillCompleted:completed,backfillBefore:cursor,windows,result};
   }catch(error){const message=error instanceof Error?error.message.slice(0,500):"Falha na sincronização canônica.",finishedAt=new Date().toISOString();if(runId)await admin.from("sync_runs").update({status:"failed",error_count:1,error_summary:message,completed_at:finishedAt}).eq("id",runId);if(connectionId)await admin.from("integration_connections").update({last_error:message}).eq("id",connectionId);return{unit:unitCode,ok:false,message}}};
 
