@@ -78,6 +78,22 @@ Deno.serve(async req=>{
   const incoming=req.headers.get("x-lyvra-cron-key")??"";
   const {data:secret,error:secretError}=await admin.from("system_secrets").select("secret").eq("key","clinicorp_auto_sync_key").maybeSingle();if(secretError||!secret?.secret||incoming!==secret.secret)return reply({ok:false,message:"Chamada não autorizada."},401);
   let requestBody:Row={};try{requestBody=await req.json()}catch{}
+  if(requestBody.probe_payment_from&&requestBody.probe_payment_to&&requestBody.probe_unit_code){
+    const unitCode=String(requestBody.probe_unit_code) as UnitCode;
+    const from=String(requestBody.probe_payment_from),to=String(requestBody.probe_payment_to);
+    const nameContains=String(requestBody.probe_name_contains??"").toLocaleLowerCase("pt-BR");
+    const {data:unit}=await admin.from("units").select("id").eq("code",unitCode).single();
+    const {data:connection}=await admin.from("integration_connections").select("non_secret_config").eq("provider","clinicorp").eq("unit_id",unit?.id).maybeSingle();
+    const config=(connection?.non_secret_config??{}) as Row,subscriber=String(config.subscriber_id??"").trim();
+    const names=SECRETS[unitCode],username=Deno.env.get(names.username)?.trim()??"",token=Deno.env.get(names.token)?.trim()??"";
+    try{
+      const payload=await fetchPayments(subscriber,{username,token},from,to,"postDate");
+      const rows=rowsOf(payload).filter((row)=>!nameContains||String(row.PatientName??"").toLocaleLowerCase("pt-BR").includes(nameContains));
+      return reply({ok:true,unitCode,from,to,count:rows.length,rows:rows.slice(0,200)});
+    }catch(error){
+      return reply({ok:false,message:error instanceof Error?error.message:String(error)},500);
+    }
+  }
   if(requestBody.probe_overdue_patient_id&&requestBody.probe_unit_code){
     const unitCode=String(requestBody.probe_unit_code) as UnitCode;
     if(!["sorocaba","salto_de_pirapora"].includes(unitCode))return reply({ok:false,message:"Unidade inválida."},400);
