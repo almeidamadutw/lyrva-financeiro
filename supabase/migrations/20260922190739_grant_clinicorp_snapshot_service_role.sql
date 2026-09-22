@@ -1,0 +1,1 @@
+grant select, insert, update on public.clinicorp_payment_snapshot to service_role;
