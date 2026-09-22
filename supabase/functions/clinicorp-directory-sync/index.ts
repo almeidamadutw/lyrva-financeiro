@@ -24,7 +24,7 @@ function addDays(value:string,days:number){const d=new Date(`${value}T12:00:00Z`
 const maxDate=(a:string,b:string)=>a>b?a:b;
 function chunks<T>(rows:T[],size:number){const out:T[][]=[];for(let i=0;i<rows.length;i+=size)out.push(rows.slice(i,i+size));return out}
 function rowsOf(payload:unknown):Row[]{if(Array.isArray(payload))return payload.filter((r):r is Row=>!!r&&typeof r==="object"&&!Array.isArray(r));if(!payload||typeof payload!=="object"||Array.isArray(payload))return[];const x=payload as Row;for(const key of ["data","Data","items","Items","results","Results"]){const value=x[key];if(Array.isArray(value))return value.filter((r):r is Row=>!!r&&typeof r==="object"&&!Array.isArray(r))}return[x]}
-const rowId=(r:Row)=>String(r.ExternalTxId??r.id??"").trim();
+const rowId=(r:Row)=>String(r.id??r.ExternalTxId??"").trim();
 function confirmed(rows:Row[]){const m=new Map<string,Row>();for(const r of rows){const id=rowId(r);if(id&&String(r.PatientId??"").trim()&&String(r.PaymentConfirmed??"").toUpperCase()==="X"&&String(r.ConfirmedDate??"").trim())m.set(id,r)}return[...m.values()]}
 function dedupe(rows:Row[]){const m=new Map<string,Row>();for(const r of rows)m.set(rowId(r)||JSON.stringify(r),r);return[...m.values()]}
 async function fetchPayments(subscriber:string,credentials:{username:string;token:string},from:string,to:string,dateType?:string){
