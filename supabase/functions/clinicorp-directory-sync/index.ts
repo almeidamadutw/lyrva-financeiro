@@ -97,11 +97,16 @@ Deno.serve(async req=>{
     for(const probe of probes){
       const endpoint=new URL(`${probe.base}${probe.path}`);
       for(const [key,value] of Object.entries(probe.params))endpoint.searchParams.set(key,String(value));
-      try{
-        const res=await fetch(endpoint,{headers:{accept:"application/json",authorization:`Basic ${btoa(`${username}:${token}`)}`},signal:AbortSignal.timeout(20000)});
-        const raw=await res.text();
-        attempts.push({base:probe.base,path:probe.path,status:res.status,body:raw.slice(0,20000)});
-      }catch(error){attempts.push({base:probe.base,path:probe.path,error:error instanceof Error?error.message:String(error)})}
+      for(const authMode of ["basic","bearer"]){
+        try{
+          const authorization=authMode==="basic"
+            ? `Basic ${btoa(`${username}:${token}`)}`
+            : `Bearer ${token}`;
+          const res=await fetch(endpoint,{headers:{accept:"application/json",authorization},signal:AbortSignal.timeout(20000)});
+          const raw=await res.text();
+          attempts.push({base:probe.base,path:probe.path,authMode,status:res.status,body:raw.slice(0,20000)});
+        }catch(error){attempts.push({base:probe.base,path:probe.path,authMode,error:error instanceof Error?error.message:String(error)})}
+      }
     }
     return reply({ok:true,unitCode,personId,attempts});
   }
