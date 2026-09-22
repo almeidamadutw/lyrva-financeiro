@@ -86,16 +86,22 @@ Deno.serve(async req=>{
     const names=SECRETS[unitCode],username=Deno.env.get(names.username)?.trim()??"",token=Deno.env.get(names.token)?.trim()??"";
     const personId=String(requestBody.probe_overdue_patient_id);
     const attempts=[] as Row[];
-    for(const base of [API_BASE,"https://api.clinicorp.com/api"]){
-      const endpoint=new URL(`${base}/payment/list_overdue_payments`);
-      endpoint.searchParams.set("subscriber_id",subscriber);
-      endpoint.searchParams.set("person_id",personId);
-      endpoint.searchParams.set("__caller","export");
+    const probes=[
+      {base:API_BASE,path:"/payment/list_overdue_payments",params:{subscriber_id:subscriber,person_id:personId,__caller:"export"}},
+      {base:API_BASE,path:"/financial/plan_control/get_patient_plans",params:{subscriber_id:subscriber,PatientId:personId,getInfo:"true"}},
+      {base:API_BASE,path:"/payment/list_all_patient_receipts",params:{subscriber_id:subscriber,id:personId,__caller:"export"}},
+      {base:API_BASE,path:"/patient/get",params:{subscriber_id:subscriber,id:personId}},
+      {base:"https://api.clinicorp.com/api",path:"/payment/list_overdue_payments",params:{subscriber_id:subscriber,person_id:personId,__caller:"export"}},
+      {base:"https://api.clinicorp.com/api",path:"/financial/plan_control/get_patient_plans",params:{subscriber_id:subscriber,PatientId:personId,getInfo:"true"}},
+    ];
+    for(const probe of probes){
+      const endpoint=new URL(`${probe.base}${probe.path}`);
+      for(const [key,value] of Object.entries(probe.params))endpoint.searchParams.set(key,String(value));
       try{
         const res=await fetch(endpoint,{headers:{accept:"application/json",authorization:`Basic ${btoa(`${username}:${token}`)}`},signal:AbortSignal.timeout(20000)});
         const raw=await res.text();
-        attempts.push({base,status:res.status,body:raw.slice(0,12000)});
-      }catch(error){attempts.push({base,error:error instanceof Error?error.message:String(error)})}
+        attempts.push({base:probe.base,path:probe.path,status:res.status,body:raw.slice(0,20000)});
+      }catch(error){attempts.push({base:probe.base,path:probe.path,error:error instanceof Error?error.message:String(error)})}
     }
     return reply({ok:true,unitCode,personId,attempts});
   }
