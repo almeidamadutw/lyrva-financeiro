@@ -1,6 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeUsername, corsHeaders, json, hashKey } from "../_shared/access.ts";
 
+async function findAuthUserByUsername(admin: ReturnType<typeof createClient>, username: string) {
+  for (let page = 1; page <= 5; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) return { user: null, error };
+    const user = (data.users ?? []).find(candidate =>
+      normalizeUsername(candidate.user_metadata?.username) === username
+    );
+    if (user) return { user, error: null };
+    if ((data.users ?? []).length < 200) break;
+  }
+  return { user: null, error: null };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ ok: false, message: "Método não permitido." }, 405);
@@ -19,17 +32,38 @@ Deno.serve(async (request) => {
     const { data: allowed, error: limitError } = await admin.rpc("consume_access_attempt", {
       p_key: await hashKey(`${action}:${username}`), p_limit: action === "recover" ? 3 : action === "verify" ? 6 : 10,
     });
-    if (limitError) return json({ ok: false, message: "Serviço temporariamente indisponível." }, 503);
-    if (!allowed) return json({ ok: false, message: "Muitas tentativas. Aguarde 15 minutos antes de tentar novamente." }, 429);
+    // Recovery must remain available during short PostgREST/database incidents.
+    // Supabase Auth itself still enforces its recovery-email cooldown/rate limit.
+    if (limitError && action !== "recover") return json({ ok: false, message: "Serviço temporariamente indisponível." }, 503);
+    if (!limitError && !allowed) return json({ ok: false, message: "Muitas tentativas. Aguarde 15 minutos antes de tentar novamente." }, 429);
+
     const { data: profile, error: lookupError } = await admin.from("profiles").select("user_id, email, is_active").eq("username", username).maybeSingle();
-    if (lookupError) return json({ ok: false, message: "Serviço temporariamente indisponível." }, 503);
+
     if (action === "recover") {
-      if (profile?.is_active) {
-        const { error } = await client.auth.resetPasswordForEmail(profile.email);
-        if (error) return json({ ok: false, message: "Não foi possível enviar agora. Aguarde alguns minutos e tente novamente." }, 502);
+      let recoveryEmail = !lookupError && profile?.is_active ? profile.email : null;
+
+      // Fallback for infrastructure incidents: invitations store the username in
+      // Auth user metadata, so recovery does not have to depend exclusively on
+      // the public profiles query being available.
+      if (lookupError) {
+        const authLookup = await findAuthUserByUsername(admin, username);
+        if (authLookup.error) return json({ ok: false, message: "O serviço de acesso está temporariamente indisponível. Tente novamente em alguns minutos." }, 503);
+        recoveryEmail = authLookup.user?.email ?? null;
+      }
+
+      if (recoveryEmail) {
+        const { error } = await client.auth.resetPasswordForEmail(recoveryEmail);
+        if (error) {
+          if (error.status === 429 || /rate.?limit|too many|email.*limit/i.test(error.message)) {
+            return json({ ok: false, message: "O provedor de e-mail atingiu o limite temporário de envio. Aguarde alguns minutos e solicite novamente." }, 429);
+          }
+          return json({ ok: false, message: "O e-mail de recuperação não pôde ser enviado agora. Tente novamente em alguns minutos." }, 502);
+        }
       }
       return json({ ok: true });
     }
+
+    if (lookupError) return json({ ok: false, message: "Serviço temporariamente indisponível." }, 503);
     if (!profile?.is_active) return json({ ok: false, message: action === "login" ? "Usuário ou senha inválidos." : "Código inválido ou expirado. Solicite outro em Recuperar acesso." }, 400);
     if (action === "login") {
       const { data, error } = await client.auth.signInWithPassword({ email: profile.email, password: body.password });
