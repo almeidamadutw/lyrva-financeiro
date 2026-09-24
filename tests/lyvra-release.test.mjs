@@ -92,6 +92,16 @@ test("loads only actionable collection rows and renders them in batches", async 
   assert.match(collections, /patients\.slice\(0, visibleCount\)/);
 });
 
+test("shows the latest collection conversation and who registered it", async () => {
+  const collections = await read("components/collections-journey-real.tsx");
+
+  assert.match(collections, /const outcomeLabels/);
+  assert.match(collections, /rowInteractions\[rowInteractions\.length - 1\]/);
+  assert.match(collections, /lastInteraction: latestInteraction/);
+  assert.match(collections, /patient\.lastInteraction\.label} · \{patient\.lastInteraction\.author/);
+  assert.match(collections, /Último: \{patient\.lastInteraction\.note\}/);
+});
+
 test("scopes settlement and operational blocking to the patient unit", async () => {
   const [migration, rollupGuard, app, workbook] = await Promise.all([
     read("supabase/migrations/20260918183039_scope_patient_settlement_by_unit.sql"),
