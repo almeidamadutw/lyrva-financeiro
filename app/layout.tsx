@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   icons: { icon: LYVRA_ICON_DATA_URL, shortcut: LYVRA_ICON_DATA_URL, apple: LYVRA_ICON_DATA_URL },
   other: {
     "codex-preview": "development",
-    "facebook-domain-verification": "4fc35d32oq4rbuul2ojrkky1jrtmy9",
+    "facebook-domain-verification": "j2jagfqyezcgxexi6pkstpde34r5s4",
   },
 };
 
