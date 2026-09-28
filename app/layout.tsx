@@ -6,7 +6,10 @@ export const metadata: Metadata = {
   title: "LYVRA",
   description: "Inteligência financeira e controle de notas da Casal Odonto.",
   icons: { icon: LYVRA_ICON_DATA_URL, shortcut: LYVRA_ICON_DATA_URL, apple: LYVRA_ICON_DATA_URL },
-  other: { "codex-preview": "development" },
+  other: {
+    "codex-preview": "development",
+    "facebook-domain-verification": "4fc35d32oq4rbuul2ojrkky1jrtmy9",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
