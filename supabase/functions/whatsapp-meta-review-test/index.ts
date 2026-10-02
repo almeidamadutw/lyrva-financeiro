@@ -1,11 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-type Body = { action: "send"; to?: string; access_token?: string };
+type Body = { action: "send" | "management_test"; to?: string; access_token?: string };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PHONE_NUMBER_ID = "1426521627207345";
+const WABA_ID = "1674618824003781";
 const TEMPLATE_NAME = "jaspers_market_order_confirmation_v1";
 const TEMPLATE_LANGUAGE = "en_US";
 
@@ -48,6 +49,58 @@ Deno.serve(async (req) => {
     body = await req.json();
   } catch {
     return json({ ok: false, message: "Requisição inválida." }, 400);
+  }
+
+  if (body.action === "management_test") {
+    const accessToken = String(body.access_token ?? "").trim();
+    if (!accessToken || accessToken.length < 20) {
+      return json({ ok: false, message: "Cole primeiro um novo token temporário gerado pela Meta." }, 400);
+    }
+
+    const response = await fetch(`https://graph.facebook.com/v25.0/${WABA_ID}/message_templates?limit=10`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        accept: "application/json",
+      },
+    });
+
+    let payload: any = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      const metaMessage =
+        payload?.error?.error_user_msg ||
+        payload?.error?.message ||
+        `Meta HTTP ${response.status}`;
+      return json({ ok: false, message: String(metaMessage) }, 502);
+    }
+
+    const templates = Array.isArray(payload?.data)
+      ? payload.data.map((item: any) => ({
+          id: item?.id ?? null,
+          name: item?.name ?? null,
+          status: item?.status ?? null,
+          language: item?.language ?? null,
+        }))
+      : [];
+
+    await admin.from("whatsapp_webhook_events").insert({
+      phone_number_id: PHONE_NUMBER_ID,
+      waba_id: WABA_ID,
+      event_type: "review:management_api_test",
+      payload: {
+        endpoint: "message_templates",
+        template_count: templates.length,
+      },
+      processed_at: new Date().toISOString(),
+    });
+
+    return json({ ok: true, templates, count: templates.length });
   }
 
   if (body.action === "send") {
