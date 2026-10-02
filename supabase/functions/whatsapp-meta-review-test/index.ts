@@ -1,16 +1,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-type Body =
-  | { action: "save_token"; access_token?: string }
-  | { action: "send"; to?: string };
+type Body = { action: "send"; to?: string; access_token?: string };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const PHONE_NUMBER_ID = "1426521627207345";
 const TEMPLATE_NAME = "jaspers_market_order_confirmation_v1";
 const TEMPLATE_LANGUAGE = "en_US";
-const SECRET_KEY = "meta_whatsapp_test_access_token";
 
 function json(body: unknown, status = 200) {
   return Response.json(body, {
@@ -53,43 +50,21 @@ Deno.serve(async (req) => {
     return json({ ok: false, message: "Requisição inválida." }, 400);
   }
 
-  if (body.action === "save_token") {
-    const accessToken = String(body.access_token ?? "").trim();
-    if (!accessToken || accessToken.length < 20) {
-      return json({ ok: false, message: "Informe um token válido gerado pela Meta." }, 400);
-    }
-
-    const { error } = await admin
-      .from("system_secrets")
-      .upsert(
-        { key: SECRET_KEY, secret: accessToken, updated_at: new Date().toISOString() },
-        { onConflict: "key" },
-      );
-
-    if (error) return json({ ok: false, message: "Não foi possível guardar o token com segurança." }, 500);
-    return json({ ok: true });
-  }
-
   if (body.action === "send") {
     const to = String(body.to ?? "").replace(/\D/g, "");
+    const accessToken = String(body.access_token ?? "").trim();
     if (to.length < 10 || to.length > 15) {
       return json({ ok: false, message: "Informe um destinatário válido com DDI e DDD." }, 400);
     }
 
-    const { data: secret, error: secretError } = await admin
-      .from("system_secrets")
-      .select("secret")
-      .eq("key", SECRET_KEY)
-      .maybeSingle();
-
-    if (secretError || !secret?.secret) {
-      return json({ ok: false, message: "Salve primeiro o novo token temporário da Meta." }, 409);
+    if (!accessToken || accessToken.length < 20) {
+      return json({ ok: false, message: "Cole primeiro um novo token temporário gerado pela Meta." }, 400);
     }
 
     const response = await fetch(`https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${secret.secret}`,
+        authorization: `Bearer ${accessToken}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
