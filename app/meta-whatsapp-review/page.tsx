@@ -11,10 +11,8 @@ export default function MetaWhatsappReviewPage() {
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState("");
   const [to, setTo] = useState("5515992890414");
-  const [saving, setSaving] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [tokenSaved, setTokenSaved] = useState(false);
-  const [message, setMessage] = useState("");
+   const [sending, setSending] = useState(false);
+   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -24,40 +22,23 @@ export default function MetaWhatsappReviewPage() {
     });
   }, [supabase]);
 
-  async function saveToken() {
-    setError("");
-    setMessage("");
-    if (!token.trim()) {
-      setError("Cole o novo token temporário gerado pela Meta.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("whatsapp-meta-review-test", {
-        body: { action: "save_token", access_token: token.trim() },
-      });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.message || "Não foi possível salvar o token.");
-      setToken("");
-      setTokenSaved(true);
-      setMessage("Token salvo com segurança no servidor. Ele não será exibido no vídeo.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Não foi possível salvar o token.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function sendTest() {
     setError("");
     setMessage("");
     setSending(true);
     try {
+      if (!token.trim()) throw new Error("Cole o novo token temporário da Meta antes de enviar.");
       const { data, error } = await supabase.functions.invoke("whatsapp-meta-review-test", {
-        body: { action: "send", to },
+        body: { action: "send", to, access_token: token.trim() },
       });
-      if (error) throw error;
+      if (error) {
+        let detail = "Não foi possível concluir o teste.";
+        if (error.context instanceof Response) {
+          const payload = await error.context.clone().json().catch(() => null);
+          if (typeof payload?.message === "string") detail = payload.message;
+        }
+        throw new Error(detail);
+      }
       if (!data?.ok) throw new Error(data?.message || "Não foi possível enviar a mensagem.");
       setMessage(
         data.message_id
@@ -97,28 +78,18 @@ export default function MetaWhatsappReviewPage() {
 
         <div className="mt-8 space-y-8">
           <section>
-            <h2 className="text-lg font-semibold">1. Salvar novo token temporário</h2>
+            <h2 className="text-lg font-semibold">1. Token temporário da Meta</h2>
             <p className="mt-1 text-sm text-black/55">
-              Faça isso antes de começar a gravação. O token fica somente no servidor e some deste campo após salvar.
+              Cole o novo token. Ele fica somente nesta aba do navegador, é enviado por HTTPS no momento do teste e não é salvo no banco do LYVRA.
             </p>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <input
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                placeholder="Cole aqui o NOVO token da Meta"
-                autoComplete="off"
-                className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-4 py-3 text-sm outline-none focus:border-[#00a86b]"
-              />
-              <button
-                type="button"
-                onClick={saveToken}
-                disabled={!ready || saving}
-                className="rounded-xl bg-[#102b27] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? "Salvando..." : tokenSaved ? "Token salvo" : "Salvar token"}
-              </button>
-            </div>
+            <input
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="Cole aqui o NOVO token da Meta"
+              autoComplete="off"
+              className="mt-4 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-sm outline-none focus:border-[#00a86b]"
+            />
           </section>
 
           <section className="border-t border-black/5 pt-8">
