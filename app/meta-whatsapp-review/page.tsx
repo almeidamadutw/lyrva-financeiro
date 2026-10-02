@@ -12,7 +12,8 @@ export default function MetaWhatsappReviewPage() {
   const [token, setToken] = useState("");
   const [to, setTo] = useState("5515992890414");
    const [sending, setSending] = useState(false);
-   const [message, setMessage] = useState("");
+  const [managementTesting, setManagementTesting] = useState(false);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -49,6 +50,37 @@ export default function MetaWhatsappReviewPage() {
       setError(e instanceof Error ? e.message : "Não foi possível enviar a mensagem.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function testManagementApi() {
+    setError("");
+    setMessage("");
+    setManagementTesting(true);
+    try {
+      if (!token.trim()) throw new Error("Cole o novo token temporário da Meta antes de testar.");
+      const { data, error } = await supabase.functions.invoke("whatsapp-meta-review-test", {
+        body: { action: "management_test", access_token: token.trim() },
+      });
+      if (error) {
+        let detail = "Não foi possível testar a API de gerenciamento.";
+        if (error.context instanceof Response) {
+          const payload = await error.context.clone().json().catch(() => null);
+          if (typeof payload?.message === "string") detail = payload.message;
+        }
+        throw new Error(detail);
+      }
+      if (!data?.ok) throw new Error(data?.message || "A chamada de gerenciamento não foi concluída.");
+      const names = Array.isArray(data.templates) ? data.templates.map((item: { name?: string }) => item?.name).filter(Boolean) : [];
+      setMessage(
+        names.length
+          ? `API de gerenciamento testada com sucesso. Modelos encontrados: ${names.join(", ")}.`
+          : "API de gerenciamento testada com sucesso. A Meta registrou a chamada.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível testar a API de gerenciamento.");
+    } finally {
+      setManagementTesting(false);
     }
   }
 
@@ -114,6 +146,21 @@ export default function MetaWhatsappReviewPage() {
               className="mt-4 w-full rounded-xl bg-[#13c66b] px-5 py-4 text-base font-semibold text-[#08261e] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {sending ? "Enviando..." : "Enviar mensagem de teste pelo LYVRA"}
+            </button>
+          </section>
+
+          <section className="border-t border-black/5 pt-8">
+            <h2 className="text-lg font-semibold">3. Testar whatsapp_business_management</h2>
+            <p className="mt-1 text-sm text-black/55">
+              Faz uma chamada real e somente de leitura à API oficial da Meta para listar os modelos do WhatsApp Business Account de teste.
+            </p>
+            <button
+              type="button"
+              onClick={testManagementApi}
+              disabled={!ready || managementTesting}
+              className="mt-4 w-full rounded-xl bg-[#102b27] px-5 py-4 text-base font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {managementTesting ? "Testando API..." : "Testar API de gerenciamento da Meta"}
             </button>
           </section>
 
