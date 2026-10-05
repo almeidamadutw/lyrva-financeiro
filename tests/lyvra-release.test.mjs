@@ -109,6 +109,25 @@ test("separates Duda and Daiane by total overdue boletos, not only the selected 
   assert.match(migration, /group by pu\.unit_id, pu\.patient_id/);
 });
 
+test("opens promises from the metric and removes completed or renegotiated cases", async () => {
+  const [collections, migration] = await Promise.all([
+    read("components/collections-journey-real.tsx"),
+    read("supabase/migrations/20261005173500_collection_promises_and_renegotiation.sql"),
+  ]);
+
+  assert.match(collections, /const \[collectionTab, setCollectionTab\] = useState\("all"\)/);
+  assert.match(collections, /const promisesToCheck = today/);
+  assert.match(collections, /onClick=\{\(\) => setCollectionTab\("promises"\)\}/);
+  assert.match(collections, /TabsTrigger value="promises"/);
+  assert.match(collections, /TabsContent value="promises"/);
+  assert.match(collections, /value="payment">Pagamento confirmado/);
+  assert.match(collections, /value="renegotiated">Renegociação concluída/);
+  assert.match(migration, /p_outcome = 'renegotiated' then 'closed'/);
+  assert.match(migration, /p_outcome in \('payment','renegotiated'\)/);
+  assert.match(migration, /status = 'closed'[\s\S]*outcome = 'agreement'/);
+  assert.match(migration, /not exists \([\s\S]*cc\.status = 'closed'[\s\S]*cc\.outcome = 'agreement'/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
