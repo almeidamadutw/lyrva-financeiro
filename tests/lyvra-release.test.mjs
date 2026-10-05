@@ -92,6 +92,23 @@ test("loads only actionable collection rows and renders them in batches", async 
   assert.match(collections, /patients\.slice\(0, visibleCount\)/);
 });
 
+test("separates Duda and Daiane by total overdue boletos, not only the selected period", async () => {
+  const [collections, migration] = await Promise.all([
+    read("components/collections-journey-real.tsx"),
+    read("supabase/migrations/20261005172000_add_overdue_boleto_counts.sql"),
+  ]);
+
+  assert.match(collections, /rpc\("get_overdue_boleto_counts"/);
+  assert.match(collections, /overdueFilter === "one" && patient\.overdueCount === 1/);
+  assert.match(collections, /overdueFilter === "multiple" && patient\.overdueCount >= 2/);
+  assert.match(collections, /collectionOwner: overdueCount === 1 \? "Duda" : "Daiane"/);
+  assert.match(collections, /Duda • 1 vencido/);
+  assert.match(collections, /Daiane • 2\+ vencidos/);
+  assert.match(migration, /pp\.payment_method = 'boleto'/);
+  assert.match(migration, /i\.due_date < \(now\(\) at time zone 'America\/Sao_Paulo'\)::date/);
+  assert.match(migration, /group by pu\.unit_id, pu\.patient_id/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
