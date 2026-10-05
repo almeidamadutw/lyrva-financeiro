@@ -74,6 +74,12 @@ type InteractionRow = {
 
 type ProfileRow = { user_id: string; full_name: string };
 
+type OverdueBoletoCountRow = {
+  unit_id: number;
+  patient_id: number;
+  overdue_count: number | string;
+};
+
 type HistoryEntry = {
   id: number | string;
   date: string;
@@ -85,6 +91,7 @@ type HistoryEntry = {
 type CollectionPatient = {
   id: number;
   unitId: number;
+  patientId: number;
   name: string;
   initials: string;
   phone: string;
@@ -102,6 +109,8 @@ type CollectionPatient = {
   promiseDate?: string;
   protestedAt?: string;
   owner: string;
+  collectionOwner: "Duda" | "Daiane";
+  overdueCount: number;
   installmentNumber?: number | null;
   lastInteraction?: {
     label: string;
@@ -225,6 +234,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [queue, setQueue] = useState<QueueRow[]>([]);
   const [interactions, setInteractions] = useState<InteractionRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [overdueBoletoCounts, setOverdueBoletoCounts] = useState<OverdueBoletoCountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [internalSelectedId, setSelectedId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState("");
@@ -232,6 +242,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
   const [quickPeriod, setQuickPeriod] = useState("all");
+  const [overdueFilter, setOverdueFilter] = useState("all");
   const [patientQuery, setPatientQuery] = useState("");
   const [pendingToNegotiate, setPendingToNegotiate] = useState(0);
   const [pendingToNegotiateCount, setPendingToNegotiateCount] = useState(0);
@@ -270,10 +281,16 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         if (page.length < COLLECTION_PAGE_SIZE) break;
       }
 
+      const overdueResult = await (supabase as any).rpc("get_overdue_boleto_counts", {
+        p_unit_code: selectedCode === "todas" ? null : selectedCode,
+      });
+      if (overdueResult.error) throw overdueResult.error;
+
       const profileResult = await supabase.from("profiles").select("user_id,full_name").eq("is_active", true);
       if (profileResult.error) throw profileResult.error;
       setQueue(queueRows);
       setInteractions(interactionRows);
+      setOverdueBoletoCounts((overdueResult.data ?? []) as unknown as OverdueBoletoCountRow[]);
       setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
     } catch (error) {
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
@@ -297,6 +314,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   }, [openPatientId, onPatientOpened]);
 
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.user_id, profile.full_name])), [profiles]);
+  const overdueCountByPatientUnit = useMemo(() => new Map(
+    overdueBoletoCounts.map((row) => [`${row.unit_id}:${row.patient_id}`, Number(row.overdue_count ?? 0)]),
+  ), [overdueBoletoCounts]);
   const interactionsByCase = useMemo(() => {
     const map = new Map<number, InteractionRow[]>();
     for (const interaction of interactions) map.set(interaction.collection_case_id, [...(map.get(interaction.collection_case_id) ?? []), interaction]);
@@ -306,6 +326,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const patients = useMemo<CollectionPatient[]>(() => queue
     .filter((row) => !["paid", "closed"].includes(row.status) && !["paid", "cancelled", "refunded"].includes(row.installment_status ?? ""))
     .map((row) => {
+      const overdueCount = Math.max(1, overdueCountByPatientUnit.get(`${row.unit_id}:${row.patient_id}`) ?? 1);
       const rowInteractions = interactionsByCase.get(row.id) ?? [];
       const latestInteraction = rowInteractions[rowInteractions.length - 1];
       const latestInteractionAuthor = latestInteraction
@@ -332,6 +353,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       return {
         id: row.id,
         unitId: row.unit_id,
+        patientId: row.patient_id,
         name: row.patient_name,
         initials: initials(row.patient_name),
         phone: row.phone || "Telefone não informado",
@@ -349,6 +371,8 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         promiseDate: row.status === "promise" && row.next_action_at ? dateTime(row.next_action_at) : undefined,
         protestedAt: row.protested_at ? dateTime(row.protested_at) : undefined,
         owner: row.responsible_name || "Daiane",
+        collectionOwner: overdueCount === 1 ? "Duda" : "Daiane",
+        overdueCount,
         installmentNumber: row.installment_number,
         lastInteraction: latestInteraction && latestInteractionAuthor ? {
           label: outcomeLabels[latestInteraction.outcome] ?? "Atualização",
@@ -359,7 +383,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         history,
         updatedAt: row.updated_at,
       };
-    }), [queue, interactionsByCase, profileById]);
+    }), [queue, interactionsByCase, profileById, overdueCountByPatientUnit]);
 
   const selectedUnit = useMemo(() => patients.filter((patient) => unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")), [patients, unit]);
   const todayKey = saoPauloDayKey();
@@ -382,6 +406,20 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       return true;
     });
   }, [selectedUnit, quickPeriod, todayKey, dateFrom, dateTo, yearFilter, monthFilter]);
+
+  const overduePortfolioSummary = useMemo(() => {
+    const uniquePatients = new Map<string, number>();
+    for (const patient of periodFiltered) {
+      uniquePatients.set(`${patient.unitId}:${patient.patientId}`, patient.overdueCount);
+    }
+    let duda = 0;
+    let daiane = 0;
+    for (const overdueCount of uniquePatients.values()) {
+      if (overdueCount === 1) duda += 1;
+      else if (overdueCount >= 2) daiane += 1;
+    }
+    return { duda, daiane };
+  }, [periodFiltered]);
 
   const pendingRanges = useMemo(() => {
     if (quickPeriod !== "all") {
@@ -459,6 +497,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     setDateTo("");
     setMonthFilter("all");
     setYearFilter("all");
+    setOverdueFilter("all");
   };
 
   const setQuick = (days: string) => {
@@ -471,9 +510,15 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
 
   const searched = useMemo(() => {
     const normalized = patientQuery.trim().toLocaleLowerCase("pt-BR");
-    if (!normalized) return periodFiltered;
-    return periodFiltered.filter((patient) => patient.name.toLocaleLowerCase("pt-BR").includes(normalized));
-  }, [periodFiltered, patientQuery]);
+    return periodFiltered.filter((patient) => {
+      const matchesOverdue = overdueFilter === "all"
+        || (overdueFilter === "one" && patient.overdueCount === 1)
+        || (overdueFilter === "multiple" && patient.overdueCount >= 2);
+      if (!matchesOverdue) return false;
+      if (!normalized) return true;
+      return patient.name.toLocaleLowerCase("pt-BR").includes(normalized);
+    });
+  }, [periodFiltered, patientQuery, overdueFilter]);
 
 
 
@@ -498,7 +543,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
 
   return <div className="space-y-5">
     <section className="surface-card flex flex-col justify-between gap-5 rounded-[24px] p-5 md:flex-row md:items-center md:p-6">
-      <div className="flex items-start gap-4"><div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><WalletCards className="size-5" /></div><div><div className="flex flex-wrap items-center gap-2"><p className="eyebrow">REGRA DE ENTRADA</p><Badge className="bg-[#183b32] text-white hover:bg-[#183b32]">Responsável: Daiane</Badge></div><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Comece pelos casos liberados para contato</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">Antes de ligar, confira vencimento, valor e telefone. Depois do contato, registre o resultado e a próxima ação no histórico.</p></div></div>
+      <div className="flex items-start gap-4"><div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><WalletCards className="size-5" /></div><div><div className="flex flex-wrap items-center gap-2"><p className="eyebrow">REGRA DE ENTRADA</p><Badge className="bg-[#183b32] text-white hover:bg-[#183b32]">Separação automática</Badge></div><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">1 boleto vencido para Duda, 2 ou mais para Daiane</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">O período filtra os títulos exibidos, mas a classificação considera todos os boletos vencidos e ainda abertos do paciente na unidade.</p></div></div>
       <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => void load()} disabled={loading} className="rounded-xl">{loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}</Button></div>
     </section>
 
@@ -513,13 +558,14 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
             <Button type="button" size="sm" variant="ghost" onClick={clearPeriodFilters} className="rounded-xl">Limpar</Button>
           </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div><Label className="mb-1.5 block text-xs text-[#718078]">De</Label><Input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setQuickPeriod("all"); }} className="h-10 rounded-xl" /></div>
           <div><Label className="mb-1.5 block text-xs text-[#718078]">Até</Label><Input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setQuickPeriod("all"); }} className="h-10 rounded-xl" /></div>
           <div><Label className="mb-1.5 block text-xs text-[#718078]">Mês</Label><Select value={monthFilter} onValueChange={(value) => { setMonthFilter(value); setQuickPeriod("all"); }}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os meses</SelectItem><SelectItem value="01">Janeiro</SelectItem><SelectItem value="02">Fevereiro</SelectItem><SelectItem value="03">Março</SelectItem><SelectItem value="04">Abril</SelectItem><SelectItem value="05">Maio</SelectItem><SelectItem value="06">Junho</SelectItem><SelectItem value="07">Julho</SelectItem><SelectItem value="08">Agosto</SelectItem><SelectItem value="09">Setembro</SelectItem><SelectItem value="10">Outubro</SelectItem><SelectItem value="11">Novembro</SelectItem><SelectItem value="12">Dezembro</SelectItem></SelectContent></Select></div>
           <div><Label className="mb-1.5 block text-xs text-[#718078]">Ano</Label><Select value={yearFilter} onValueChange={(value) => { setYearFilter(value); setQuickPeriod("all"); }}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos os anos</SelectItem>{availableYears.map((year) => <SelectItem key={year} value={year}>{year}</SelectItem>)}</SelectContent></Select></div>
+          <div><Label className="mb-1.5 block text-xs text-[#718078]">Responsável</Label><Select value={overdueFilter} onValueChange={setOverdueFilter}><SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos</SelectItem><SelectItem value="one">Duda • 1 vencido</SelectItem><SelectItem value="multiple">Daiane • 2+ vencidos</SelectItem></SelectContent></Select></div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-[#718078]"><Badge variant="secondary">{searched.length} caso(s) encontrado(s)</Badge>{dateFrom && <span>De {dateOnly(dateFrom)}</span>}{dateTo && <span>até {dateOnly(dateTo)}</span>}{monthFilter !== "all" && <span>Mês {monthFilter}</span>}{yearFilter !== "all" && <span>Ano {yearFilter}</span>}</div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[#718078]"><Badge variant="secondary">{searched.length} caso(s) encontrado(s)</Badge><Badge className="bg-[#e4f8ee] text-[#137044] hover:bg-[#e4f8ee]">Duda: {overduePortfolioSummary.duda} paciente(s)</Badge><Badge className="bg-[#e9f2f3] text-[#397174] hover:bg-[#e9f2f3]">Daiane: {overduePortfolioSummary.daiane} paciente(s)</Badge>{dateFrom && <span>De {dateOnly(dateFrom)}</span>}{dateTo && <span>até {dateOnly(dateTo)}</span>}{monthFilter !== "all" && <span>Mês {monthFilter}</span>}{yearFilter !== "all" && <span>Ano {yearFilter}</span>}{overdueFilter === "one" && <span>Somente 1 boleto vencido</span>}{overdueFilter === "multiple" && <span>Somente 2+ boletos vencidos</span>}</div>
       </div>
     </section>
 
@@ -543,7 +589,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       </div>
 
       <aside className="min-w-0 space-y-5">
-        <div className="rounded-[24px] bg-[#10221f] p-6 text-white shadow-[0_18px_45px_rgba(24,59,50,.13)]"><div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/45">Avisos da Daiane</p><BellRing className="size-5 text-[#00BF63]" /></div><p className="font-display mt-5 text-2xl font-semibold">{today.length ? `${today.length} ação(ões) para hoje` : "Nenhuma cobrança vencida agora"}</p><p className="mt-2 text-sm leading-6 text-white/55">{today.length ? "A fila considera o prazo D+3 e os retornos que já chegaram na data combinada." : "Casos futuros ficam escondidos até chegar o dia correto."}</p></div>
+        <div className="rounded-[24px] bg-[#10221f] p-6 text-white shadow-[0_18px_45px_rgba(24,59,50,.13)]"><div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/45">Avisos de cobrança</p><BellRing className="size-5 text-[#00BF63]" /></div><p className="font-display mt-5 text-2xl font-semibold">{today.length ? `${today.length} ação(ões) para hoje` : "Nenhuma cobrança vencida agora"}</p><p className="mt-2 text-sm leading-6 text-white/55">{today.length ? "A fila considera o prazo D+3 e os retornos que já chegaram na data combinada." : "Casos futuros ficam escondidos até chegar o dia correto."}</p></div>
         <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">COMO A JORNADA FUNCIONA</p><div className="mt-5 space-y-4"><JourneyStep number="1" title="Vencimento" detail="Boleto permanece em acompanhamento." /><JourneyStep number="2" title="D+3 dias úteis" detail="Paciente entra na fila da Daiane." /><JourneyStep number="3" title="Negociação" detail="Conversa, acordo e retorno registrados." /><JourneyStep number="4" title="Desfecho" detail="Pagamento confirmado ou protesto." last /></div></div>
       </aside>
     </section>
@@ -564,7 +610,7 @@ function CollectionTable({ patients, onOpen, loading }: { patients: CollectionPa
   return <div className="collection-responsive-list divide-y divide-[#e7ebe7]">{visiblePatients.map((patient) => <div key={patient.id} className="collection-responsive-row">
     <div className="collection-field collection-patient-field">
       <span className="collection-field-label">Paciente</span>
-      <div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{patient.initials}</div><div className="min-w-0"><p className="truncate font-medium text-[#213128]">{patient.name}</p><p className="mt-0.5 truncate text-xs text-[#849087]">{patient.unit} • {patient.owner}</p></div></div>
+      <div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#edf2ed] text-xs font-semibold text-[#365146]">{patient.initials}</div><div className="min-w-0"><p className="truncate font-medium text-[#213128]">{patient.name}</p><p className="mt-0.5 truncate text-xs text-[#849087]">{patient.unit} • Cobrança: {patient.collectionOwner}</p><p className="mt-1 text-[11px] font-semibold text-[#6f7d75]">{patient.overdueCount} {patient.overdueCount === 1 ? "boleto vencido" : "boletos vencidos"}</p></div></div>
     </div>
     <div className="collection-field"><span className="collection-field-label">Vencimento</span><p className="text-sm text-[#2c3b33]">{patient.dueDate}</p><p className="mt-1 text-xs text-[#a25f4d]">{patient.delay}</p></div>
     <div className="collection-field"><span className="collection-field-label">Valor</span><p className="font-semibold tabular-nums text-[#2c3b33]">{patient.amount}</p></div>
