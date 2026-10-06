@@ -67,7 +67,9 @@ async function clinicorpGet(
       accept: "application/json",
       authorization: `Basic ${btoa(`${credentials.username}:${credentials.token}`)}`,
     },
-    signal: AbortSignal.timeout(20_000),
+    // Salto returns a substantially larger recent payment set than Sorocaba.
+    // Allow normal Clinicorp latency without abandoning the whole unit sync.
+    signal: AbortSignal.timeout(45_000),
   });
 
   if (!response.ok) {
@@ -109,6 +111,50 @@ async function existingPaymentsByExternalId(
   }
 
   return existing;
+}
+
+async function reconcileTerminalRows(
+  admin: ReturnType<typeof createClient>,
+  unitId: number,
+  rows: JsonRecord[],
+) {
+  const terminalRows = rows.filter((row) => {
+    const paid =
+      String(row.PaymentReceived ?? "").toUpperCase() === "X"
+      || String(row.PaymentConfirmed ?? "").toUpperCase() === "X";
+    const cancelled =
+      String(row.Canceled ?? "").toUpperCase() === "X"
+      || String(row.CancelInstallment ?? "").toUpperCase() === "X";
+    return paid || cancelled;
+  });
+
+  const totals = {
+    processedCount: 0,
+    paidCount: 0,
+    cancelledCount: 0,
+    updatedCount: 0,
+    ambiguousCount: 0,
+    skippedCount: 0,
+  };
+
+  for (const batch of chunks(terminalRows, 80)) {
+    const { data, error } = await admin.rpc("reconcile_clinicorp_terminal_rows", {
+      p_unit_id: unitId,
+      p_rows: batch,
+    });
+    if (error) {
+      throw new Error(`Pagamentos e cancelamentos não puderam ser reconciliados: ${error.message}`);
+    }
+    const row = data?.[0] ?? {};
+    totals.processedCount += Number(row.processed_count ?? 0);
+    totals.paidCount += Number(row.paid_count ?? 0);
+    totals.cancelledCount += Number(row.cancelled_count ?? 0);
+    totals.updatedCount += Number(row.updated_count ?? 0);
+    totals.ambiguousCount += Number(row.ambiguous_count ?? 0);
+    totals.skippedCount += Number(row.skipped_count ?? 0);
+  }
+
+  return totals;
 }
 
 Deno.serve(async (req) => {
@@ -245,6 +291,8 @@ Deno.serve(async (req) => {
       );
       if (applyError) throw new Error(`As baixas não puderam ser aplicadas: ${applyError.message}`);
 
+      const terminalReconciliation = await reconcileTerminalRows(admin, unit.id, fetchedRows);
+
       const invoiceRows = normalizeClinicorpRows(invoicePayload) as JsonRecord[];
       const { data: invoiceAppliedRows, error: invoiceApplyError } = await admin.rpc(
         "ingest_clinicorp_invoices",
@@ -275,6 +323,7 @@ Deno.serve(async (req) => {
         filteredCount,
         unchangedCount,
         ...appliedSummary,
+        terminalReconciliation,
         invoices: invoiceSummary,
       };
       const completedAt = new Date().toISOString();
