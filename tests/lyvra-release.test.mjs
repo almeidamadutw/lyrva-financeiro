@@ -128,17 +128,21 @@ test("opens promises from the metric and removes completed or renegotiated cases
   assert.match(migration, /not exists \([\s\S]*cc\.status = 'closed'[\s\S]*cc\.outcome = 'agreement'/);
 });
 
-test("reconciles Clinicorp payments before leaving patients in collections", async () => {
-  const [sync, migration] = await Promise.all([
+test("reconciles paid and cancelled Clinicorp rows before leaving cases in collections", async () => {
+  const [directorySync, autoSync, migration] = await Promise.all([
     read("supabase/functions/clinicorp-directory-sync/index.ts"),
-    read("supabase/migrations/20261006110500_reconcile_paid_collection_snapshot.sql"),
+    read("supabase/functions/clinicorp-auto-sync/index.ts"),
+    read("supabase/migrations/20261006155500_reconcile_clinicorp_cancelled_rows.sql"),
   ]);
 
-  assert.match(sync, /syncReceivables\(admin,Number\(unit\.id\),combined\)/);
-  assert.match(sync, /reconcile_paid_collection_cases_from_snapshot/);
-  assert.match(sync, /const reconciliation=await reconcilePaidSnapshot/);
-  assert.match(migration, /clinicorp_payment_snapshot_paid_match_idx/);
-  assert.match(migration, /cps\.payment_received or cps\.payment_confirmed/);
+  assert.match(directorySync, /reconcile_clinicorp_terminal_rows/);
+  assert.match(directorySync, /reconcileTerminalRows\(admin,Number\(unit\.id\),combined\)/);
+  assert.match(directorySync, /CancelInstallment/);
+  assert.match(autoSync, /reconcile_clinicorp_terminal_rows/);
+  assert.match(autoSync, /terminalReconciliation/);
+  assert.match(migration, /v_cancelled/);
+  assert.match(migration, /status = 'cancelled'/);
+  assert.match(migration, /clinicorp_source_state = 'cancelled'/);
   assert.match(migration, /status = 'paid'/);
   assert.match(migration, /clinicorp_source_state = 'paid'/);
 });
