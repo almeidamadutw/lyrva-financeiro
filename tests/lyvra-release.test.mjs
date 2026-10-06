@@ -128,6 +128,21 @@ test("opens promises from the metric and removes completed or renegotiated cases
   assert.match(migration, /not exists \([\s\S]*cc\.status = 'closed'[\s\S]*cc\.outcome = 'agreement'/);
 });
 
+test("reconciles Clinicorp payments before leaving patients in collections", async () => {
+  const [sync, migration] = await Promise.all([
+    read("supabase/functions/clinicorp-directory-sync/index.ts"),
+    read("supabase/migrations/20261006110500_reconcile_paid_collection_snapshot.sql"),
+  ]);
+
+  assert.match(sync, /syncReceivables\(admin,Number\(unit\.id\),combined\)/);
+  assert.match(sync, /reconcile_paid_collection_cases_from_snapshot/);
+  assert.match(sync, /const reconciliation=await reconcilePaidSnapshot/);
+  assert.match(migration, /clinicorp_payment_snapshot_paid_match_idx/);
+  assert.match(migration, /cps\.payment_received or cps\.payment_confirmed/);
+  assert.match(migration, /status = 'paid'/);
+  assert.match(migration, /clinicorp_source_state = 'paid'/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
