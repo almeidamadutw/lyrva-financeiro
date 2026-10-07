@@ -26,20 +26,6 @@ function rowsOf(payload:unknown):Row[]{if(Array.isArray(payload))return payload.
 const rowId=(r:Row)=>String(r.id??r.ExternalTxId??"").trim();
 function confirmed(rows:Row[]){const m=new Map<string,Row>();for(const r of rows){const id=rowId(r);if(id&&String(r.PatientId??"").trim()&&String(r.PaymentConfirmed??"").toUpperCase()==="X"&&String(r.ConfirmedDate??"").trim())m.set(id,r)}return[...m.values()]}
 function dedupe(rows:Row[]){const m=new Map<string,Row>();for(const r of rows)m.set(rowId(r)||JSON.stringify(r),r);return[...m.values()]}
-function diagnosticSummary(rows:Row[]){
-  const open=rows.filter((r)=>{
-    const paid=String(r.PaymentReceived??"").toUpperCase()==="X"||String(r.PaymentConfirmed??"").toUpperCase()==="X";
-    const cancelled=String(r.Canceled??"").toUpperCase()==="X"||String(r.CancelInstallment??"").toUpperCase()==="X";
-    return !paid&&!cancelled;
-  });
-  return{
-    rows:rows.length,
-    openRows:open.length,
-    openAmount:open.reduce((sum,r)=>sum+Number(r.Amount??0),0),
-    boletoOpenRows:open.filter((r)=>String(r.PaymentForm??"").toLocaleLowerCase("pt-BR").includes("boleto")).length,
-    boletoOpenAmount:open.filter((r)=>String(r.PaymentForm??"").toLocaleLowerCase("pt-BR").includes("boleto")).reduce((sum,r)=>sum+Number(r.Amount??0),0),
-  };
-}
 async function fetchPayments(subscriber:string,credentials:{username:string;token:string},from:string,to:string,dateType?:string){
   const url=new URL(`${API_BASE}/payment/list`);
   for(const [k,v] of Object.entries({subscriber_id:subscriber,from,to,include_total_amount:"X",get_amount_with_discounts:"X",date_type:dateType}))if(v)url.searchParams.set(k,v);
@@ -145,39 +131,6 @@ Deno.serve(async req=>{
   const incoming=req.headers.get("x-lyvra-cron-key")??"";
   const {data:secret,error:secretError}=await admin.from("system_secrets").select("secret").eq("key","clinicorp_auto_sync_key").maybeSingle();if(secretError||!secret?.secret||incoming!==secret.secret)return reply({ok:false,message:"Chamada não autorizada."},401);
   let requestBody:Row={};try{requestBody=await req.json()}catch{}
-  const diagnosticRange=requestBody.diagnostic_due_range as Row|undefined;
-  const diagnosticUnit=String(requestBody.diagnostic_unit_code??"");
-  if(
-    diagnosticRange
-    && (diagnosticUnit==="sorocaba"||diagnosticUnit==="salto_de_pirapora")
-    && /^\d{4}-\d{2}-\d{2}$/.test(String(diagnosticRange.from??""))
-    && /^\d{4}-\d{2}-\d{2}$/.test(String(diagnosticRange.to??""))
-  ){
-    const unitCode=diagnosticUnit as UnitCode;
-    const {data:unit,error:unitError}=await admin.from("units").select("id,code,name").eq("code",unitCode).eq("is_active",true).maybeSingle();
-    if(unitError||!unit)return reply({ok:false,message:"Unidade não encontrada."},404);
-    const {data:connection,error:connectionError}=await admin.from("integration_connections").select("status,non_secret_config").eq("provider","clinicorp").eq("unit_id",unit.id).maybeSingle();
-    if(connectionError||!connection||connection.status!=="connected")return reply({ok:false,message:"Clinicorp não está conectado."},409);
-    const config=(connection.non_secret_config??{}) as Row;
-    const subscriber=String(config.subscriber_id??"").trim();
-    const names=SECRETS[unitCode],username=Deno.env.get(names.username)?.trim()??"",token=Deno.env.get(names.token)?.trim()??"";
-    if(!subscriber||!username||!token)return reply({ok:false,message:"Configuração do Clinicorp incompleta."},500);
-    const credentials={username,token};
-    const from=String(diagnosticRange.from),to=String(diagnosticRange.to);
-    const variants=["dueDate","due_date","DueDate","postDate"] as const;
-    const diagnostics:Record<string,unknown>={};
-    for(const variant of variants){
-      try{
-        const rows=dedupe(rowsOf(await fetchPayments(subscriber,credentials,from,to,variant)));
-        diagnostics[variant]=diagnosticSummary(rows);
-      }catch(error){
-        diagnostics[variant]={error:error instanceof Error?error.message:"Falha"};
-      }
-    }
-    const defaultRows=dedupe(rowsOf(await fetchPayments(subscriber,credentials,from,to)));
-    diagnostics.default=diagnosticSummary(defaultRows);
-    return reply({ok:true,unit:unit.name,from,to,diagnostics});
-  }
   const today=day(),recentFrom=addDays(today,-7);
 
   const syncUnit=async(unitCode:UnitCode)=>{let runId:number|null=null,connectionId:number|null=null;try{
