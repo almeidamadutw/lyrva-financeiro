@@ -30,8 +30,9 @@ async function fetchPayments(subscriber:string,credentials:{username:string;toke
   const url=new URL(`${API_BASE}/payment/list`);
   for(const [k,v] of Object.entries({subscriber_id:subscriber,from,to,include_total_amount:"X",get_amount_with_discounts:"X",date_type:dateType}))if(v)url.searchParams.set(k,v);
   const response=await fetch(url,{headers:{accept:"application/json",authorization:`Basic ${btoa(`${credentials.username}:${credentials.token}`)}`},signal:AbortSignal.timeout(25000)});
-  if(!response.ok){if([401,403].includes(response.status))throw new Error("O Clinicorp recusou as credenciais desta unidade.");throw new Error(`O Clinicorp respondeu com HTTP ${response.status}.`)}
-  const text=await response.text();if(text.length>6000000)throw new Error("Uma janela financeira do Clinicorp excedeu o limite seguro de leitura.");
+  const text=await response.text();
+  if(!response.ok){if([401,403].includes(response.status))throw new Error("O Clinicorp recusou as credenciais desta unidade.");throw new Error(`O Clinicorp respondeu com HTTP ${response.status}: ${text.slice(0,300)}`)}
+  if(text.length>6000000)throw new Error("Uma janela financeira do Clinicorp excedeu o limite seguro de leitura.");
   try{return JSON.parse(text) as unknown}catch{throw new Error("O Clinicorp retornou uma resposta inválida.")}
 }
 
@@ -135,29 +136,31 @@ Deno.serve(async req=>{
       : {requestedDays:0,repairedDays:0,repairedRows:0,failedDays:0,repairedDates:[] as string[]};
 
     // Never recycle LYVRA's own snapshot as if it were fresh Clinicorp data.
-    // Validate the due-date filter directly against Clinicorp before enabling
-    // authoritative absence reconciliation.
+    // Probe supported date_type values without mutating financial state.
     let dueDateDiagnostic:Row={};
-    try{
-      const diagnosticFrom=addDays(today,-45);
-      const dueRows=dedupe(rowsOf(await fetchPayments(subscriber,credentials,diagnosticFrom,today,"dueDate")));
-      const openBoletoRows=dueRows.filter((r)=>{
-        const method=String(r.PaymentForm??"").toLocaleLowerCase("pt-BR");
-        const paid=String(r.PaymentReceived??"").toUpperCase()==="X"||String(r.PaymentConfirmed??"").toUpperCase()==="X";
-        const cancelled=String(r.Canceled??"").toUpperCase()==="X"||String(r.CancelInstallment??"").toUpperCase()==="X";
-        return method.includes("boleto")&&!paid&&!cancelled;
-      });
-      dueDateDiagnostic={
-        ok:true,
-        from:diagnosticFrom,
-        to:today,
-        rows:dueRows.length,
-        open_boleto_rows:openBoletoRows.length,
-        open_boleto_amount:openBoletoRows.reduce((sum,r)=>sum+Number(r.Amount??0),0),
-      };
-    }catch(error){
-      dueDateDiagnostic={ok:false,error:error instanceof Error?error.message:"Falha no filtro dueDate"};
+    const diagnosticFrom=addDays(today,-45);
+    const candidates=["dueDate","due_date","DueDate","due","paymentDate","receivedDate","confirmedDate","postDate"];
+    const probes:Row={};
+    for(const candidate of candidates){
+      try{
+        const probeRows=dedupe(rowsOf(await fetchPayments(subscriber,credentials,diagnosticFrom,today,candidate)));
+        const openBoletoRows=probeRows.filter((r)=>{
+          const method=String(r.PaymentForm??"").toLocaleLowerCase("pt-BR");
+          const paid=String(r.PaymentReceived??"").toUpperCase()==="X"||String(r.PaymentConfirmed??"").toUpperCase()==="X";
+          const cancelled=String(r.Canceled??"").toUpperCase()==="X"||String(r.CancelInstallment??"").toUpperCase()==="X";
+          return method.includes("boleto")&&!paid&&!cancelled;
+        });
+        probes[candidate]={
+          ok:true,
+          rows:probeRows.length,
+          open_boleto_rows:openBoletoRows.length,
+          open_boleto_amount:openBoletoRows.reduce((sum,r)=>sum+Number(r.Amount??0),0),
+        };
+      }catch(error){
+        probes[candidate]={ok:false,error:error instanceof Error?error.message:"Falha"};
+      }
     }
+    dueDateDiagnostic={from:diagnosticFrom,to:today,probes};
 
     let cursor=String(config.directory_backfill_before??today),completed=Boolean(config.directory_backfill_completed_at);const windows:Array<{from:string;to:string;rows:number}>=[];
     if(!completed&&cursor>=HISTORY_FLOOR){const daysBack=unitCode==="salto_de_pirapora"?7:14;const windowTo=cursor,windowFrom=maxDate(HISTORY_FLOOR,addDays(windowTo,-daysBack));const history=rowsOf(await fetchPayments(subscriber,credentials,windowFrom,windowTo,"postDate"));addDirectory(directory,await syncDirectory(admin,Number(unit.id),history));addPayments(payments,await syncPayments(admin,Number(unit.id),history));addReceivables(receivables,await syncReceivables(admin,Number(unit.id),history));windows.push({from:windowFrom,to:windowTo,rows:history.length});cursor=addDays(windowFrom,-1);completed=cursor<HISTORY_FLOOR}
