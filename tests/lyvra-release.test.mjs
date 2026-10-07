@@ -171,6 +171,26 @@ test("refreshes the Clinicorp snapshot in the 15 minute automatic sync", async (
   assert.match(migration, /cancelled/);
 });
 
+test("does not recycle stale snapshots and reconciles source presence with exact PostDate", async () => {
+  const [directorySync, reconciler, migration] = await Promise.all([
+    read("supabase/functions/clinicorp-directory-sync/index.ts"),
+    read("supabase/functions/clinicorp-collection-reconcile/index.ts"),
+    read("supabase/migrations/20261007161500_compact_postdate_presence_reconciliation.sql"),
+  ]);
+
+  assert.doesNotMatch(directorySync, /openOverdueSnapshotRows/);
+  assert.doesNotMatch(directorySync, /overdueSnapshot/);
+  assert.match(directorySync, /reason:"already_running"/);
+  assert.match(reconciler, /date_type","postDate"/);
+  assert.match(reconciler, /get_collection_postdate_active_ids/);
+  assert.match(reconciler, /presenceRows/);
+  assert.match(reconciler, /present:false/);
+  assert.match(migration, /clinicorp_absence_count/);
+  assert.match(migration, /absent_from_exact_postdate_recheck/);
+  assert.match(migration, /clinicorp_source_state='missing'/);
+  assert.match(migration, /payment_form_changed/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
