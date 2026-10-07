@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
   const token = Deno.env.get(names.token)?.trim() ?? "";
   if (!subscriber || !username || !token) return json({ ok: false, message: "Configuração incompleta." }, 500);
 
-  const variants: Array<string | undefined> = ["dueDate", "due_date", "DueDate", undefined];
+  const variants: Array<string | undefined> = ["postDate", "dueDate", "due_date", "DueDate", undefined];
   const results: Record<string, unknown> = {};
 
   for (const variant of variants) {
