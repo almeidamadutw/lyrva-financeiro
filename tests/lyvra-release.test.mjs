@@ -147,6 +147,16 @@ test("reconciles paid and cancelled Clinicorp rows before leaving cases in colle
   assert.match(migration, /clinicorp_source_state = 'paid'/);
 });
 
+test("uses the same filtered collection rows for the pending total card", async () => {
+  const collections = await read("components/collections-journey-real.tsx");
+
+  assert.match(collections, /const pendingSummary = useMemo\(\(\) => searched\.reduce/);
+  assert.match(collections, /value=\{brl\(pendingSummary\.amount\)\}/);
+  assert.match(collections, /pendingSummary\.count} boleto\(s\) em aberto/);
+  assert.doesNotMatch(collections, /get_clinicorp_pending_total/);
+  assert.doesNotMatch(collections, /todas as formas de pagamento/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
