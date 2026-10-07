@@ -270,6 +270,16 @@ Deno.serve(async (req) => {
         clinicorpGet("/financial/list_invoices", subscriberId, { username, token }, invoiceFrom, to, businessId ? { business_id: businessId } : {}),
       ]);
       const fetchedRows = normalizeClinicorpRows(payload) as JsonRecord[];
+      const { data: snapshotRows, error: snapshotError } = await admin.rpc(
+        "refresh_clinicorp_payment_snapshot_rows",
+        { p_unit_id: unit.id, p_rows: fetchedRows },
+      );
+      if (snapshotError) throw new Error(`O snapshot financeiro não pôde ser atualizado: ${snapshotError.message}`);
+      const snapshotRefresh = {
+        processedCount: Number(snapshotRows?.[0]?.processed_count ?? 0),
+        skippedCount: Number(snapshotRows?.[0]?.skipped_count ?? 0),
+      };
+
       const eligibleRows = eligibleAutomaticPayments(fetchedRows) as JsonRecord[];
       const existing = await existingPaymentsByExternalId(admin, unit.id, eligibleRows);
       const rowsToApply = eligibleRows.filter((row) => {
@@ -323,6 +333,7 @@ Deno.serve(async (req) => {
         filteredCount,
         unchangedCount,
         ...appliedSummary,
+        snapshotRefresh,
         terminalReconciliation,
         invoices: invoiceSummary,
       };
