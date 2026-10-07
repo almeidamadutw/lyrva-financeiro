@@ -152,7 +152,19 @@ Deno.serve(async(req)=>{
             .map((row)=>String(row.clinicorp_installment_id??"").trim())
             .filter(Boolean),
         );
+        const exactById=new Map(item.rows.map((row)=>[rowId(row),row]));
         const relevantRows=item.rows.filter((row)=>activeSet.has(rowId(row)));
+        const presenceRows=[...activeSet].map((id)=>{
+          const source=exactById.get(id);
+          if(!source)return{id,present:false};
+          return{
+            id,
+            present:true,
+            payment_form:String(source.PaymentForm??""),
+            paid:String(source.PaymentReceived??"").toUpperCase()==="X"||String(source.PaymentConfirmed??"").toUpperCase()==="X",
+            cancelled:String(source.Canceled??"").toUpperCase()==="X"||String(source.CancelInstallment??"").toUpperCase()==="X",
+          };
+        });
 
         await refreshSnapshot(admin,Number(unit.id),relevantRows);
         await syncReceivables(admin,Number(unit.id),relevantRows);
@@ -161,7 +173,7 @@ Deno.serve(async(req)=>{
         const {data:reconciled,error:reconcileError}=await admin.rpc("reconcile_clinicorp_postdate_day",{
           p_unit_id:unit.id,
           p_post_date:item.postDate,
-          p_rows:item.rows,
+          p_rows:presenceRows,
         });
         if(reconcileError){
           summary.failedDays+=1;
@@ -180,6 +192,7 @@ Deno.serve(async(req)=>{
           pendingAbsence:Number(item.item.pending_absence??0),
           returnedRows:item.rows.length,
           relevantRows:relevantRows.length,
+          presenceRows:presenceRows.length,
           missingRows:Number(row.missing_rows??0),
         });
       }
