@@ -67,6 +67,80 @@ async function reconcileTerminalRows(admin:ReturnType<typeof createClient>,unitI
   }
   return totals;
 }
+async function reconcilePostDateDays(
+  admin:ReturnType<typeof createClient>,
+  unitId:number,
+  subscriber:string,
+  credentials:{username:string;token:string},
+  limit=8,
+){
+  const {data:days,error:daysError}=await admin.rpc("get_collection_postdate_reconciliation_days",{
+    p_unit_id:unitId,
+    p_limit:limit,
+  });
+  if(daysError)throw new Error(`Os dias de reconciliação não puderam ser listados: ${daysError.message}`);
+
+  const summary={
+    requestedDays:0,
+    checkedDays:0,
+    failedDays:0,
+    checkedCases:0,
+    returnedRows:0,
+    liveOpenRows:0,
+    terminalRows:0,
+    missingRows:0,
+    days:[] as Row[],
+  };
+
+  for(const item of (days??[]) as Row[]){
+    const postDate=String(item.post_date??"");
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(postDate))continue;
+    summary.requestedDays+=1;
+    try{
+      const exact=dedupe(rowsOf(await fetchPayments(subscriber,credentials,postDate,postDate,"postDate")));
+
+      const {error:snapshotError}=await admin.rpc("refresh_clinicorp_payment_snapshot_rows",{
+        p_unit_id:unitId,
+        p_rows:exact,
+      });
+      if(snapshotError)throw new Error(`Snapshot: ${snapshotError.message}`);
+
+      await syncPayments(admin,unitId,exact);
+      await syncReceivables(admin,unitId,exact);
+      await reconcileTerminalRows(admin,unitId,exact);
+
+      const {data:reconcileRows,error:reconcileError}=await admin.rpc("reconcile_clinicorp_postdate_day",{
+        p_unit_id:unitId,
+        p_post_date:postDate,
+        p_rows:exact,
+      });
+      if(reconcileError)throw new Error(`Reconciliação: ${reconcileError.message}`);
+
+      const row=(reconcileRows?.[0]??{}) as Row;
+      summary.checkedDays+=1;
+      summary.checkedCases+=Number(row.local_active_before??0);
+      summary.returnedRows+=Number(row.returned_rows??0);
+      summary.liveOpenRows+=Number(row.live_open_rows??0);
+      summary.terminalRows+=Number(row.terminal_rows??0);
+      summary.missingRows+=Number(row.missing_rows??0);
+      summary.days.push({
+        postDate,
+        activeCases:Number(item.active_cases??0),
+        pendingAbsence:Number(item.pending_absence??0),
+        returnedRows:exact.length,
+        missingRows:Number(row.missing_rows??0),
+      });
+    }catch(error){
+      summary.failedDays+=1;
+      summary.days.push({
+        postDate,
+        error:error instanceof Error?error.message:"Falha na reconciliação",
+      });
+    }
+  }
+  return summary;
+}
+
 async function repairScheduleDays(
   admin:ReturnType<typeof createClient>,
   unitId:number,
@@ -135,39 +209,22 @@ Deno.serve(async req=>{
       ? await repairScheduleDays(admin,Number(unit.id),subscriber,credentials,directory,receivables,payments,requestedRepairDates)
       : {requestedDays:0,repairedDays:0,repairedRows:0,failedDays:0,repairedDates:[] as string[]};
 
-    // Never recycle LYVRA's own snapshot as if it were fresh Clinicorp data.
-    // Probe supported date_type values without mutating financial state.
-    let dueDateDiagnostic:Row={};
-    const diagnosticFrom=addDays(today,-45);
-    const candidates=["dueDate","due_date","DueDate","due","paymentDate","receivedDate","confirmedDate","postDate"];
-    const probes:Row={};
-    for(const candidate of candidates){
-      try{
-        const probeRows=dedupe(rowsOf(await fetchPayments(subscriber,credentials,diagnosticFrom,today,candidate)));
-        const openBoletoRows=probeRows.filter((r)=>{
-          const method=String(r.PaymentForm??"").toLocaleLowerCase("pt-BR");
-          const paid=String(r.PaymentReceived??"").toUpperCase()==="X"||String(r.PaymentConfirmed??"").toUpperCase()==="X";
-          const cancelled=String(r.Canceled??"").toUpperCase()==="X"||String(r.CancelInstallment??"").toUpperCase()==="X";
-          return method.includes("boleto")&&!paid&&!cancelled;
-        });
-        probes[candidate]={
-          ok:true,
-          rows:probeRows.length,
-          open_boleto_rows:openBoletoRows.length,
-          open_boleto_amount:openBoletoRows.reduce((sum,r)=>sum+Number(r.Amount??0),0),
-        };
-      }catch(error){
-        probes[candidate]={ok:false,error:error instanceof Error?error.message:"Falha"};
-      }
-    }
-    dueDateDiagnostic={from:diagnosticFrom,to:today,probes};
+    // Reconcile active overdue collection cases against exact Clinicorp PostDate days.
+    // This is authoritative for source presence and never recycles LYVRA's own snapshot.
+    const sourceReconciliation=await reconcilePostDateDays(
+      admin,
+      Number(unit.id),
+      subscriber,
+      credentials,
+      8,
+    );
 
     let cursor=String(config.directory_backfill_before??today),completed=Boolean(config.directory_backfill_completed_at);const windows:Array<{from:string;to:string;rows:number}>=[];
     if(!completed&&cursor>=HISTORY_FLOOR){const daysBack=unitCode==="salto_de_pirapora"?7:14;const windowTo=cursor,windowFrom=maxDate(HISTORY_FLOOR,addDays(windowTo,-daysBack));const history=rowsOf(await fetchPayments(subscriber,credentials,windowFrom,windowTo,"postDate"));addDirectory(directory,await syncDirectory(admin,Number(unit.id),history));addPayments(payments,await syncPayments(admin,Number(unit.id),history));addReceivables(receivables,await syncReceivables(admin,Number(unit.id),history));windows.push({from:windowFrom,to:windowTo,rows:history.length});cursor=addDays(windowFrom,-1);completed=cursor<HISTORY_FLOOR}
 
     const reconciliation=await reconcileTerminalRows(admin,Number(unit.id),combined);
-    const finishedAt=new Date().toISOString(),result={directory,receivables,payments,reconciliation,dueDateDiagnostic};const nextConfig:Row={...config,directory_source:"payment/list",directory_last_sync_at:finishedAt,directory_recent_from:recentFrom,directory_recent_to:today,directory_backfill_floor:HISTORY_FLOOR,directory_backfill_before:cursor,directory_backfill_last_windows:windows,directory_backfill_completed_at:completed?(config.directory_backfill_completed_at??finishedAt):null,directory_last_summary:directory,collection_receivables_last_summary:receivables,collection_receivables_last_sync_at:finishedAt};
-    await Promise.all([admin.from("sync_runs").update({status:payments.failedCount||receivables.failedCount?"partial":"completed",processed_count:directory.processedCount,created_count:directory.createdPatients+receivables.createdCount+payments.createdCount,updated_count:directory.updatedPatients+directory.linkedPatients+receivables.updatedCount+payments.updatedCount,skipped_count:directory.reviewCount+directory.invalidCount+receivables.skippedCount+payments.skippedCount,error_count:payments.failedCount+receivables.failedCount,metadata:{mode:"clinicorp_canonical_collection_receivables",recent_from:recentFrom,recent_to:today,schedule_repair:scheduleRepair,due_date_diagnostic:dueDateDiagnostic,historical_windows:windows,backfill_before:cursor,backfill_completed:completed,result},completed_at:finishedAt}).eq("id",run.id),admin.from("integration_connections").update({non_secret_config:nextConfig,last_error:null}).eq("id",connection.id)]);
+    const finishedAt=new Date().toISOString(),result={directory,receivables,payments,reconciliation,sourceReconciliation};const nextConfig:Row={...config,directory_source:"payment/list",directory_last_sync_at:finishedAt,directory_recent_from:recentFrom,directory_recent_to:today,directory_backfill_floor:HISTORY_FLOOR,directory_backfill_before:cursor,directory_backfill_last_windows:windows,directory_backfill_completed_at:completed?(config.directory_backfill_completed_at??finishedAt):null,directory_last_summary:directory,collection_receivables_last_summary:receivables,collection_receivables_last_sync_at:finishedAt};
+    await Promise.all([admin.from("sync_runs").update({status:payments.failedCount||receivables.failedCount?"partial":"completed",processed_count:directory.processedCount,created_count:directory.createdPatients+receivables.createdCount+payments.createdCount,updated_count:directory.updatedPatients+directory.linkedPatients+receivables.updatedCount+payments.updatedCount,skipped_count:directory.reviewCount+directory.invalidCount+receivables.skippedCount+payments.skippedCount,error_count:payments.failedCount+receivables.failedCount,metadata:{mode:"clinicorp_canonical_collection_receivables",recent_from:recentFrom,recent_to:today,schedule_repair:scheduleRepair,source_reconciliation:sourceReconciliation,historical_windows:windows,backfill_before:cursor,backfill_completed:completed,result},completed_at:finishedAt}).eq("id",run.id),admin.from("integration_connections").update({non_secret_config:nextConfig,last_error:null}).eq("id",connection.id)]);
     return{unit:unit.name,ok:true,backfillCompleted:completed,backfillBefore:cursor,scheduleRepair,windows,result};
   }catch(error){const message=error instanceof Error?error.message.slice(0,500):"Falha na sincronização canônica.",finishedAt=new Date().toISOString();if(runId)await admin.from("sync_runs").update({status:"failed",error_count:1,error_summary:message,completed_at:finishedAt}).eq("id",runId);if(connectionId)await admin.from("integration_connections").update({last_error:message}).eq("id",connectionId);return{unit:unitCode,ok:false,message}}};
 
