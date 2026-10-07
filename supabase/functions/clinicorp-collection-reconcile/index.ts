@@ -137,9 +137,26 @@ Deno.serve(async(req)=>{
           continue;
         }
 
-        await refreshSnapshot(admin,Number(unit.id),item.rows);
-        await syncReceivables(admin,Number(unit.id),item.rows);
-        await reconcileTerminal(admin,Number(unit.id),item.rows);
+        const {data:activeIds,error:activeIdsError}=await admin.rpc("get_collection_postdate_active_ids",{
+          p_unit_id:unit.id,
+          p_post_date:item.postDate,
+        });
+        if(activeIdsError){
+          summary.failedDays+=1;
+          summary.days.push({postDate:item.postDate,error:activeIdsError.message});
+          continue;
+        }
+
+        const activeSet=new Set(
+          ((activeIds??[]) as Row[])
+            .map((row)=>String(row.clinicorp_installment_id??"").trim())
+            .filter(Boolean),
+        );
+        const relevantRows=item.rows.filter((row)=>activeSet.has(rowId(row)));
+
+        await refreshSnapshot(admin,Number(unit.id),relevantRows);
+        await syncReceivables(admin,Number(unit.id),relevantRows);
+        await reconcileTerminal(admin,Number(unit.id),relevantRows);
 
         const {data:reconciled,error:reconcileError}=await admin.rpc("reconcile_clinicorp_postdate_day",{
           p_unit_id:unit.id,
@@ -162,6 +179,7 @@ Deno.serve(async(req)=>{
           activeCases:Number(item.item.active_cases??0),
           pendingAbsence:Number(item.item.pending_absence??0),
           returnedRows:item.rows.length,
+          relevantRows:relevantRows.length,
           missingRows:Number(row.missing_rows??0),
         });
       }
