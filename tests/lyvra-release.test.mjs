@@ -157,6 +157,20 @@ test("uses the same filtered collection rows for the pending total card", async 
   assert.doesNotMatch(collections, /todas as formas de pagamento/);
 });
 
+test("refreshes the Clinicorp snapshot in the 15 minute automatic sync", async () => {
+  const [autoSync, migration] = await Promise.all([
+    read("supabase/functions/clinicorp-auto-sync/index.ts"),
+    read("supabase/migrations/20261007115500_refresh_clinicorp_snapshot_in_auto_sync.sql"),
+  ]);
+
+  assert.match(autoSync, /refresh_clinicorp_payment_snapshot_rows/);
+  assert.match(autoSync, /const snapshotRefresh/);
+  assert.match(migration, /clinicorp_payment_snapshot/);
+  assert.match(migration, /payment_received/);
+  assert.match(migration, /payment_confirmed/);
+  assert.match(migration, /cancelled/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
