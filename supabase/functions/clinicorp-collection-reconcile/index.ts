@@ -120,7 +120,7 @@ Deno.serve(async(req)=>{
       if(requestedDates.length){
         dayList=requestedDates.map((postDate)=>({post_date:postDate,active_cases:0,pending_absence:0}));
       }else{
-        const {data:days,error:daysError}=await admin.rpc("get_collection_postdate_reconciliation_days",{p_unit_id:unit.id,p_limit:4});
+        const {data:days,error:daysError}=await admin.rpc("get_collection_postdate_reconciliation_days",{p_unit_id:unit.id,p_limit:1});
         if(daysError)throw new Error(`Fila de reconciliação: ${daysError.message}`);
         dayList=(days??[]) as Row[];
       }
