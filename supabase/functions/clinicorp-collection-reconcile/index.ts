@@ -68,7 +68,7 @@ async function syncReceivables(admin:ReturnType<typeof createClient>,unitId:numb
 async function reconcileTerminal(admin:ReturnType<typeof createClient>,unitId:number,rows:Row[]){
   const terminal=rows.filter((row)=>{
     const paid=String(row.PaymentReceived??"").toUpperCase()==="X"||String(row.PaymentConfirmed??"").toUpperCase()==="X";
-    const cancelled=String(row.Canceled??"").toUpperCase()==="X"||String(row.CancelInstallment??"").toUpperCase()==="X";
+    const cancelled=String(row.Canceled??"").toUpperCase()==="X"||String(row.CancelInstallment??"").toUpperCase()==="X"||["CANCELED","CANCELLED"].includes(String(row.ExternalStatus??"").toUpperCase());
     return paid||cancelled;
   });
   for(const batch of chunks(terminal,80)){
@@ -176,7 +176,7 @@ Deno.serve(async(req)=>{
             present:true,
             payment_form:String(source.PaymentForm??""),
             paid:String(source.PaymentReceived??"").toUpperCase()==="X"||String(source.PaymentConfirmed??"").toUpperCase()==="X",
-            cancelled:String(source.Canceled??"").toUpperCase()==="X"||String(source.CancelInstallment??"").toUpperCase()==="X",
+            cancelled:String(source.Canceled??"").toUpperCase()==="X"||String(source.CancelInstallment??"").toUpperCase()==="X"||["CANCELED","CANCELLED"].includes(String(source.ExternalStatus??"").toUpperCase()),
           };
         });
 
