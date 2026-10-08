@@ -89,9 +89,19 @@ Deno.serve(async(req)=>{
   const {data:secret,error:secretError}=await admin.from("system_secrets").select("secret").eq("key","clinicorp_auto_sync_key").maybeSingle();
   if(secretError||!secret?.secret||incoming!==secret.secret)return reply({ok:false,message:"Chamada não autorizada."},401);
 
+  let requestBody:Row={};
+  try{requestBody=await req.json()}catch{}
+  const requestedUnit=String(requestBody.unit_code??"").trim();
+  const requestedDates=Array.isArray(requestBody.post_dates)
+    ? requestBody.post_dates.map((value)=>String(value)).filter((value)=>/^\d{4}-\d{2}-\d{2}$/.test(value)).slice(0,8)
+    : [];
+  const unitCodes:UnitCode[]=requestedUnit==="sorocaba"||requestedUnit==="salto_de_pirapora"
+    ? [requestedUnit as UnitCode]
+    : ["sorocaba","salto_de_pirapora"];
+
   const results:Row[]=[];
 
-  for(const unitCode of ["sorocaba","salto_de_pirapora"] as UnitCode[]){
+  for(const unitCode of unitCodes){
     try{
       const {data:unit,error:unitError}=await admin.from("units").select("id,code,name").eq("code",unitCode).eq("is_active",true).maybeSingle();
       if(unitError||!unit)throw new Error("Unidade não encontrada.");
@@ -106,10 +116,14 @@ Deno.serve(async(req)=>{
       const token=Deno.env.get(names.token)?.trim()??"";
       if(!subscriber||!username||!token)throw new Error("Configuração do Clinicorp incompleta.");
 
-      const {data:days,error:daysError}=await admin.rpc("get_collection_postdate_reconciliation_days",{p_unit_id:unit.id,p_limit:4});
-      if(daysError)throw new Error(`Fila de reconciliação: ${daysError.message}`);
-
-      const dayList=(days??[]) as Row[];
+      let dayList:Row[]=[];
+      if(requestedDates.length){
+        dayList=requestedDates.map((postDate)=>({post_date:postDate,active_cases:0,pending_absence:0}));
+      }else{
+        const {data:days,error:daysError}=await admin.rpc("get_collection_postdate_reconciliation_days",{p_unit_id:unit.id,p_limit:4});
+        if(daysError)throw new Error(`Fila de reconciliação: ${daysError.message}`);
+        dayList=(days??[]) as Row[];
+      }
       const fetched=await Promise.all(dayList.map(async(item)=>{
         const postDate=String(item.post_date??"");
         try{
