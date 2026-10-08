@@ -191,6 +191,20 @@ test("does not recycle stale snapshots and reconciles source presence with exact
   assert.match(migration, /payment_form_changed/);
 });
 
+test("keeps manual patient registration connected to the patients screen", async () => {
+  const [app, dialog] = await Promise.all([
+    read("components/lyvra-app.tsx"),
+    read("components/manual-patient-dialog.tsx"),
+  ]);
+
+  assert.match(app, /import \{ ManualPatientDialog \}/);
+  assert.match(app, /<ManualPatientDialog onSaved=\{onSaved\} \/>/);
+  assert.match(app, /onSaved=\{\(\) => loadFinancialData\(true\)\}/);
+  assert.match(dialog, /rpc\("import_patients"/);
+  assert.match(dialog, /p_file_name: "cadastro manual"/);
+  assert.match(dialog, /source: "manual"/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
