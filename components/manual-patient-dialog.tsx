@@ -108,9 +108,15 @@ export function ManualPatientDialog({ onSaved }: Props) {
       if ((result?.error_count ?? 0) > 0) throw new Error("O cadastro foi enviado, mas ficou pendente de revisão no relatório de importação.");
 
       toast.success("Paciente cadastrado", { description: "Parcelas, lembretes e agenda de NF foram gerados automaticamente." });
-      await onSaved();
       reset();
       setOpen(false);
+      try {
+        await onSaved();
+      } catch {
+        toast.warning("Paciente salvo, mas a lista não atualizou", {
+          description: "O cadastro foi gravado no banco. Atualize a tela para carregá-lo.",
+        });
+      }
     } catch (error) {
       toast.error("Paciente não cadastrado", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
