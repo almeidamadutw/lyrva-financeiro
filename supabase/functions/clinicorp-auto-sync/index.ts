@@ -113,20 +113,81 @@ async function existingPaymentsByExternalId(
   return existing;
 }
 
+function terminalKind(row: JsonRecord): "paid" | "cancelled" | null {
+  const cancelled =
+    String(row.Canceled ?? "").toUpperCase() === "X"
+    || String(row.CancelInstallment ?? "").toUpperCase() === "X"
+    || ["CANCELED", "CANCELLED"].includes(String(row.ExternalStatus ?? "").toUpperCase());
+  if (cancelled) return "cancelled";
+
+  const paid =
+    String(row.PaymentReceived ?? "").toUpperCase() === "X"
+    || String(row.PaymentConfirmed ?? "").toUpperCase() === "X";
+  return paid ? "paid" : null;
+}
+
+async function closeTerminalCollectionCasesDirect(
+  admin: ReturnType<typeof createClient>,
+  unitId: number,
+  rows: JsonRecord[],
+) {
+  const bySourceId = new Map<string, "paid" | "cancelled">();
+  for (const row of rows) {
+    const id = externalPaymentId(row);
+    const kind = terminalKind(row);
+    if (id && kind) bySourceId.set(id, kind);
+  }
+
+  if (!bySourceId.size) return { matchedInstallments: 0, closedCases: 0 };
+
+  let matchedInstallments = 0;
+  let closedCases = 0;
+  for (const sourceIds of chunks([...bySourceId.keys()], 100)) {
+    const { data, error } = await admin
+      .from("installments")
+      .select("id,clinicorp_installment_id")
+      .eq("unit_id", unitId)
+      .in("clinicorp_installment_id", sourceIds);
+
+    if (error) continue;
+
+    const installments = (data ?? []) as Array<{ id: number; clinicorp_installment_id: string | null }>;
+    matchedInstallments += installments.length;
+
+    for (const kind of ["paid", "cancelled"] as const) {
+      const ids = installments
+        .filter((item) => item.clinicorp_installment_id && bySourceId.get(item.clinicorp_installment_id) === kind)
+        .map((item) => item.id);
+
+      if (!ids.length) continue;
+
+      const { data: closed } = await admin
+        .from("collection_cases")
+        .update({
+          status: kind === "paid" ? "paid" : "closed",
+          outcome: kind === "paid" ? "paid" : "cancelled",
+          closed_at: new Date().toISOString(),
+          next_action_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("unit_id", unitId)
+        .in("installment_id", ids)
+        .not("status", "in", "(paid,closed)")
+        .select("id");
+
+      closedCases += (closed ?? []).length;
+    }
+  }
+
+  return { matchedInstallments, closedCases };
+}
+
 async function reconcileTerminalRows(
   admin: ReturnType<typeof createClient>,
   unitId: number,
   rows: JsonRecord[],
 ) {
-  const terminalRows = rows.filter((row) => {
-    const paid =
-      String(row.PaymentReceived ?? "").toUpperCase() === "X"
-      || String(row.PaymentConfirmed ?? "").toUpperCase() === "X";
-    const cancelled =
-      String(row.Canceled ?? "").toUpperCase() === "X"
-      || String(row.CancelInstallment ?? "").toUpperCase() === "X";
-    return paid || cancelled;
-  });
+  const terminalRows = rows.filter((row) => terminalKind(row) !== null);
 
   const totals = {
     processedCount: 0,
@@ -143,7 +204,8 @@ async function reconcileTerminalRows(
       p_rows: batch,
     });
     if (error) {
-      throw new Error(`Pagamentos e cancelamentos não puderam ser reconciliados: ${error.message}`);
+      totals.skippedCount += batch.length;
+      continue;
     }
     const row = data?.[0] ?? {};
     totals.processedCount += Number(row.processed_count ?? 0);
@@ -270,6 +332,7 @@ Deno.serve(async (req) => {
         clinicorpGet("/financial/list_invoices", subscriberId, { username, token }, invoiceFrom, to, businessId ? { business_id: businessId } : {}),
       ]);
       const fetchedRows = normalizeClinicorpRows(payload) as JsonRecord[];
+      const terminalCaseClosure = await closeTerminalCollectionCasesDirect(admin, unit.id, fetchedRows);
       const { data: snapshotRows, error: snapshotError } = await admin.rpc(
         "refresh_clinicorp_payment_snapshot_rows",
         { p_unit_id: unit.id, p_rows: fetchedRows },
@@ -299,7 +362,7 @@ Deno.serve(async (req) => {
           p_sync_run_id: null,
         },
       );
-      if (applyError) throw new Error(`As baixas não puderam ser aplicadas: ${applyError.message}`);
+      const paymentApplyError = applyError ? applyError.message : null;
 
       const terminalReconciliation = await reconcileTerminalRows(admin, unit.id, fetchedRows);
 
@@ -334,7 +397,9 @@ Deno.serve(async (req) => {
         unchangedCount,
         ...appliedSummary,
         snapshotRefresh,
+        terminalCaseClosure,
         terminalReconciliation,
+        paymentApplyError,
         invoices: invoiceSummary,
       };
       const completedAt = new Date().toISOString();
