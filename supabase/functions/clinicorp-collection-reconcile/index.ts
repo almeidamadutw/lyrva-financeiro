@@ -59,7 +59,7 @@ async function refreshSnapshot(admin:ReturnType<typeof createClient>,unitId:numb
 }
 
 async function syncReceivables(admin:ReturnType<typeof createClient>,unitId:number,rows:Row[]){
-  for(const batch of chunks(rows,100)){
+  for(const batch of chunks(rows,1)){
     const {error}=await admin.rpc("upsert_clinicorp_boleto_receivables",{p_unit_id:unitId,p_rows:batch,p_sync_run_id:null});
     if(error)throw new Error(`Recebíveis: ${error.message}`);
   }
