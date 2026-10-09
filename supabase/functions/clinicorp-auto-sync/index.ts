@@ -239,12 +239,19 @@ Deno.serve(async (req) => {
     return json({ ok: false, message: "Chamada não autorizada." }, 401);
   }
 
+  let requestBody: JsonRecord = {};
+  try { requestBody = await req.json(); } catch {}
+  const requestedUnit = String(requestBody.unit_code ?? "").trim();
+  const unitCodes: UnitCode[] = requestedUnit === "sorocaba" || requestedUnit === "salto_de_pirapora"
+    ? [requestedUnit as UnitCode]
+    : ["sorocaba", "salto_de_pirapora"];
+
   const to = saoPauloDate();
   const from = addDays(to, -7);
   const invoiceFrom = `${to.slice(0, 7)}-01`;
   const results: Array<Record<string, unknown>> = [];
 
-  for (const unitCode of ["sorocaba", "salto_de_pirapora"] as UnitCode[]) {
+  for (const unitCode of unitCodes) {
     let syncRunId: number | null = null;
     let connectionId: number | null = null;
     try {
