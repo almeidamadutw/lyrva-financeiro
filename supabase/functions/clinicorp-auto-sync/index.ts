@@ -368,6 +368,7 @@ Deno.serve(async (req) => {
         paidInstallments: 0,
       };
       const paymentApplyErrors: string[] = [];
+      const failedPaymentIds: string[] = [];
       for (const batch of chunks(rowsToApply, 1)) {
         const { data: appliedRows, error: applyError } = await admin.rpc(
           "ingest_clinicorp_payments",
@@ -381,6 +382,9 @@ Deno.serve(async (req) => {
         );
         if (applyError) {
           paymentApplyErrors.push(applyError.message);
+          for (const failedRow of batch) {
+            failedPaymentIds.push(externalPaymentId(failedRow) ?? "sem_id");
+          }
           appliedSummary.failedCount += batch.length;
           continue;
         }
@@ -423,6 +427,7 @@ Deno.serve(async (req) => {
         terminalCaseClosure,
         terminalReconciliation,
         paymentApplyError,
+        failedPaymentIds,
         invoices: invoiceSummary,
       };
       const completedAt = new Date().toISOString();
