@@ -205,6 +205,14 @@ test("keeps manual patient registration connected to the patients screen", async
   assert.match(dialog, /source: "manual"/);
 });
 
+test("shows the date of the latest collection contact in the queue", async () => {
+  const collections = await read("components/collections-journey-real.tsx");
+
+  assert.match(collections, /const contactDate = /);
+  assert.match(collections, /date: contactDate\(latestInteraction\.occurred_at\)/);
+  assert.match(collections, /Último contato \{patient\.lastInteraction\.date\}:/);
+});
+
 test("shows the latest collection conversation and who registered it", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
