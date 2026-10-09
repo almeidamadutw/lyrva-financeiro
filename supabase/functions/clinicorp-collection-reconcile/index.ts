@@ -92,6 +92,7 @@ Deno.serve(async(req)=>{
   let requestBody:Row={};
   try{requestBody=await req.json()}catch{}
   const requestedUnit=String(requestBody.unit_code??"").trim();
+  const recoverSuperseded=requestBody.recover_superseded===true;
   const requestedDates=Array.isArray(requestBody.post_dates)
     ? requestBody.post_dates.map((value)=>String(value)).filter((value)=>/^\d{4}-\d{2}-\d{2}$/.test(value)).slice(0,8)
     : [];
@@ -166,8 +167,28 @@ Deno.serve(async(req)=>{
             .map((row)=>String(row.clinicorp_installment_id??"").trim())
             .filter(Boolean),
         );
+
+        const recoverySet=new Set<string>();
+        if(recoverSuperseded){
+          const {data:recoveryIds,error:recoveryIdsError}=await admin.rpc("get_clinicorp_superseded_recovery_ids",{
+            p_unit_id:unit.id,
+            p_post_date:item.postDate,
+          });
+          if(recoveryIdsError){
+            summary.failedDays+=1;
+            summary.days.push({postDate:item.postDate,error:recoveryIdsError.message});
+            continue;
+          }
+          for(const row of (recoveryIds??[]) as Row[]){
+            const id=String(row.clinicorp_installment_id??"").trim();
+            if(id)recoverySet.add(id);
+          }
+        }
+
+        const requestedSet=new Set([...activeSet,...recoverySet]);
         const exactById=new Map(item.rows.map((row)=>[rowId(row),row]));
-        const relevantRows=item.rows.filter((row)=>activeSet.has(rowId(row)));
+        const relevantRows=item.rows.filter((row)=>requestedSet.has(rowId(row)));
+        const recoveryRows=item.rows.filter((row)=>recoverySet.has(rowId(row)));
         const presenceRows=[...activeSet].map((id)=>{
           const source=exactById.get(id);
           if(!source)return{id,present:false};
@@ -183,6 +204,26 @@ Deno.serve(async(req)=>{
         await refreshSnapshot(admin,Number(unit.id),relevantRows);
         await syncReceivables(admin,Number(unit.id),relevantRows);
         await reconcileTerminal(admin,Number(unit.id),relevantRows);
+
+        let recoverySummary={processed:0,restored:0,terminal:0,skipped:0};
+        if(recoveryRows.length){
+          const {data:recoveryData,error:recoveryError}=await admin.rpc("restore_clinicorp_superseded_rows",{
+            p_unit_id:unit.id,
+            p_rows:recoveryRows,
+          });
+          if(recoveryError){
+            summary.failedDays+=1;
+            summary.days.push({postDate:item.postDate,error:`Recuperação: ${recoveryError.message}`});
+            continue;
+          }
+          const recovery=(recoveryData?.[0]??{}) as Row;
+          recoverySummary={
+            processed:Number(recovery.processed_count??0),
+            restored:Number(recovery.restored_count??0),
+            terminal:Number(recovery.terminal_count??0),
+            skipped:Number(recovery.skipped_count??0),
+          };
+        }
 
         const {data:reconciled,error:reconcileError}=await admin.rpc("reconcile_clinicorp_postdate_day",{
           p_unit_id:unit.id,
@@ -207,6 +248,10 @@ Deno.serve(async(req)=>{
           returnedRows:item.rows.length,
           relevantRows:relevantRows.length,
           presenceRows:presenceRows.length,
+          recoveryIds:recoverySet.size,
+          recoveryReturned:recoveryRows.length,
+          recoveredRows:recoverySummary.restored,
+          recoveryTerminalRows:recoverySummary.terminal,
           missingRows:Number(row.missing_rows??0),
         });
       }
