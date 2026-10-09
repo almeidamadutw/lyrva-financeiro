@@ -189,6 +189,7 @@ const COLLECTION_RENDER_BATCH = 200;
 const brl = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 const dateOnly = (value: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T12:00:00Z`));
 const dateTime = (value: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+const contactDate = (value: string) => new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" }).format(new Date(value));
 const saoPauloDayKey = (date = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 
 function initials(name: string) {
@@ -408,7 +409,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
           label: outcomeLabels[latestInteraction.outcome] ?? "Atualização",
           author: latestInteractionAuthor,
           note: latestInteraction.notes,
-          date: dateTime(latestInteraction.occurred_at),
+          date: contactDate(latestInteraction.occurred_at),
         } : undefined,
         history,
         updatedAt: row.updated_at,
@@ -589,7 +590,7 @@ function CollectionTable({ patients, onOpen, loading }: { patients: CollectionPa
     <div className="collection-field"><span className="collection-field-label">Vencimento</span><p className="text-sm text-[#2c3b33]">{patient.dueDate}</p><p className="mt-1 text-xs text-[#a25f4d]">{patient.delay}</p></div>
     <div className="collection-field"><span className="collection-field-label">Valor</span><p className="font-semibold tabular-nums text-[#2c3b33]">{patient.amount}</p></div>
     <div className="collection-field"><span className="collection-field-label">Situação</span><div><Badge className={`border-0 font-medium hover:opacity-100 ${stageTone[patient.stage]}`}>{patient.status}</Badge>{patient.lastInteraction ? <p className="mt-2 truncate text-xs font-semibold text-[#52635a]" title={`${patient.lastInteraction.label} · ${patient.lastInteraction.author}`}>{patient.lastInteraction.label} · {patient.lastInteraction.author}</p> : <p className="mt-2 text-xs text-[#98a29c]">Sem conversa registrada</p>}</div></div>
-    <div className="collection-field collection-next-field"><span className="collection-field-label">Próxima ação</span><p className="break-words text-sm font-medium leading-5 text-[#405148]">{patient.nextAction}</p>{patient.lastInteraction && <p className="mt-1 line-clamp-2 text-xs leading-4 text-[#849087]" title={`${patient.lastInteraction.note} · ${patient.lastInteraction.date}`}>Último: {patient.lastInteraction.note}</p>}</div>
+    <div className="collection-field collection-next-field"><span className="collection-field-label">Próxima ação</span><p className="break-words text-sm font-medium leading-5 text-[#405148]">{patient.nextAction}</p>{patient.lastInteraction && <p className="mt-1 line-clamp-2 text-xs leading-4 text-[#849087]" title={`Último contato ${patient.lastInteraction.date}: ${patient.lastInteraction.note}`}><span className="font-semibold text-[#65736b]">Último contato {patient.lastInteraction.date}:</span> {patient.lastInteraction.note}</p>}</div>
     <div className="collection-action-field"><Button onClick={() => onOpen(patient.id)} variant="outline" size="sm" className="w-full rounded-lg whitespace-nowrap">Negociar <ChevronRight /></Button></div>
   </div>)}{visibleCount < patients.length && <div className="flex items-center justify-center border-t border-[#e7ebe7] p-4"><Button type="button" variant="outline" className="rounded-xl" onClick={() => setVisibleCount((count) => count + COLLECTION_RENDER_BATCH)}>Mostrar mais {Math.min(COLLECTION_RENDER_BATCH, patients.length - visibleCount)} casos</Button></div>}</div>;
 }
