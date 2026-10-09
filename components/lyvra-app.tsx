@@ -473,32 +473,12 @@ export function LyvraApp() {
     };
   }, []);
 
-  const loadFinancialData = useCallback(async (silent = false) => {
+  const loadPatients = useCallback(async (silent = false) => {
     const supabase = getSupabaseBrowserClient();
     if (!silent) setLoadingPatients(true);
     try {
-      const todayKey = saoPauloDate(new Date());
-      const tomorrowDate = new Date(`${todayKey}T12:00:00Z`);
-      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
-      const tomorrowKey = saoPauloDate(tomorrowDate);
-      const reminderStart = `${todayKey}T00:00:00-03:00`;
-      const reminderEnd = `${tomorrowKey}T00:00:00-03:00`;
-
-      const [patientResult, obligationResult, reminderResult, unitResult] = await Promise.all([
-        supabase.from("patient_directory").select("*").order("full_name"),
-        supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
-        supabase
-          .from("financial_tasks")
-          .select("id,unit_id")
-          .eq("kind", "payment_reminder")
-          .gte("due_at", reminderStart)
-          .lt("due_at", reminderEnd)
-          .in("status", ["pending", "in_progress"]),
-        supabase.from("units").select("id,code").eq("is_active", true),
-      ]);
-
-      const firstError = patientResult.error ?? obligationResult.error ?? reminderResult.error ?? unitResult.error;
-      if (firstError) throw firstError;
+      const patientResult = await supabase.from("patient_directory").select("*").order("full_name");
+      if (patientResult.error) throw patientResult.error;
 
       const paymentLabels: Record<string, string> = {
         boleto: "Boleto",
@@ -542,6 +522,39 @@ export function LyvraApp() {
         reminderOptOutReason: row.reminder_opt_out_reason ?? null,
       }); }));
 
+    } catch (error) {
+      setPatients([]);
+      throw error;
+    } finally {
+      if (!silent) setLoadingPatients(false);
+    }
+  }, []);
+
+  const loadFinancialData = useCallback(async (_silent = false) => {
+    const supabase = getSupabaseBrowserClient();
+    try {
+      const todayKey = saoPauloDate(new Date());
+      const tomorrowDate = new Date(`${todayKey}T12:00:00Z`);
+      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+      const tomorrowKey = saoPauloDate(tomorrowDate);
+      const reminderStart = `${todayKey}T00:00:00-03:00`;
+      const reminderEnd = `${tomorrowKey}T00:00:00-03:00`;
+
+      const [obligationResult, reminderResult, unitResult] = await Promise.all([
+        supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
+        supabase
+          .from("financial_tasks")
+          .select("id,unit_id")
+          .eq("kind", "payment_reminder")
+          .gte("due_at", reminderStart)
+          .lt("due_at", reminderEnd)
+          .in("status", ["pending", "in_progress"]),
+        supabase.from("units").select("id,code").eq("is_active", true),
+      ]);
+
+      const firstError = obligationResult.error ?? reminderResult.error ?? unitResult.error;
+      if (firstError) throw firstError;
+
       setObligations(((obligationResult.data ?? []) as unknown as any[]).map((row) => {
         if (row.id === null || row.patient_name === null || row.unit_name === null || row.competence === null || row.status === null || row.frequency === null) throw new Error("Obrigação financeira incompleta no banco.");
         const meta = invoiceStatus(row.status);
@@ -577,12 +590,9 @@ export function LyvraApp() {
       }
       setReminderCounts(nextReminderCounts);
     } catch (error) {
-      setPatients([]);
       setObligations([]);
       setReminderCounts({ todas: 0, sorocaba: 0, salto: 0 });
       throw error;
-    } finally {
-      if (!silent) setLoadingPatients(false);
     }
   }, []);
 
@@ -630,7 +640,7 @@ export function LyvraApp() {
   useEffect(() => {
     if (!currentUser || currentUser.operationalArea === "support") return;
     const refresh = () => { void loadFinancialData(true).catch(() => undefined); };
-    const interval = window.setInterval(refresh, 60_000);
+    const interval = window.setInterval(refresh, 300_000);
     const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", refresh);
@@ -640,6 +650,13 @@ export function LyvraApp() {
       window.removeEventListener("focus", refresh);
     };
   }, [currentUser, loadFinancialData]);
+
+  useEffect(() => {
+    if (!currentUser || view !== "patients") return;
+    void loadPatients().catch(() => {
+      toast.error("Não foi possível carregar os pacientes agora.");
+    });
+  }, [currentUser, view, loadPatients]);
 
   const unitFilter = <UnitSelect value={unit} onChange={setUnit} />;
 
@@ -769,7 +786,7 @@ export function LyvraApp() {
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
-            {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} canEdit={currentUser.operationalArea !== "support"} onSaved={() => loadFinancialData(true)} />}
+            {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} canEdit={currentUser.operationalArea !== "support"} onSaved={() => loadPatients(true)} />}
             {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
             {view === "support" && allowedViews.has("support") && <SupportView goTo={setView} />}
             {view === "integrations" && allowedViews.has("integrations") && <IntegrationsView />}
