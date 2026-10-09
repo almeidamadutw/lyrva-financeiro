@@ -227,6 +227,18 @@ function nextActionText(row: QueueRow) {
   return `${dateOnly(row.eligible_at)} • iniciar contato`;
 }
 
+async function fetchCollectionCaseHistory(caseId: number) {
+  const supabase = getSupabaseBrowserClient();
+  const result = await supabase
+    .from("collection_interactions")
+    .select("id,collection_case_id,performed_by,channel,outcome,notes,occurred_at,next_action_at")
+    .eq("collection_case_id", caseId)
+    .order("occurred_at", { ascending: true })
+    .order("id", { ascending: true });
+  if (result.error) throw result.error;
+  return (result.data ?? []) as unknown as InteractionRow[];
+}
+
 function CollectionMetric({ icon: Icon, label, value, detail, tone, onClick, active = false }: { icon: typeof BellRing; label: string; value: string; detail: string; tone: string; onClick?: () => void; active?: boolean }) {
   const content = <><div className="flex items-start justify-between gap-3"><div className={`grid size-11 place-items-center rounded-2xl ${tone}`}><Icon className="size-5" /></div><span className="text-[10px] font-bold uppercase tracking-[.12em] text-[#909a94]">Agora</span></div><p className="font-display mt-5 text-[30px] font-semibold leading-none text-[#192820]">{value}</p><p className="mt-2 text-sm font-medium text-[#4c5c53]">{label}</p><p className="mt-1 text-xs text-[#88938d]">{detail}</p></>;
   if (onClick) return <button type="button" onClick={onClick} className={`surface-card rounded-[22px] p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00BF63]/40 ${active ? "ring-2 ring-[#00BF63]/30" : ""}`}>{content}</button>;
@@ -240,6 +252,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [overdueBoletoCounts, setOverdueBoletoCounts] = useState<OverdueBoletoCountRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [internalSelectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedHistory, setSelectedHistory] = useState<InteractionRow[]>([]);
+  const loadingRef = useRef(false);
+  const selectedId = openPatientId ?? internalSelectedId;
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [monthFilter, setMonthFilter] = useState("all");
@@ -250,6 +265,8 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [collectionTab, setCollectionTab] = useState("all");
 
   const load = useCallback(async (silent = false) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     if (!silent) setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
@@ -269,17 +286,14 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         if (page.length < COLLECTION_PAGE_SIZE) break;
       }
 
-      for (let offset = 0; ; offset += COLLECTION_PAGE_SIZE) {
-        const result = await supabase
-          .from("collection_interactions")
-          .select("id,collection_case_id,performed_by,channel,outcome,notes,occurred_at,next_action_at")
-          .order("occurred_at", { ascending: true })
-          .order("id", { ascending: true })
-          .range(offset, offset + COLLECTION_PAGE_SIZE - 1);
+      for (let offset = 0; offset < queueRows.length; offset += 500) {
+        const caseIds = queueRows.slice(offset, offset + 500).map((row) => row.id);
+        if (!caseIds.length) continue;
+        const result = await (supabase as any).rpc("get_collection_latest_interactions", {
+          p_case_ids: caseIds,
+        });
         if (result.error) throw result.error;
-        const page = (result.data ?? []) as unknown as InteractionRow[];
-        interactionRows.push(...page);
-        if (page.length < COLLECTION_PAGE_SIZE) break;
+        interactionRows.push(...((result.data ?? []) as unknown as InteractionRow[]));
       }
 
       const overdueResult = await (supabase as any).rpc("get_overdue_boleto_counts", {
@@ -296,6 +310,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     } catch (error) {
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
+      loadingRef.current = false;
       if (!silent) setLoading(false);
     }
   }, [unit]);
@@ -303,7 +318,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const refresh = () => { void load(true); };
-    const interval = window.setInterval(refresh, 60_000);
+    const interval = window.setInterval(refresh, 300_000);
     const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", refresh);
@@ -313,6 +328,19 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     if (!openPatientId) return;
     onPatientOpened?.();
   }, [openPatientId, onPatientOpened]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedId) {
+      setSelectedHistory([]);
+      return () => { active = false; };
+    }
+    setSelectedHistory([]);
+    void fetchCollectionCaseHistory(selectedId)
+      .then((rows) => { if (active) setSelectedHistory(rows); })
+      .catch(() => { if (active) setSelectedHistory([]); });
+    return () => { active = false; };
+  }, [selectedId]);
 
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.user_id, profile.full_name])), [profiles]);
   const overdueCountByPatientUnit = useMemo(() => new Map(
@@ -328,8 +356,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     .filter((row) => !["paid", "closed"].includes(row.status) && !["paid", "cancelled", "refunded"].includes(row.installment_status ?? ""))
     .map((row) => {
       const overdueCount = Math.max(1, overdueCountByPatientUnit.get(`${row.unit_id}:${row.patient_id}`) ?? 1);
-      const rowInteractions = interactionsByCase.get(row.id) ?? [];
-      const latestInteraction = rowInteractions[rowInteractions.length - 1];
+      const latestRows = interactionsByCase.get(row.id) ?? [];
+      const latestInteraction = latestRows[latestRows.length - 1];
+      const rowInteractions = row.id === selectedId && selectedHistory.length ? selectedHistory : latestRows;
       const latestInteractionAuthor = latestInteraction
         ? latestInteraction.performed_by
           ? profileById.get(latestInteraction.performed_by) ?? "Equipe"
@@ -384,7 +413,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         history,
         updatedAt: row.updated_at,
       };
-    }), [queue, interactionsByCase, profileById, overdueCountByPatientUnit]);
+    }), [queue, interactionsByCase, profileById, overdueCountByPatientUnit, selectedId, selectedHistory]);
 
   const selectedUnit = useMemo(() => patients.filter((patient) => unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")), [patients, unit]);
   const todayKey = saoPauloDayKey();
@@ -478,7 +507,6 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     .filter((patient) => patient.stage === "negotiation" || patient.stage === "promise")
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const protested = actionable.filter((patient) => patient.stage === "protested");
-  const selectedId = openPatientId ?? internalSelectedId;
   const selected = patients.find((patient) => patient.id === selectedId) ?? null;
 
   return <div className="space-y-5">
@@ -535,7 +563,12 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       </aside>
     </section>
 
-    <NegotiationSheet patient={selected} onClose={() => setSelectedId(null)} onRegistered={load} />
+    <NegotiationSheet patient={selected} onClose={() => setSelectedId(null)} onRegistered={async () => {
+      await load();
+      if (selectedId) {
+        try { setSelectedHistory(await fetchCollectionCaseHistory(selectedId)); } catch { /* mantém a última versão visível */ }
+      }
+    }} />
   </div>;
 }
 
