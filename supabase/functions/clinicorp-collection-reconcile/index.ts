@@ -94,7 +94,7 @@ Deno.serve(async(req)=>{
   const requestedUnit=String(requestBody.unit_code??"").trim();
   const recoverSuperseded=requestBody.recover_superseded===true;
   const requestedDates=Array.isArray(requestBody.post_dates)
-    ? requestBody.post_dates.map((value)=>String(value)).filter((value)=>/^\d{4}-\d{2}-\d{2}$/.test(value)).slice(0,8)
+    ? requestBody.post_dates.map((value)=>String(value)).filter((value)=>/^\d{4}-\d{2}-\d{2}$/.test(value)).slice(0,4)
     : [];
   const unitCodes:UnitCode[]=requestedUnit==="sorocaba"||requestedUnit==="salto_de_pirapora"
     ? [requestedUnit as UnitCode]
@@ -125,15 +125,16 @@ Deno.serve(async(req)=>{
         if(daysError)throw new Error(`Fila de reconciliação: ${daysError.message}`);
         dayList=(days??[]) as Row[];
       }
-      const fetched=await Promise.all(dayList.map(async(item)=>{
+      const fetched:Array<{postDate:string;item:Row;rows:Row[];error:string|null}>=[];
+      for(const item of dayList){
         const postDate=String(item.post_date??"");
         try{
           const rows=await fetchPostDate(subscriber,{username,token},postDate);
-          return{postDate,item,rows,error:null as string|null};
+          fetched.push({postDate,item,rows,error:null});
         }catch(error){
-          return{postDate,item,rows:[] as Row[],error:error instanceof Error?error.message:"Falha"};
+          fetched.push({postDate,item,rows:[],error:error instanceof Error?error.message:"Falha"});
         }
-      }));
+      }
 
       const summary={
         unit:unit.name,
@@ -202,8 +203,6 @@ Deno.serve(async(req)=>{
         });
 
         await refreshSnapshot(admin,Number(unit.id),relevantRows);
-        await syncReceivables(admin,Number(unit.id),relevantRows);
-        await reconcileTerminal(admin,Number(unit.id),relevantRows);
 
         let recoverySummary={processed:0,restored:0,terminal:0,skipped:0};
         if(recoveryRows.length){
@@ -224,6 +223,9 @@ Deno.serve(async(req)=>{
             skipped:Number(recovery.skipped_count??0),
           };
         }
+
+        await syncReceivables(admin,Number(unit.id),relevantRows);
+        await reconcileTerminal(admin,Number(unit.id),relevantRows);
 
         const {data:reconciled,error:reconcileError}=await admin.rpc("reconcile_clinicorp_postdate_day",{
           p_unit_id:unit.id,
