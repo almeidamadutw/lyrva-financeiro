@@ -368,7 +368,7 @@ Deno.serve(async (req) => {
         paidInstallments: 0,
       };
       const paymentApplyErrors: string[] = [];
-      for (const batch of chunks(rowsToApply, 5)) {
+      for (const batch of chunks(rowsToApply, 1)) {
         const { data: appliedRows, error: applyError } = await admin.rpc(
           "ingest_clinicorp_payments",
           {
