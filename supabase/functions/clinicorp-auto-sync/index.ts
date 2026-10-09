@@ -359,17 +359,42 @@ Deno.serve(async (req) => {
       const unchangedCount = eligibleRows.length - rowsToApply.length;
       const filteredCount = fetchedRows.length - eligibleRows.length;
 
-      const { data: appliedRows, error: applyError } = await admin.rpc(
-        "ingest_clinicorp_payments",
-        {
-          p_unit_id: unit.id,
-          p_rows: rowsToApply,
-          // O automático mantém o resumo em sync_runs. O histórico por linha
-          // fica no modo manual para não inflar o banco a cada 15 minutos.
-          p_sync_run_id: null,
-        },
-      );
-      const paymentApplyError = applyError ? applyError.message : null;
+      const appliedSummary = {
+        appliedCount: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        pendingCount: 0,
+        failedCount: 0,
+        paidInstallments: 0,
+      };
+      const paymentApplyErrors: string[] = [];
+      for (const batch of chunks(rowsToApply, 5)) {
+        const { data: appliedRows, error: applyError } = await admin.rpc(
+          "ingest_clinicorp_payments",
+          {
+            p_unit_id: unit.id,
+            p_rows: batch,
+            // O automático mantém o resumo em sync_runs. O histórico por linha
+            // fica no modo manual para não inflar o banco a cada sincronização.
+            p_sync_run_id: null,
+          },
+        );
+        if (applyError) {
+          paymentApplyErrors.push(applyError.message);
+          appliedSummary.failedCount += batch.length;
+          continue;
+        }
+        const applied = appliedRows?.[0] ?? {};
+        appliedSummary.appliedCount += Number(applied.processed_count ?? 0);
+        appliedSummary.createdCount += Number(applied.created_count ?? 0);
+        appliedSummary.updatedCount += Number(applied.updated_count ?? 0);
+        appliedSummary.pendingCount += Number(applied.skipped_count ?? 0);
+        appliedSummary.failedCount += Number(applied.failed_count ?? 0);
+        appliedSummary.paidInstallments += Number(applied.paid_installments ?? 0);
+      }
+      const paymentApplyError = paymentApplyErrors.length
+        ? [...new Set(paymentApplyErrors)].join(" | ").slice(0, 500)
+        : null;
 
       const terminalReconciliation = await reconcileTerminalRows(admin, unit.id, fetchedRows);
 
@@ -380,15 +405,6 @@ Deno.serve(async (req) => {
       );
       if (invoiceApplyError) throw new Error(`As notas não puderam ser aplicadas: ${invoiceApplyError.message}`);
 
-      const applied = appliedRows?.[0] ?? {};
-      const appliedSummary = {
-        appliedCount: Number(applied.processed_count ?? 0),
-        createdCount: Number(applied.created_count ?? 0),
-        updatedCount: Number(applied.updated_count ?? 0),
-        pendingCount: Number(applied.skipped_count ?? 0),
-        failedCount: Number(applied.failed_count ?? 0),
-        paidInstallments: Number(applied.paid_installments ?? 0),
-      };
       const invoiceApplied = invoiceAppliedRows?.[0] ?? {};
       const invoiceSummary = {
         fetchedCount: invoiceRows.length,
