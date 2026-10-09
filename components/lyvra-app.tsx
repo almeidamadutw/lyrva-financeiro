@@ -604,13 +604,15 @@ export function LyvraApp() {
         return;
       }
 
-      if (active) { setCurrentUser(account); setView(defaultViewFor(account)); }
-      try {
-        if (account.operationalArea !== "support") await loadFinancialData();
-      } catch {
-        if (active) toast.error("Não foi possível carregar a base financeira.");
-      } finally {
-        if (active) setAuthReady(true);
+      if (active) {
+        setCurrentUser(account);
+        setView(defaultViewFor(account));
+        setAuthReady(true);
+      }
+      if (account.operationalArea !== "support") {
+        void loadFinancialData().catch(() => {
+          if (active) toast.error("Você entrou no LYVRA, mas alguns dados financeiros ainda estão carregando.");
+        });
       }
     };
 
@@ -677,10 +679,10 @@ export function LyvraApp() {
 
     setCurrentUser(account);
     setView(defaultViewFor(account));
-    try {
-      if (account.operationalArea !== "support") await loadFinancialData();
-    } catch {
-      return "A conta entrou, mas a base financeira não pôde ser carregada.";
+    if (account.operationalArea !== "support") {
+      void loadFinancialData().catch(() => {
+        toast.error("Você entrou no LYVRA, mas alguns dados financeiros ainda estão carregando.");
+      });
     }
     return null;
   };
