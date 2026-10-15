@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import {createClient} from 'npm:@supabase/supabase-js@2.113.0';
 import {processJob} from './worker.mjs';
+import {retryAfterSeconds} from './source-rate.mjs';
 
 const UNIT_SECRETS:Record<string,{username:string;token:string}>={
   sorocaba:{username:'CLINICORP_SOROCABA_USERNAME',token:'CLINICORP_SOROCABA_TOKEN'},
@@ -42,7 +43,15 @@ Deno.serve(async req=>{
           const endpoint=new URL('https://api.clinicorp.com/rest/v1/payment/list');
           endpoint.search=new URLSearchParams({subscriber_id:subscriber,from:current.posting_day,to:current.posting_day,
             date_type:'postDate',include_total_amount:'X',get_amount_with_discounts:'X'}).toString();
-          const response=await fetch(endpoint,{headers:{accept:'application/json',authorization:`Basic ${btoa(`${username}:${token}`)}`},signal:AbortSignal.timeout(20_000)});
+          let response:Response;
+          try {
+            response=await fetch(endpoint,{headers:{accept:'application/json',authorization:`Basic ${btoa(`${username}:${token}`)}`},signal:AbortSignal.timeout(20_000)});
+          } catch(error) {
+            await rpc('record_clinicorp_source_result',{p_job_id:current.id,p_lease_token:current.lease_token,p_status:0,p_retry_after_seconds:null});
+            throw error;
+          }
+          await rpc('record_clinicorp_source_result',{p_job_id:current.id,p_lease_token:current.lease_token,
+            p_status:response.status,p_retry_after_seconds:retryAfterSeconds(response.headers.get('retry-after'))});
           if(response.status!==200)throw new Error(`Clinicorp HTTP ${response.status}.`);
           const text=await response.text();
           if(text.length>6_000_000)throw new Error('Resposta maior que o limite seguro.');
