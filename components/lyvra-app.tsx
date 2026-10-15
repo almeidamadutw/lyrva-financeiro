@@ -480,7 +480,7 @@ export function LyvraApp() {
     try {
       const directoryRows: any[] = [];
       for (let offset=0;;offset+=500) {
-        const page = await supabase.from("patient_directory").select("*").order("patient_unit_id").range(offset,offset+499);
+        const page = await supabase.from("patient_directory").select("*").order("full_name").order("patient_unit_id").range(offset,offset+499);
         if (page.error) throw page.error;
         directoryRows.push(...(page.data??[]));
         if ((page.data?.length??0)<500) break;

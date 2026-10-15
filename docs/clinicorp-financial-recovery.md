@@ -17,7 +17,7 @@ Implantação de 15/10/2026. A conferência inicial do histórico está em andam
 
 O ID externo exato, dentro da unidade, vincula cada parcela. Data e valor iguais não autorizam associar duas parcelas com IDs externos diferentes. Versões antigas não substituem versões mais recentes do snapshot. Cancelamento prevalece sobre flags de recebimento.
 
-Uma linha validada corrige o valor, vencimento e situação da parcela. Recebimentos ficam preservados no livro de pagamentos; um recebimento isolado não redefine o total de um contrato. Planos técnicos deixam de sobrescrever preferências fiscais e totais de contratos compartilhados. Valores sem comprovação do contrato aparecem como a conferir.
+Uma linha validada corrige o valor, vencimento e situação da parcela. Recebimentos ficam preservados no livro de pagamentos; um recebimento isolado não redefine o total de um contrato. Planos técnicos deixam de sobrescrever preferências fiscais e totais de contratos compartilhados. Valores sem comprovação do contrato aparecem como a conferir. Na régua, títulos sem correspondência validada de ID, valor, vencimento e situação exibem “Em conferência”. O cartão identifica explicitamente totais parciais. Ao abrir um caso, a verificação recebe prioridade; registros de negociação exigem conferência de até cinco minutos também no banco.
 
 ## Leitura da interface
 
@@ -43,3 +43,5 @@ Para pausar o novo trabalhador, um administrador pode definir `private.clinicorp
 Passaram a compilação Next.js de produção, TypeScript, oito testes do trabalhador e os testes existentes de acesso e integração. A validação transacional no banco confirmou importação de um título ausente, valor igual à fonte, repetição sem regravação financeira, rejeição de concessão inválida e conferência final, com rollback da massa de teste. Os RPCs de leitura foram comparados com a fila canônica e tiveram permissões verificadas.
 
 A suíte antiga de verificações textuais da interface já apresentava três falhas no commit base. Foram reproduzidas sem as alterações deste pacote; não são evidência de falha nova de execução. A conferência inicial da base continua automaticamente após a publicação.
+
+A conferência final em dois lotes recentes comparou 122 boletos: 79 de Sorocaba e 43 de Salto de Pirapora. Não houve divergência de ID/vínculo, valor ou vencimento; os saldos da fonte e locais coincidiram em R$ 13.462,92 e R$ 9.687,50, respectivamente. Trata-se de amostra de lotes, não de todo o histórico. O banco também recusou, em teste com rollback, registrar uma interação após retirar a comprovação recente da parcela.
