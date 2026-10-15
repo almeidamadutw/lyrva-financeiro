@@ -184,7 +184,7 @@ const outcomeLabels: Record<string, string> = {
   note: "Observação",
 };
 
-const COLLECTION_PAGE_SIZE = 1_000;
+const COLLECTION_PAGE_SIZE = 300;
 const COLLECTION_RENDER_BATCH = 200;
 
 const brl = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -255,20 +255,24 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [loading, setLoading] = useState(true);
   const [internalSelectedId, setSelectedId] = useState<number | null>(null);
   const [selectedHistory, setSelectedHistory] = useState<InteractionRow[]>([]);
-  const loadingRef = useRef(false);
+  const loadingRef = useRef<string | null>(null);
+  const loadGeneration = useRef(0);
   const selectedId = openPatientId ?? internalSelectedId;
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [monthFilter, setMonthFilter] = useState("all");
-  const [yearFilter, setYearFilter] = useState("all");
+  const [monthFilter, setMonthFilter] = useState(() => saoPauloDayKey().slice(5,7));
+  const [yearFilter, setYearFilter] = useState(() => saoPauloDayKey().slice(0,4));
   const [quickPeriod, setQuickPeriod] = useState("all");
   const [overdueFilter, setOverdueFilter] = useState("all");
   const [patientQuery, setPatientQuery] = useState("");
   const [collectionTab, setCollectionTab] = useState("all");
 
   const load = useCallback(async (silent = false) => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
+    const loadKey = JSON.stringify([unit,quickPeriod,dateFrom,dateTo,monthFilter,yearFilter]);
+    if (loadingRef.current === loadKey) return;
+    loadingRef.current = loadKey;
+    const generation = ++loadGeneration.current;
+    const current = () => generation === loadGeneration.current;
     if (!silent) setLoading(true);
     try {
       const supabase = getSupabaseBrowserClient();
@@ -276,12 +280,27 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       const queueRows: QueueRow[] = [];
       const interactionRows: InteractionRow[] = [];
 
+      let from = dateFrom || null;
+      let to = dateTo || null;
+      if (quickPeriod !== "all") {
+        const today = saoPauloDayKey();
+        const start = new Date(`${today}T12:00:00-03:00`);
+        start.setDate(start.getDate() - (Number(quickPeriod) - 1));
+        const quickStart = saoPauloDayKey(start);
+        from = from && from > quickStart ? from : quickStart;
+        to = to && to < today ? to : today;
+      }
       for (let offset = 0; ; offset += COLLECTION_PAGE_SIZE) {
-        const result = await (supabase as any).rpc("get_collection_queue_page", {
+        const result = await (supabase as any).rpc("get_collection_queue_filtered", {
           p_unit_code: selectedCode === "todas" ? null : selectedCode,
           p_offset: offset,
           p_limit: COLLECTION_PAGE_SIZE,
+          p_date_from: from,
+          p_date_to: to,
+          p_month: monthFilter === "all" ? null : Number(monthFilter),
+          p_year: yearFilter === "all" ? null : Number(yearFilter),
         });
+        if (!current()) return;
         if (result.error) throw result.error;
         const page = (result.data ?? []) as unknown as QueueRow[];
         queueRows.push(...page);
@@ -298,26 +317,27 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         interactionRows.push(...((result.data ?? []) as unknown as InteractionRow[]));
       }
 
-      const overdueResult = await (supabase as any).rpc("get_overdue_boleto_counts", {
+      const overdueResult = await (supabase as any).rpc("get_overdue_boleto_count_map", {
         p_unit_code: selectedCode === "todas" ? null : selectedCode,
       });
       if (overdueResult.error) throw overdueResult.error;
 
       const profileResult = await supabase.from("profiles").select("user_id,full_name").eq("is_active", true);
       if (profileResult.error) throw profileResult.error;
+      if (!current()) return;
       setQueue(queueRows);
       setInteractions(interactionRows);
       setOverdueBoletoCounts((overdueResult.data ?? []) as unknown as OverdueBoletoCountRow[]);
       setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
     } catch (error) {
+      if (!current()) return;
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
-      loadingRef.current = false;
-      if (!silent) setLoading(false);
+      if (current()) { loadingRef.current = null; setLoading(false); }
     }
-  }, [unit]);
+  }, [unit, quickPeriod, dateFrom, dateTo, monthFilter, yearFilter]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return () => { ++loadGeneration.current; loadingRef.current = null; }; }, [load]);
   useEffect(() => {
     const refresh = () => { void load(true); };
     const interval = window.setInterval(refresh, 300_000);
@@ -420,7 +440,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const selectedUnit = useMemo(() => patients.filter((patient) => unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")), [patients, unit]);
   const todayKey = saoPauloDayKey();
   const now = Date.now();
-  const availableYears = useMemo(() => [...new Set(selectedUnit.map((patient) => patient.dueDateIso.slice(0, 4)))].sort((a, b) => b.localeCompare(a)), [selectedUnit]);
+  const availableYears = Array.from({length: Number(todayKey.slice(0,4))-2015+2}, (_,index) => String(Number(todayKey.slice(0,4))+1-index));
   const periodFiltered = useMemo(() => {
     let quickStart = "";
     if (quickPeriod !== "all") {

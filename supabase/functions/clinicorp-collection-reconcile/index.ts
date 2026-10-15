@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { normalizePostDateRows, postingDaysForStoredDate, sourceRowId, summarizePostDatePayload } from "./source-response.mjs";
 
 type UnitCode = "sorocaba" | "salto_de_pirapora";
 type Row = Record<string, unknown>;
@@ -11,22 +12,7 @@ const SECRETS:Record<UnitCode,{username:string;token:string}>={
 };
 
 const reply=(body:unknown,status=200)=>Response.json(body,{status,headers:{"cache-control":"no-store"}});
-function rowsOf(payload:unknown):Row[]{
-  if(Array.isArray(payload))return payload.filter((r):r is Row=>!!r&&typeof r==="object"&&!Array.isArray(r));
-  if(!payload||typeof payload!=="object"||Array.isArray(payload))return[];
-  const x=payload as Row;
-  for(const key of ["data","Data","items","Items","results","Results"]){
-    const value=x[key];
-    if(Array.isArray(value))return value.filter((r):r is Row=>!!r&&typeof r==="object"&&!Array.isArray(r));
-  }
-  return[x];
-}
-function rowId(r:Row){return String(r.id??r.ExternalTxId??"").trim()}
-function dedupe(rows:Row[]){
-  const map=new Map<string,Row>();
-  for(const row of rows)map.set(rowId(row)||JSON.stringify(row),row);
-  return[...map.values()];
-}
+const rowId=sourceRowId;
 function chunks<T>(rows:T[],size:number){const out:T[][]=[];for(let i=0;i<rows.length;i+=size)out.push(rows.slice(i,i+size));return out}
 
 async function fetchPostDate(subscriber:string,credentials:{username:string;token:string},postDate:string){
@@ -47,8 +33,10 @@ async function fetchPostDate(subscriber:string,credentials:{username:string;toke
   const text=await response.text();
   if(!response.ok)throw new Error(`Clinicorp HTTP ${response.status}: ${text.slice(0,200)}`);
   if(text.length>6000000)throw new Error("Resposta do Clinicorp excedeu o limite seguro.");
-  try{return dedupe(rowsOf(JSON.parse(text) as unknown))}
+  let payload:unknown;
+  try{payload=JSON.parse(text)}
   catch{throw new Error("O Clinicorp retornou uma resposta inválida.")}
+  return payload;
 }
 
 async function refreshSnapshot(admin:ReturnType<typeof createClient>,unitId:number,rows:Row[]){
@@ -93,6 +81,7 @@ Deno.serve(async(req)=>{
   try{requestBody=await req.json()}catch{}
   const requestedUnit=String(requestBody.unit_code??"").trim();
   const recoverSuperseded=requestBody.recover_superseded===true;
+  const diagnosticOnly=requestBody.diagnose_source_response===true;
   const requestedDates=Array.isArray(requestBody.post_dates)
     ? requestBody.post_dates.map((value)=>String(value)).filter((value)=>/^\d{4}-\d{2}-\d{2}$/.test(value)).slice(0,4)
     : [];
@@ -126,10 +115,22 @@ Deno.serve(async(req)=>{
         dayList=(days??[]) as Row[];
       }
       const fetched:Array<{postDate:string;item:Row;rows:Row[];error:string|null}>=[];
+      const diagnostics:Row[]=[];
       for(const item of dayList){
         const postDate=String(item.post_date??"");
         try{
-          const rows=await fetchPostDate(subscriber,{username,token},postDate);
+          const rows:Row[]=[];
+          // The database groups raw UTC dates; Clinicorp filters Brazilian days.
+          // Read both exact local dates so early UTC hours cannot become false absences.
+          for(const queryDay of postingDaysForStoredDate(postDate)){
+            const payload=await fetchPostDate(subscriber,{username,token},queryDay);
+            if(diagnosticOnly){
+              diagnostics.push({postDate,queryDay,...summarizePostDatePayload(payload,queryDay)});
+            }else{
+              rows.push(...normalizePostDateRows(payload,queryDay));
+            }
+          }
+          if(diagnosticOnly)continue;
           fetched.push({postDate,item,rows,error:null});
         }catch(error){
           fetched.push({postDate,item,rows:[],error:error instanceof Error?error.message:"Falha"});
@@ -258,7 +259,7 @@ Deno.serve(async(req)=>{
         });
       }
 
-      results.push({ok:true,...summary});
+      results.push({ok:summary.failedDays===0,...summary,...(diagnosticOnly?{diagnosticOnly,diagnostics}:{})});
     }catch(error){
       results.push({ok:false,unit:unitCode,message:error instanceof Error?error.message:"Falha"});
     }

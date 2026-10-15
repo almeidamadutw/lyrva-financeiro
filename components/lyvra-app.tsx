@@ -88,6 +88,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { LYVRA_ICON_DATA_URL } from "@/lib/lyvra-icon-data";
 import { CollectionsJourney } from "@/components/collections-journey";
 import { FinancialJourney } from "@/components/financial-journey";
+import { ClinicorpSyncStatus } from "@/components/clinicorp-sync-status";
 import { FinancialNotifications } from "@/components/financial-notifications";
 import { DueTaskAlert } from "@/components/due-task-alert";
 import { PaymentReminderReview } from "@/components/payment-reminder-review";
@@ -477,8 +478,14 @@ export function LyvraApp() {
     const supabase = getSupabaseBrowserClient();
     if (!silent) setLoadingPatients(true);
     try {
-      const patientResult = await supabase.from("patient_directory").select("*").order("full_name");
-      if (patientResult.error) throw patientResult.error;
+      const directoryRows: any[] = [];
+      for (let offset=0;;offset+=500) {
+        const page = await supabase.from("patient_directory").select("*").order("patient_unit_id").range(offset,offset+499);
+        if (page.error) throw page.error;
+        directoryRows.push(...(page.data??[]));
+        if ((page.data?.length??0)<500) break;
+      }
+      const patientResult = {data:directoryRows};
 
       const paymentLabels: Record<string, string> = {
         boleto: "Boleto",
@@ -501,7 +508,7 @@ export function LyvraApp() {
         unit: row.unit_name,
         treatment: row.treatment,
         paymentMethod: row.payment_method ? paymentLabels[row.payment_method] ?? row.payment_method : null,
-        planAmountCents: Math.round(Number(row.plan_amount ?? 0) * 100),
+        planAmountCents: row.plan_amount == null ? undefined : Math.round(Number(row.plan_amount) * 100),
         installmentAmountCents: Math.round(Number(row.installment_amount ?? 0) * 100),
         startDate: row.start_date,
         endDate: row.end_date,
@@ -541,7 +548,16 @@ export function LyvraApp() {
       const reminderEnd = `${tomorrowKey}T00:00:00-03:00`;
 
       const [obligationResult, reminderResult, unitResult] = await Promise.all([
-        supabase.from("invoice_queue").select("*").order("period_end", { ascending: true }),
+        (async () => {
+          const rows: any[] = [];
+          for(let offset=0;;offset+=500) {
+            const page=await supabase.from("invoice_queue").select("*")
+              .order("period_end",{ascending:true}).order("id").order("source_type").range(offset,offset+499);
+            if(page.error) return {data:null,error:page.error};
+            rows.push(...(page.data??[]));
+            if((page.data?.length??0)<500) return {data:rows,error:null};
+          }
+        })(),
         supabase
           .from("financial_tasks")
           .select("id,unit_id")
@@ -781,6 +797,7 @@ export function LyvraApp() {
 
         <main className="lyvra-page min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4]">
           <div className="lyvra-page-inner">
+            {currentUser.operationalArea !== "support" && <ClinicorpSyncStatus unit={unit} />}
             {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView} />}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
@@ -971,7 +988,7 @@ function PatientsView({ unit, patients, loading, canEdit, onSaved }: { unit: str
     return unitMatches && queryMatches && statusMatches;
   });
 
-  return <div className="space-y-5"><section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes</h2><p className="mt-1 text-sm text-[#718078]">Pacientes sincronizados do Clinicorp e cadastros manuais do financeiro ficam na mesma base operacional do LYVRA.</p></div><div className="flex flex-wrap gap-2">{canEdit && <ManualPatientDialog onSaved={onSaved} />}<div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9"/></div><Select value={statusFilter} onValueChange={v=>setStatusFilter(v as typeof statusFilter)}><SelectTrigger className="h-10 w-40 rounded-xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="active">Ativos</SelectItem><SelectItem value="requested">Baixa solicitada</SelectItem><SelectItem value="settled">Quitados</SelectItem><SelectItem value="all">Todos</SelectItem></SelectContent></Select></div></div>{loading?<div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin"/></div>:filtered.length?<Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-44">Baixa</TableHead></TableRow></TableHeader><TableBody>{filtered.map(patient=>{const state=patient.id?settlementStates[settlementKey(patient.id,patient.unit)]:undefined;const requested=state?.settlement_state==="requested"&&!patient.settledAt;return <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{patient.name}</p>{patient.settledAt?<Badge className="bg-[#eaf5df] text-[#54752d]">Quitado</Badge>:requested?<Badge className="bg-[#fff3d8] text-[#8a651f] hover:bg-[#fff3d8]">Baixa solicitada</Badge>:null}</div><p className="mt-1 text-xs text-[#839087]">{patient.cpf||"CPF pendente"} • {patient.treatment||"Tratamento não informado"}{requested?" • aguardando confirmação do Clinicorp":""}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod||"—"}</p><p className="mt-1 text-xs text-[#839087]">{money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled?<span className="text-[#a05a48]">Não emitir</span>:patient.invoiceFrequency||"Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr)?<Badge className="bg-[#eaf5df] text-[#54752d]"><Check/> Sim</Badge>:<Badge variant="secondary">Não</Badge>}</TableCell><TableCell>{patient.settledAt?<span className="text-xs font-medium text-[#54752d]">Confirmado</span>:canEdit?<Button variant={requested?"outline":"default"} size="sm" disabled={requestingId===patient.id||!state} onClick={()=>void requestSettlement(patient)} className={requested?"rounded-xl":"rounded-xl bg-[#183b32] hover:bg-[#214d41]"}>{requestingId===patient.id?<LoaderCircle className="animate-spin"/>:<Link2/>}{requested?"Abrir Clinicorp":"Dar baixa no Clinicorp"}</Button>:<span className="text-xs text-[#7b897f]">Em aberto</span>}</TableCell></TableRow>})}</TableBody></Table>:<div className="grid min-h-64 place-items-center text-sm text-[#7d8982]">Nenhum paciente neste filtro.</div>}</section></div>;
+  return <div className="space-y-5"><section className="surface-card overflow-hidden rounded-[24px]"><div className="flex flex-col gap-4 border-b border-[#e7ebe7] p-5 sm:flex-row sm:items-center sm:justify-between md:p-6"><div><h2 className="font-display text-xl font-semibold text-[#192820]">Pacientes</h2><p className="mt-1 text-sm text-[#718078]">Pacientes sincronizados do Clinicorp e cadastros manuais do financeiro ficam na mesma base operacional do LYVRA.</p></div><div className="flex flex-wrap gap-2">{canEdit && <ManualPatientDialog onSaved={onSaved} />}<div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]"/><Input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar paciente" className="h-10 w-52 rounded-xl pl-9"/></div><Select value={statusFilter} onValueChange={v=>setStatusFilter(v as typeof statusFilter)}><SelectTrigger className="h-10 w-40 rounded-xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="active">Ativos</SelectItem><SelectItem value="requested">Baixa solicitada</SelectItem><SelectItem value="settled">Quitados</SelectItem><SelectItem value="all">Todos</SelectItem></SelectContent></Select></div></div>{loading?<div className="grid min-h-64 place-items-center"><LoaderCircle className="animate-spin"/></div>:filtered.length?<Table><TableHeader><TableRow className="bg-[#fafbf8]"><TableHead className="pl-6">Paciente</TableHead><TableHead>Unidade</TableHead><TableHead>Pagamento</TableHead><TableHead>Periodicidade</TableHead><TableHead>Nota para IR</TableHead><TableHead className="w-44">Baixa</TableHead></TableRow></TableHeader><TableBody>{filtered.map(patient=>{const state=patient.id?settlementStates[settlementKey(patient.id,patient.unit)]:undefined;const requested=state?.settlement_state==="requested"&&!patient.settledAt;return <TableRow key={`${patient.id}-${patient.name}`}><TableCell className="py-4 pl-6"><div><div className="flex flex-wrap items-center gap-2"><p className="font-medium">{patient.name}</p>{patient.settledAt?<Badge className="bg-[#eaf5df] text-[#54752d]">Quitado</Badge>:requested?<Badge className="bg-[#fff3d8] text-[#8a651f] hover:bg-[#fff3d8]">Baixa solicitada</Badge>:null}</div><p className="mt-1 text-xs text-[#839087]">{patient.cpf||"CPF pendente"} • {patient.treatment||"Tratamento não informado"}{requested?" • aguardando confirmação do Clinicorp":""}</p></div></TableCell><TableCell>{patient.unit}</TableCell><TableCell><p>{patient.paymentMethod||"—"}</p><p className="mt-1 text-xs text-[#839087]">{patient.planAmountCents == null ? "Total do contrato a conferir" : money(patient.planAmountCents)}</p></TableCell><TableCell>{patient.invoiceDisabled?<span className="text-[#a05a48]">Não emitir</span>:patient.invoiceFrequency||"Regra automática"}</TableCell><TableCell>{Boolean(patient.taxReceiptIr)?<Badge className="bg-[#eaf5df] text-[#54752d]"><Check/> Sim</Badge>:<Badge variant="secondary">Não</Badge>}</TableCell><TableCell>{patient.settledAt?<span className="text-xs font-medium text-[#54752d]">Confirmado</span>:canEdit?<Button variant={requested?"outline":"default"} size="sm" disabled={requestingId===patient.id||!state} onClick={()=>void requestSettlement(patient)} className={requested?"rounded-xl":"rounded-xl bg-[#183b32] hover:bg-[#214d41]"}>{requestingId===patient.id?<LoaderCircle className="animate-spin"/>:<Link2/>}{requested?"Abrir Clinicorp":"Dar baixa no Clinicorp"}</Button>:<span className="text-xs text-[#7b897f]">Em aberto</span>}</TableCell></TableRow>})}</TableBody></Table>:<div className="grid min-h-64 place-items-center text-sm text-[#7d8982]">Nenhum paciente neste filtro.</div>}</section></div>;
 }
 function ImportView({ onImported }: { onImported: () => Promise<void> }) {
   const inputRef = useRef<HTMLInputElement>(null);

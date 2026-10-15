@@ -85,8 +85,8 @@ test("keeps renegotiated patients easy to find", async () => {
 test("loads only actionable collection rows and renders them in batches", async () => {
   const collections = await read("components/collections-journey-real.tsx");
 
-  assert.match(collections, /COLLECTION_PAGE_SIZE = 1_000/);
-  assert.match(collections, /rpc\("get_collection_queue_page"/);
+  assert.match(collections, /COLLECTION_PAGE_SIZE = 300/);
+  assert.match(collections, /rpc\("get_collection_queue_filtered"/);
   assert.match(collections, /p_limit: COLLECTION_PAGE_SIZE/);
   assert.match(collections, /COLLECTION_RENDER_BATCH = 200/);
   assert.match(collections, /patients\.slice\(0, visibleCount\)/);
@@ -98,7 +98,7 @@ test("separates Duda and Daiane by total overdue boletos, not only the selected 
     read("supabase/migrations/20261005172000_add_overdue_boleto_counts.sql"),
   ]);
 
-  assert.match(collections, /rpc\("get_overdue_boleto_counts"/);
+  assert.match(collections, /rpc\("get_overdue_boleto_count_map"/);
   assert.match(collections, /overdueFilter === "one" && patient\.overdueCount === 1/);
   assert.match(collections, /overdueFilter === "multiple" && patient\.overdueCount >= 2/);
   assert.match(collections, /collectionOwner: overdueCount === 1 \? "Duda" : "Daiane"/);

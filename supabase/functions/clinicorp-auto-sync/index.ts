@@ -339,7 +339,7 @@ Deno.serve(async (req) => {
         clinicorpGet("/financial/list_invoices", subscriberId, { username, token }, invoiceFrom, to, businessId ? { business_id: businessId } : {}),
       ]);
       const fetchedRows = normalizeClinicorpRows(payload) as JsonRecord[];
-      const terminalCaseClosure = await closeTerminalCollectionCasesDirect(admin, unit.id, fetchedRows);
+      const terminalCaseClosure = { matchedInstallments: 0, closedCases: 0 }; // Cases follow the version-checked canonical installment below.
       const { data: snapshotRows, error: snapshotError } = await admin.rpc(
         "refresh_clinicorp_payment_snapshot_rows",
         { p_unit_id: unit.id, p_rows: fetchedRows },

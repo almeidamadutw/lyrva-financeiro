@@ -186,7 +186,7 @@ Deno.serve(async req=>{
     const directory=emptyDirectory(),receivables=emptyReceivables(),payments=emptyPayments();
     const [receivedPayload,postedPayload]=await Promise.all([fetchPayments(subscriber,credentials,recentFrom,today),fetchPayments(subscriber,credentials,recentFrom,today,"postDate")]);
     const received=rowsOf(receivedPayload),posted=rowsOf(postedPayload),combined=dedupe([...received,...posted]);
-    const terminalCaseClosure=await closeTerminalCollectionCasesDirect(admin,Number(unit.id),combined);
+    const terminalCaseClosure={matchedInstallments:0,closedCases:0}; // Canonical installment triggers close cases after version checks.
     addDirectory(directory,await syncDirectory(admin,Number(unit.id),combined));
     addPayments(payments,await syncPayments(admin,Number(unit.id),combined));
     addReceivables(receivables,await syncReceivables(admin,Number(unit.id),posted));
