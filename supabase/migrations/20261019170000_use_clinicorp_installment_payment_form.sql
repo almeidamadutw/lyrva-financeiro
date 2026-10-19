@@ -149,10 +149,7 @@ begin
       source_state = excluded.source_state,
       refreshed_at = excluded.refreshed_at;
 end;
-$function$
-
-
-
+$function$;
 -- private.sync_installment_collection_schedule
 CREATE OR REPLACE FUNCTION private.sync_installment_collection_schedule()
  RETURNS trigger
@@ -328,10 +325,7 @@ begin
 
   return new;
 end;
-$function$
-
-
-
+$function$;
 -- public.get_clinicorp_collection_reconciliation
 CREATE OR REPLACE FUNCTION public.get_clinicorp_collection_reconciliation(p_unit_code text DEFAULT NULL::text, p_date_from date DEFAULT NULL::date, p_date_to date DEFAULT NULL::date, p_month integer DEFAULT NULL::integer, p_year integer DEFAULT NULL::integer)
  RETURNS jsonb
@@ -437,10 +431,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$function$
-
-
-
+$function$;
 -- public.get_collection_postdate_active_ids
 CREATE OR REPLACE FUNCTION public.get_collection_postdate_active_ids(p_unit_id bigint, p_post_date date)
  RETURNS TABLE(clinicorp_installment_id text)
@@ -465,10 +456,7 @@ AS $function$
     and pp.status='active'
     and substring(coalesce(s.raw->>'PostDate','') from 1 for 10)=p_post_date::text
     and i.clinicorp_installment_id is not null;
-$function$
-
-
-
+$function$;
 -- public.get_collection_postdate_reconciliation_days
 CREATE OR REPLACE FUNCTION public.get_collection_postdate_reconciliation_days(p_unit_id bigint, p_limit integer DEFAULT 12)
  RETURNS TABLE(post_date date, active_cases bigint, pending_absence bigint, max_due_date date)
@@ -541,10 +529,7 @@ begin
     (count(*) filter(where a.checked_at is null)>0) desc,
     min(a.checked_at) asc nulls first,max(a.due_date) desc,d.post_day desc;
 end;
-$function$
-
-
-
+$function$;
 -- public.get_collection_queue_filtered
 CREATE OR REPLACE FUNCTION public.get_collection_queue_filtered(p_unit_code text DEFAULT NULL::text, p_offset integer DEFAULT 0, p_limit integer DEFAULT 300, p_date_from date DEFAULT NULL::date, p_date_to date DEFAULT NULL::date, p_month integer DEFAULT NULL::integer, p_year integer DEFAULT NULL::integer)
  RETURNS TABLE(id bigint, unit_id bigint, unit_name text, unit_code text, patient_id bigint, patient_name text, phone text, installment_id bigint, installment_number integer, due_date date, open_amount numeric, eligible_at date, status text, responsible_user_id uuid, responsible_name text, next_action_at timestamp with time zone, protested_at timestamp with time zone, notes text, installment_status text, updated_at timestamp with time zone, source_verified_at timestamp with time zone)
@@ -592,10 +577,7 @@ AS $function$
   order by cc.eligible_at asc,cc.id asc
   offset greatest(coalesce(p_offset,0),0)
   limit least(greatest(coalesce(p_limit,500),1),1000);
-$function$
-
-
-
+$function$;
 -- public.get_collection_queue_page
 CREATE OR REPLACE FUNCTION public.get_collection_queue_page(p_unit_code text DEFAULT NULL::text, p_offset integer DEFAULT 0, p_limit integer DEFAULT 500)
  RETURNS TABLE(id bigint, unit_id bigint, unit_name text, unit_code text, patient_id bigint, patient_name text, phone text, installment_id bigint, installment_number integer, due_date date, open_amount numeric, eligible_at date, status text, responsible_user_id uuid, responsible_name text, next_action_at timestamp with time zone, protested_at timestamp with time zone, notes text, installment_status text)
@@ -638,10 +620,7 @@ AS $function$
   order by cc.eligible_at asc,cc.id asc
   offset greatest(coalesce(p_offset,0),0)
   limit least(greatest(coalesce(p_limit,500),1),1000);
-$function$
-
-
-
+$function$;
 -- public.get_overdue_boleto_counts
 CREATE OR REPLACE FUNCTION public.get_overdue_boleto_counts(p_unit_code text DEFAULT NULL::text)
  RETURNS TABLE(unit_id bigint, patient_id bigint, overdue_count bigint, overdue_amount numeric)
@@ -693,10 +672,7 @@ AS $function$
    and pp.archived_at is null
    and pp.status = 'active'
   group by pu.unit_id, pu.patient_id;
-$function$
-
-
-
+$function$;
 -- public.reconcile_clinicorp_postdate_day
 CREATE OR REPLACE FUNCTION public.reconcile_clinicorp_postdate_day(p_unit_id bigint, p_post_date date, p_rows jsonb)
  RETURNS TABLE(local_active_before integer, returned_rows integer, live_open_rows integer, terminal_rows integer, missing_rows integer)
@@ -862,8 +838,5 @@ begin
 
   return query select v_checked,v_returned,v_live,v_terminal,v_missing;
 end;
-$function$
-
-
-
+$function$;
 COMMIT;
