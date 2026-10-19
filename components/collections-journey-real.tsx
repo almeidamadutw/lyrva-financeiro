@@ -75,6 +75,25 @@ type InteractionRow = {
 
 type ProfileRow = { user_id: string; full_name: string };
 
+type CollectionReconciliation = {
+  available: boolean;
+  reason?: string;
+  from?: string;
+  to?: string;
+  clinicorpCount: number;
+  clinicorpAmount: number;
+  inCollectionCount: number;
+  inCollectionAmount: number;
+  waitingCount: number;
+  waitingAmount: number;
+  divergentCount: number;
+  divergentAmount: number;
+  notConfirmedCount: number;
+  notConfirmedAmount: number;
+  oldestCheckedAt: string | null;
+  lastCheckedAt: string | null;
+};
+
 type OverdueBoletoCountRow = {
   unit_id: number;
   patient_id: number;
@@ -254,6 +273,8 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [interactions, setInteractions] = useState<InteractionRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [overdueBoletoCounts, setOverdueBoletoCounts] = useState<OverdueBoletoCountRow[]>([]);
+  const [reconciliation, setReconciliation] = useState<CollectionReconciliation | null>(null);
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [internalSelectedId, setSelectedId] = useState<number | null>(null);
   const [selectedHistory, setSelectedHistory] = useState<InteractionRow[]>([]);
@@ -331,6 +352,27 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       setInteractions(interactionRows);
       setOverdueBoletoCounts((overdueResult.data ?? []) as unknown as OverdueBoletoCountRow[]);
       setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
+
+      // A contabilidade da fonte é independente dos casos liberados após D+3 úteis.
+      // Uma única RPC agregada evita transferir milhares de títulos ao navegador.
+      try {
+        const report = await (supabase as any).rpc("get_clinicorp_collection_reconciliation", {
+          p_unit_code: selectedCode === "todas" ? null : selectedCode,
+          p_date_from: from,
+          p_date_to: to,
+          p_month: monthFilter === "all" ? null : Number(monthFilter),
+          p_year: yearFilter === "all" ? null : Number(yearFilter),
+        });
+        if (!current()) return;
+        if (report.error) throw report.error;
+        const result = report.data as CollectionReconciliation | null;
+        setReconciliation(result?.available ? result : null);
+        setReconciliationError(result?.available ? null : result?.reason ?? "Conciliação indisponível.");
+      } catch (error) {
+        if (!current()) return;
+        setReconciliation(null);
+        setReconciliationError(error instanceof Error ? error.message : "Não foi possível conferir o total.");
+      }
     } catch (error) {
       if (!current()) return;
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
@@ -574,8 +616,59 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       </div>
     </section>
 
+    {reconciliation && (
+      <section className="surface-card rounded-[24px] p-5 md:p-6" aria-label="Conciliação financeira Clinicorp">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="font-display text-xl font-semibold text-[#192820]">Conciliação financeira com o Clinicorp</h3>
+            <p className="mt-1 text-sm text-[#718078]">Todos os boletos vencidos confirmados na fonte, separados dos casos que já chegaram à régua.</p>
+          </div>
+          <Badge variant="secondary" className="w-fit">Espelho sincronizado • {reconciliation.to ? dateOnly(reconciliation.to) : "período selecionado"}</Badge>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="rounded-2xl border border-[#dce9e0] bg-[#f6faf7] p-4">
+            <p className="text-xs font-medium text-[#51695a]">Total vencido • Clinicorp</p>
+            <p className="font-display mt-2 text-2xl font-semibold text-[#192820]">{brl(Number(reconciliation.clinicorpAmount))}</p>
+            <p className="mt-1 text-xs text-[#718078]">{reconciliation.clinicorpCount} boletos confirmados na última sincronização</p>
+          </article>
+          <article className="rounded-2xl border border-[#efe5cd] bg-[#fffcf4] p-4">
+            <p className="text-xs font-medium text-[#776334]">Aguardando 3 dias úteis</p>
+            <p className="font-display mt-2 text-2xl font-semibold text-[#192820]">{brl(Number(reconciliation.waitingAmount))}</p>
+            <p className="mt-1 text-xs text-[#718078]">{reconciliation.waitingCount} boletos vencidos ainda fora da régua</p>
+          </article>
+          <article className="rounded-2xl border border-[#dce9e0] bg-white p-4">
+            <p className="text-xs font-medium text-[#51695a]">Liberados para a régua</p>
+            <p className="font-display mt-2 text-2xl font-semibold text-[#192820]">{brl(Number(reconciliation.inCollectionAmount))}</p>
+            <p className="mt-1 text-xs text-[#718078]">{reconciliation.inCollectionCount} boletos já elegíveis para cobrança</p>
+          </article>
+          <article className="rounded-2xl border border-[#e7e8e4] bg-white p-4">
+            <p className="text-xs font-medium text-[#51695a]">Divergências da integração</p>
+            <p className={`font-display mt-2 text-2xl font-semibold ${reconciliation.divergentCount ? "text-[#ac493d]" : "text-[#00884a]"}`}>{brl(Number(reconciliation.divergentAmount))}</p>
+            <p className="mt-1 text-xs text-[#718078]">{reconciliation.divergentCount} títulos confirmados sem correspondência válida na régua</p>
+          </article>
+        </div>
+        {reconciliation.divergentCount > 0 && (
+          <p className="mt-3 rounded-xl border border-[#f2d1ca] bg-[#fff7f5] p-3 text-sm text-[#913d32]" role="alert">
+            Atenção: {reconciliation.divergentCount} boletos confirmados no Clinicorp não estão conciliados no LYRVA. Não utilize o total da régua como total financeiro.
+          </p>
+        )}
+        {reconciliation.notConfirmedCount > 0 && (
+          <p className="mt-3 rounded-xl border border-[#eee5d1] bg-[#fffcf4] p-3 text-xs text-[#79643c]">
+            {reconciliation.notConfirmedCount} registro(s) antigos, totalizando {brl(Number(reconciliation.notConfirmedAmount))}, não foram confirmados na consulta à fonte. Eles não são somados como dívida ativa.
+          </p>
+        )}
+        <p className="mt-3 text-xs text-[#87928c]">
+          Origem: espelho do Clinicorp. {reconciliation.lastCheckedAt ? `Última confirmação: ${dateTime(reconciliation.lastCheckedAt)}.` : "Ainda sem confirmação de atualização."}
+          {" "}Não é uma consulta em tempo real. {reconciliation.oldestCheckedAt && Date.now() - new Date(reconciliation.oldestCheckedAt).getTime() > 30 * 60_000 ? "Parte dos títulos precisa de nova verificação para confirmar o saldo atual." : "A régua mantém o prazo de três dias úteis."}
+        </p>
+      </section>
+    )}
+    {!reconciliation && reconciliationError && (
+      <p className="text-sm text-[#95652b]" role="status">Conciliação indisponível: {reconciliationError}. A régua continua funcionando, mas não representa o total financeiro do Clinicorp.</p>
+    )}
+
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <CollectionMetric icon={WalletCards} label={unverifiedCount ? "Total conferido no período" : "Pendente para negociar"} value={brl(pendingSummary.amount)} detail={unverifiedCount ? `${pendingSummary.count-unverifiedCount} de ${pendingSummary.count} títulos conferidos • total parcial` : `${pendingSummary.count} boleto(s) em aberto • mesmos filtros da régua`} tone="bg-[#e4f8ee] text-[#00884a]" />
+      <CollectionMetric icon={WalletCards} label={unverifiedCount ? "Total conferido na régua" : "Pendente para negociar • régua"} value={brl(pendingSummary.amount)} detail={unverifiedCount ? `${pendingSummary.count-unverifiedCount} de ${pendingSummary.count} títulos conferidos • total parcial` : `${pendingSummary.count} boleto(s) em aberto • mesmos filtros da régua`} tone="bg-[#e4f8ee] text-[#00884a]" />
       <CollectionMetric icon={PhoneCall} label="Ligações para fazer" value={String(today.filter((patient) => patient.stage === "call").length)} detail="Casos que já chegaram no prazo" tone="bg-[#fff1d8] text-[#946614]" />
       <CollectionMetric icon={CalendarClock} label="Promessas para conferir" value={String(promisesToCheck.length)} detail="Clique para abrir os pagamentos combinados que já precisam ser conferidos" tone="bg-[#e6f6ed] text-[#137044]" onClick={() => setCollectionTab("promises")} active={collectionTab === "promises"} />
       <CollectionMetric icon={MessageSquareText} label="Em negociação" value={String(negotiating.length)} detail="Histórico e próximo retorno salvos" tone="bg-[#e9f2f3] text-[#397174]" />
