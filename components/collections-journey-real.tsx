@@ -88,6 +88,9 @@ type CollectionReconciliation = {
   waitingAmount: number;
   divergentCount: number;
   divergentAmount: number;
+  handledAgreementCount: number;
+  handledAgreementAmount: number;
+  unfinishedHistoricDays: number;
   notConfirmedCount: number;
   notConfirmedAmount: number;
   oldestCheckedAt: string | null;
@@ -621,15 +624,15 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="font-display text-xl font-semibold text-[#192820]">Conciliação financeira com o Clinicorp</h3>
-            <p className="mt-1 text-sm text-[#718078]">Todos os boletos vencidos confirmados na fonte, separados dos casos que já chegaram à régua.</p>
+            <p className="mt-1 text-sm text-[#718078]">Boletos vencidos identificados no espelho do Clinicorp, separados da fila operacional de cobrança. Não substitui o relatório oficial enquanto houver sincronização histórica pendente.</p>
           </div>
           <Badge variant="secondary" className="w-fit">Espelho sincronizado • {reconciliation.to ? dateOnly(reconciliation.to) : "período selecionado"}</Badge>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-2xl border border-[#dce9e0] bg-[#f6faf7] p-4">
-            <p className="text-xs font-medium text-[#51695a]">Total vencido • Clinicorp</p>
+            <p className="text-xs font-medium text-[#51695a]">Boletos confirmados no espelho {reconciliation.unfinishedHistoricDays > 0 ? "• parcial" : ""}</p>
             <p className="font-display mt-2 text-2xl font-semibold text-[#192820]">{brl(Number(reconciliation.clinicorpAmount))}</p>
-            <p className="mt-1 text-xs text-[#718078]">{reconciliation.clinicorpCount} boletos confirmados na última sincronização</p>
+            <p className="mt-1 text-xs text-[#718078]">{reconciliation.clinicorpCount} boletos identificados; somente modalidade boleto</p>
           </article>
           <article className="rounded-2xl border border-[#efe5cd] bg-[#fffcf4] p-4">
             <p className="text-xs font-medium text-[#776334]">Aguardando 3 dias úteis</p>
@@ -647,6 +650,18 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
             <p className="mt-1 text-xs text-[#718078]">{reconciliation.divergentCount} títulos confirmados sem correspondência válida na régua</p>
           </article>
         </div>
+        {reconciliation.unfinishedHistoricDays > 0 && (
+          <p className="mt-3 rounded-xl border border-[#ecd4ad] bg-[#fffaf0] p-3 text-sm leading-6 text-[#7b5523]" role="status">
+            <strong>Conciliação histórica incompleta:</strong> {reconciliation.unfinishedHistoricDays} dia(s) de lançamento no histórico da unidade ainda aguardam processamento ou nova tentativa.
+            O valor apresentado é parcial e pode mudar. Não compare com o total do relatório Clinicorp antes de concluir a sincronização e aplicar os mesmos filtros.
+          </p>
+        )}
+        {reconciliation.handledAgreementCount > 0 && (
+          <p className="mt-3 rounded-xl border border-[#dbe7e1] bg-[#f6faf8] p-3 text-sm leading-6 text-[#53665a]">
+            <strong>Já tratados na régua:</strong> {reconciliation.handledAgreementCount} boleto(s), {brl(Number(reconciliation.handledAgreementAmount))}, encerrado(s) com acordo registrado.
+            Ainda constam abertos no espelho da origem, mas não são falhas técnicas de importação. Conferir o acordo antes de qualquer nova cobrança.
+          </p>
+        )}
         {reconciliation.divergentCount > 0 && (
           <p className="mt-3 rounded-xl border border-[#f2d1ca] bg-[#fff7f5] p-3 text-sm text-[#913d32]" role="alert">
             Atenção: {reconciliation.divergentCount} boletos confirmados no Clinicorp não estão conciliados no LYRVA. Não utilize o total da régua como total financeiro.
@@ -654,11 +669,11 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         )}
         {reconciliation.notConfirmedCount > 0 && (
           <p className="mt-3 rounded-xl border border-[#eee5d1] bg-[#fffcf4] p-3 text-xs text-[#79643c]">
-            {reconciliation.notConfirmedCount} registro(s) antigos, totalizando {brl(Number(reconciliation.notConfirmedAmount))}, não foram confirmados na consulta à fonte. Eles não são somados como dívida ativa.
+            {reconciliation.notConfirmedCount} registro(s) antigos, totalizando {brl(Number(reconciliation.notConfirmedAmount))}, não foram reencontrados na consulta à fonte. Não são somados como dívida ativa sem nova confirmação.
           </p>
         )}
         <p className="mt-3 text-xs text-[#87928c]">
-          Origem: espelho do Clinicorp. {reconciliation.lastCheckedAt ? `Última confirmação: ${dateTime(reconciliation.lastCheckedAt)}.` : "Ainda sem confirmação de atualização."}
+          Para comparar com este painel, no Clinicorp selecione Forma de pagamento: Boleto (não Todas), vencimento no mesmo período e cobranças vencidas. Origem: espelho do Clinicorp. {reconciliation.lastCheckedAt ? `Última confirmação: ${dateTime(reconciliation.lastCheckedAt)}.` : "Ainda sem confirmação de atualização."}
           {" "}Não é uma consulta em tempo real. {reconciliation.oldestCheckedAt && Date.now() - new Date(reconciliation.oldestCheckedAt).getTime() > 30 * 60_000 ? "Parte dos títulos precisa de nova verificação para confirmar o saldo atual." : "A régua mantém o prazo de três dias úteis."}
         </p>
       </section>
