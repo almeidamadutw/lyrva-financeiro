@@ -91,6 +91,8 @@ type CollectionReconciliation = {
   handledAgreementCount: number;
   handledAgreementAmount: number;
   unfinishedHistoricDays: number;
+  externalStatusExcludedCount: number;
+  externalStatusExcludedAmount: number;
   notConfirmedCount: number;
   notConfirmedAmount: number;
   oldestCheckedAt: string | null;
@@ -623,7 +625,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       <section className="surface-card rounded-[24px] p-5 md:p-6" aria-label="Conciliação financeira Clinicorp">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="font-display text-xl font-semibold text-[#192820]">Conciliação financeira com o Clinicorp</h3>
+            <h3 className="font-display text-xl font-semibold text-[#192820]">Conciliação financeira com o Clinicorp {unit === "todas" ? "· Consolidado" : unit === "salto" ? "· Salto de Pirapora" : "· Sorocaba"}</h3>
             <p className="mt-1 text-sm text-[#718078]">Boletos vencidos identificados no espelho do Clinicorp, separados da fila operacional de cobrança. Não substitui o relatório oficial enquanto houver sincronização histórica pendente.</p>
           </div>
           <Badge variant="secondary" className="w-fit">Espelho sincronizado • {reconciliation.to ? dateOnly(reconciliation.to) : "período selecionado"}</Badge>
@@ -654,6 +656,14 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
           <p className="mt-3 rounded-xl border border-[#ecd4ad] bg-[#fffaf0] p-3 text-sm leading-6 text-[#7b5523]" role="status">
             <strong>Conciliação histórica incompleta:</strong> {reconciliation.unfinishedHistoricDays} dia(s) de lançamento no histórico da unidade ainda aguardam processamento ou nova tentativa.
             O valor apresentado é parcial e pode mudar. Não compare com o total do relatório Clinicorp antes de concluir a sincronização e aplicar os mesmos filtros.
+          </p>
+        )}
+        {reconciliation.externalStatusExcludedCount > 0 && (
+          <p className="mt-3 rounded-xl border border-[#f2d1ca] bg-[#fff7f5] p-3 text-sm leading-6 text-[#913d32]" role="alert">
+            <strong>Conflito de status do Clinicorp:</strong> {reconciliation.externalStatusExcludedCount} boleto(s), totalizando {brl(Number(reconciliation.externalStatusExcludedAmount))},
+            têm `ExternalStatus=CANCELED` na API, mas não possuem os indicadores de cancelamento da parcela.
+            Eles foram excluídos do total confirmado e precisam ser conferidos com o relatório financeiro do Clinicorp.
+            Não reabra nem cobre esses títulos antes da validação.
           </p>
         )}
         {reconciliation.handledAgreementCount > 0 && (
