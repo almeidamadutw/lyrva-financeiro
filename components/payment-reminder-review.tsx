@@ -41,6 +41,18 @@ type WhatsAppReadiness = {
   canTest: boolean;
 };
 
+type ReminderPreflight = {
+  available: boolean;
+  reason?: string;
+  totalTasks: number;
+  eligiblePreview: number;
+  missingPhone: number;
+  sourceUnverified: number;
+  excluded: number;
+  wrongDay: number;
+  alreadyApproved: number;
+};
+
 const MANUAL_REMINDER_EXCEPTION_REASON = "Exceção definida ao desmarcar na lista de lembrete";
 
 const money = (value: number) =>
@@ -71,6 +83,7 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
   const [approving, setApproving] = useState(false);
   const [readiness, setReadiness] = useState<WhatsAppReadiness[]>([]);
   const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<ReminderPreflight | null>(null);
 
   const load = useCallback(
     async (silent = false) => {
@@ -225,6 +238,18 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
       });
     return () => { active = false; };
   }, [unit]);
+
+  useEffect(() => {
+    let active = true;
+    const code = unit === "salto" ? "salto_de_pirapora" : unit === "todas" ? null : unit;
+    void (getSupabaseBrowserClient() as any).rpc("get_boleto_reminder_preflight", {
+      p_day: date, p_unit_code: code,
+    }).then(({ data, error }: { data: ReminderPreflight | null; error: { message: string } | null }) => {
+      if (!active) return;
+      setPreflight(error ? null : data);
+    }).catch(() => { if (active) setPreflight(null); });
+    return () => { active = false; };
+  }, [date, unit, rows.length]);
 
   const selected = rows.filter((row) => row.taskStatus === "pending" && row.selected);
   const approvedCount = rows.filter((row) => row.taskStatus === "in_progress").length;
@@ -413,6 +438,24 @@ Se você já realizou o pagamento, pode desconsiderar este lembrete. Caso tenha 
 Casal Odonto 💚`}
         </div>
         <p className="mt-3 text-xs text-[#718078]">Esta é somente uma simulação. O texto real precisa corresponder exatamente ao modelo aprovado pela Meta e será validado antes do primeiro teste.</p>
+      </section>
+
+      <section className="surface-card rounded-[24px] p-5 md:p-6">
+        <h3 className="font-display text-lg font-semibold text-[#192820]">Pré-conferência automática</h3>
+        <p className="mt-1 text-sm leading-6 text-[#718078]">
+          Antes dos testes, o banco verifica se o vencimento é realmente amanhã, se o boleto está aberto e confirmado no Clinicorp, se existe telefone e se não há exclusão de lembretes.
+        </p>
+        {preflight?.available ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-[#edf8f1] p-4"><p className="text-xs text-[#477257]">Aptos tecnicamente para prévia</p><p className="mt-1 text-2xl font-semibold text-[#1d4930]">{preflight.eligiblePreview}</p></div>
+            <div className="rounded-2xl bg-[#faf5e9] p-4"><p className="text-xs text-[#806637]">Sem telefone válido</p><p className="mt-1 text-2xl font-semibold text-[#806637]">{preflight.missingPhone}</p></div>
+            <div className="rounded-2xl bg-[#faf5e9] p-4"><p className="text-xs text-[#806637]">Sem confirmação recente da fonte</p><p className="mt-1 text-2xl font-semibold text-[#806637]">{preflight.sourceUnverified}</p></div>
+            <div className="rounded-2xl bg-[#f5f6f3] p-4"><p className="text-xs text-[#69796e]">Bloqueados por exceção ou quitação</p><p className="mt-1 text-2xl font-semibold text-[#53665a]">{preflight.excluded}</p></div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-[#88734f]">{preflight?.reason ?? "Aguardando conferência do banco..."}</p>
+        )}
+        <p className="mt-3 text-xs text-[#718078]">Ser apto nesta prévia não autoriza o disparo: o consentimento para WhatsApp, a integração e a aprovação do modelo ainda precisam ser confirmados.</p>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
