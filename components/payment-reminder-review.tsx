@@ -30,6 +30,29 @@ type ReminderException = {
   reminder_opt_out_reason: string | null;
 };
 
+type WhatsAppReadiness = {
+  code: string;
+  name: string;
+  connectionStatus: string;
+  phoneConfigured: boolean;
+  wabaConfigured: boolean;
+  templateName: string;
+  templateApproved: boolean;
+  canTest: boolean;
+};
+
+type ReminderPreflight = {
+  available: boolean;
+  reason?: string;
+  totalTasks: number;
+  eligiblePreview: number;
+  missingPhone: number;
+  sourceUnverified: number;
+  excluded: number;
+  wrongDay: number;
+  alreadyApproved: number;
+};
+
 const MANUAL_REMINDER_EXCEPTION_REASON = "Exceção definida ao desmarcar na lista de lembrete";
 
 const money = (value: number) =>
@@ -58,6 +81,9 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
   const [exceptions, setExceptions] = useState<ReminderException[]>([]);
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(false);
+  const [readiness, setReadiness] = useState<WhatsAppReadiness[]>([]);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<ReminderPreflight | null>(null);
 
   const load = useCallback(
     async (silent = false) => {
@@ -192,12 +218,59 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
     };
   }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    const code = unit === "salto" ? "salto_de_pirapora" : unit === "todas" ? null : unit;
+    void (getSupabaseBrowserClient() as any)
+      .rpc("get_whatsapp_reminder_readiness", { p_unit_code: code })
+      .then(({ data, error }: { data: WhatsAppReadiness[] | null; error: { message: string } | null }) => {
+        if (!active) return;
+        if (error) {
+          setReadiness([]);
+          setReadinessError("Não foi possível verificar as conexões de WhatsApp.");
+        } else {
+          setReadiness(data ?? []);
+          setReadinessError(null);
+        }
+      })
+      .catch(() => {
+        if (active) setReadinessError("Falha ao verificar as conexões de WhatsApp.");
+      });
+    return () => { active = false; };
+  }, [unit]);
+
+  useEffect(() => {
+    let active = true;
+    const code = unit === "salto" ? "salto_de_pirapora" : unit === "todas" ? null : unit;
+    void (getSupabaseBrowserClient() as any).rpc("get_boleto_reminder_preflight", {
+      p_day: date, p_unit_code: code,
+    }).then(({ data, error }: { data: ReminderPreflight | null; error: { message: string } | null }) => {
+      if (!active) return;
+      setPreflight(error ? null : data);
+    }).catch(() => { if (active) setPreflight(null); });
+    return () => { active = false; };
+  }, [date, unit, rows.length]);
+
   const selected = rows.filter((row) => row.taskStatus === "pending" && row.selected);
   const approvedCount = rows.filter((row) => row.taskStatus === "in_progress").length;
   const total = useMemo(() => selected.reduce((sum, row) => sum + row.amount, 0), [selected]);
+  const sample = selected[0] ?? rows[0] ?? null;
+  const sampleName = sample?.patientName?.trim().split(/\s+/)[0] || "Paciente";
+  const sampleUnit = sample?.unitName ?? "sua unidade";
+  const sampleDue = sample?.dueDate ? dateLabel(sample.dueDate) : "DD/MM/AAAA";
+  // Nenhum paciente deve receber mensagem antes de validar os dois números,
+  // o modelo aprovado pela Meta, a autorização dos destinatários e o fluxo seguro do servidor.
+  const sendingLocked = true;
 
   const toggle = async (row: ReminderRow, checked: boolean) => {
     if (row.taskStatus !== "pending") return;
+    if (sendingLocked) {
+      // Na simulação, marcar/desmarcar não modifica exceções ou registros reais.
+      setRows((current) => current.map((item) => (
+        item.taskId === row.taskId ? { ...item, selected: checked } : item
+      )));
+      return;
+    }
 
     if (checked) {
       setRows((current) => current.map((item) => (item.taskId === row.taskId ? { ...item, selected: true } : item)));
@@ -308,10 +381,10 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
               <BellRing className="size-5" />
             </div>
             <div>
-              <p className="eyebrow">APROVAÇÃO OBRIGATÓRIA</p>
+              <p className="eyebrow">ETAPA 1 · SIMULAÇÃO SEM ENVIO</p>
               <h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Lembretes de boleto</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">
-                Confira a lista antes do envio. Ao desmarcar alguém, esse paciente vira exceção permanente até você liberar novamente. Depois de aprovado, o lembrete fica travado aguardando o WhatsApp e não pode ser aprovado duas vezes.
+                Prepare e confira a lista D-1 sem disparar mensagens. A ativação do envio só acontecerá depois da conexão oficial dos dois números, do modelo aprovado e da validação da autorização dos pacientes. Nesta simulação, marcar e desmarcar não modifica os cadastros.
               </p>
             </div>
           </div>
@@ -322,6 +395,74 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
             </Button>
           </div>
         </div>
+      </section>
+
+      <section className="surface-card rounded-[24px] p-5 md:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-display text-lg font-semibold text-[#192820]">Situação da API do WhatsApp</h3>
+            <p className="mt-1 text-sm text-[#718078]">O selo de liberação da Meta não conecta automaticamente o número ao LYRVA.</p>
+          </div>
+          <span className="rounded-full bg-[#fff4df] px-3 py-1 text-xs font-semibold text-[#946614]">Simulação · nenhum envio</span>
+        </div>
+        {readinessError && <p role="status" className="mt-3 text-sm text-[#a05a48]">{readinessError}</p>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {readiness.map((item) => (
+            <article key={item.code} className="rounded-2xl border border-[#e1e7e1] bg-[#fafbf9] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold text-[#243b2e]">{item.name}</p>
+                <span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.canTest ? "bg-[#e7f7ee] text-[#26734f]" : "bg-[#fff1d8] text-[#946614]"}`}>
+                  {item.canTest ? "Conexão pronta para teste" : "Aguardando conexão"}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-[#718078]">
+                Número na Cloud API: {item.phoneConfigured ? "configurado" : "pendente"} · WABA: {item.wabaConfigured ? "configurado" : "pendente"}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#718078]">
+                Modelo {item.templateName}: {item.templateApproved ? "aprovado" : "ainda não confirmado"}
+              </p>
+            </article>
+          ))}
+          {!readiness.length && !readinessError && <p className="text-sm text-[#718078]">Verificando unidades disponíveis...</p>}
+        </div>
+        <p className="mt-3 text-xs leading-5 text-[#718078]">
+          Para enviar pela API são necessários um modelo de mensagem aprovado e a autorização dos destinatários. Nenhum boleto ou link de pagamento será enviado.
+        </p>
+      </section>
+
+      <section className="surface-card rounded-[24px] p-5 md:p-6">
+        <p className="eyebrow">PRÉVIA DO TEXTO · MODELO A SER APROVADO</p>
+        <h3 className="font-display mt-2 text-lg font-semibold text-[#192820]">Lembrete de vencimento D-1</h3>
+        <div className="mt-3 max-w-2xl whitespace-pre-line rounded-2xl border border-[#d8e8dc] bg-[#f2f9f4] p-4 text-sm leading-7 text-[#2c4636]">
+          {`Olá, ${sampleName}! 💚
+
+Aqui é a equipe financeira da Casal Odonto, unidade ${sampleUnit}.
+
+Passamos para lembrar que o vencimento da sua parcela está previsto para amanhã, ${sampleDue}.
+
+Se você já realizou o pagamento, pode desconsiderar este lembrete. Caso tenha alguma dúvida, nossa equipe está à disposição por aqui.
+
+Casal Odonto 💚`}
+        </div>
+        <p className="mt-3 text-xs text-[#718078]">Esta é somente uma simulação. O texto real precisa corresponder exatamente ao modelo aprovado pela Meta e será validado antes do primeiro teste.</p>
+      </section>
+
+      <section className="surface-card rounded-[24px] p-5 md:p-6">
+        <h3 className="font-display text-lg font-semibold text-[#192820]">Pré-conferência automática</h3>
+        <p className="mt-1 text-sm leading-6 text-[#718078]">
+          Antes dos testes, o banco verifica se o vencimento é realmente amanhã, se o boleto está aberto e confirmado no Clinicorp, se existe telefone e se não há exclusão de lembretes.
+        </p>
+        {preflight?.available ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-[#edf8f1] p-4"><p className="text-xs text-[#477257]">Aptos tecnicamente para prévia</p><p className="mt-1 text-2xl font-semibold text-[#1d4930]">{preflight.eligiblePreview}</p></div>
+            <div className="rounded-2xl bg-[#faf5e9] p-4"><p className="text-xs text-[#806637]">Sem telefone válido</p><p className="mt-1 text-2xl font-semibold text-[#806637]">{preflight.missingPhone}</p></div>
+            <div className="rounded-2xl bg-[#faf5e9] p-4"><p className="text-xs text-[#806637]">Sem confirmação recente da fonte</p><p className="mt-1 text-2xl font-semibold text-[#806637]">{preflight.sourceUnverified}</p></div>
+            <div className="rounded-2xl bg-[#f5f6f3] p-4"><p className="text-xs text-[#69796e]">Bloqueados por exceção ou quitação</p><p className="mt-1 text-2xl font-semibold text-[#53665a]">{preflight.excluded}</p></div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-[#88734f]">{preflight?.reason ?? "Aguardando conferência do banco..."}</p>
+        )}
+        <p className="mt-3 text-xs text-[#718078]">Ser apto nesta prévia não autoriza o disparo: o consentimento para WhatsApp, a integração e a aprovação do modelo ainda precisam ser confirmados.</p>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -336,17 +477,17 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
           <div>
             <h3 className="font-display text-lg font-semibold text-[#192820]">Quem receberá hoje</h3>
             <p className="mt-1 text-sm text-[#718078]">
-              Sem telefone não entra selecionado. Exceções permanentes não aparecem aqui. Itens já aprovados ficam somente para acompanhamento.
+              Simulação de quem poderá receber. Sem telefone não entra selecionado. Exceções permanentes não aparecem. Marcar ou desmarcar não grava nenhuma mudança. O envio está bloqueado até os testes.
             </p>
           </div>
-          <Button onClick={() => void approve()} disabled={approving || !selected.length} className="rounded-xl">
+          <Button onClick={() => void approve()} disabled={sendingLocked || approving || !selected.length} className="rounded-xl">
             {approving ? (
               <>
                 <LoaderCircle className="animate-spin" /> Aprovando…
               </>
             ) : (
               <>
-                <CheckCircle2 /> Aprovar {selected.length} envio(s)
+                <CheckCircle2 /> Envio bloqueado · fase de testes
               </>
             )}
           </Button>
@@ -396,7 +537,7 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
                         </span>
                       ) : (
                         <span className="inline-flex rounded-full bg-[#f4f5f2] px-2.5 py-1 text-xs font-semibold text-[#66736b]">
-                          Aguardando aprovação
+                          Aguardando liberação da API
                         </span>
                       )}
                     </TableCell>
@@ -416,7 +557,7 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
             <ShieldOff className="size-5 text-[#a05a48]" />
             <div>
               <h3 className="font-display text-lg font-semibold text-[#192820]">Exceções permanentes</h3>
-              <p className="mt-1 text-sm text-[#718078]">Quem você desmarcar fica fora das listas futuras.</p>
+              <p className="mt-1 text-sm text-[#718078]">Exceções existentes continuam preservadas. Na simulação, desmarcar alguém não cria novas exceções.</p>
             </div>
           </div>
         </div>
