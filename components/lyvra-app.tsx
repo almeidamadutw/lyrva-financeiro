@@ -92,6 +92,7 @@ import { ClinicorpSyncStatus } from "@/components/clinicorp-sync-status";
 import { FinancialNotifications } from "@/components/financial-notifications";
 import { DueTaskAlert } from "@/components/due-task-alert";
 import { PaymentReminderReview } from "@/components/payment-reminder-review";
+import { WhatsAppEmbeddedSignup } from "@/components/whatsapp-embedded-signup";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type View = "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
@@ -1311,6 +1312,8 @@ function IntegrationsView() {
 
   return <div className="space-y-5">
     <section className="rounded-[24px] border border-[#dfe5df] bg-white p-6"><p className="eyebrow">COMO USAR</p><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Clinicorp por unidade</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">Use “Sincronizar Clinicorp” para atualizar pagamentos e notas fiscais. Todas as linhas são preservadas; itens ainda não confirmados permanecem aguardando atualização.</p></section>
+
+    <WhatsAppEmbeddedSignup />
 
     <section className="grid gap-4 xl:grid-cols-2">
       {clinicorpUnits.map((item) => {
