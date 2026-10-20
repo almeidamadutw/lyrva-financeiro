@@ -198,12 +198,12 @@ export function WhatsAppEmbeddedSignup() {
             <article key={unit.code} className="rounded-2xl border border-[#dde8e0] bg-[#fafbf9] p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold text-[#223c2b]">{unit.label}</h3>
-                <span className={\`rounded-full px-2.5 py-1 text-xs font-medium \${registered ? "bg-[#e4f5e9] text-[#24663b]" : "bg-[#fff1d8] text-[#91631a]"}\`}>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${registered ? "bg-[#e4f5e9] text-[#24663b]" : "bg-[#fff1d8] text-[#91631a]"}`}>
                   {registered ? "Vinculado · testes pendentes" : "Aguardando conexão"}
                 </span>
               </div>
               <p className="mt-3 text-xs leading-5 text-[#64766a]">
-                {registered ? \`Número: \${info?.phoneDisplay || "verificado na Meta"}\` : "Nenhum número foi associado a esta unidade."}
+                {registered ? `Número: ${info?.phoneDisplay || "verificado na Meta"}` : "Nenhum número foi associado a esta unidade."}
               </p>
               {!info?.ready && (
                 <p className="mt-2 text-xs leading-5 text-[#91631a]">
