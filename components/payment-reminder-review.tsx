@@ -264,6 +264,13 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
 
   const toggle = async (row: ReminderRow, checked: boolean) => {
     if (row.taskStatus !== "pending") return;
+    if (sendingLocked) {
+      // Na simulação, marcar/desmarcar não modifica exceções ou registros reais.
+      setRows((current) => current.map((item) => (
+        item.taskId === row.taskId ? { ...item, selected: checked } : item
+      )));
+      return;
+    }
 
     if (checked) {
       setRows((current) => current.map((item) => (item.taskId === row.taskId ? { ...item, selected: true } : item)));
@@ -377,7 +384,7 @@ export function PaymentReminderReview({ unit }: { unit: string }) {
               <p className="eyebrow">ETAPA 1 · SIMULAÇÃO SEM ENVIO</p>
               <h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">Lembretes de boleto</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">
-                Prepare e confira a lista D-1 sem disparar mensagens. A ativação do envio só acontecerá depois da conexão oficial dos dois números, do modelo aprovado e da validação da autorização dos pacientes. Ao desmarcar alguém, a exceção continua permanente até ser removida.
+                Prepare e confira a lista D-1 sem disparar mensagens. A ativação do envio só acontecerá depois da conexão oficial dos dois números, do modelo aprovado e da validação da autorização dos pacientes. Nesta simulação, marcar e desmarcar não modifica os cadastros.
               </p>
             </div>
           </div>
@@ -470,7 +477,7 @@ Casal Odonto 💚`}
           <div>
             <h3 className="font-display text-lg font-semibold text-[#192820]">Quem receberá hoje</h3>
             <p className="mt-1 text-sm text-[#718078]">
-              Simulação de quem poderá receber. Sem telefone não entra selecionado. Exceções permanentes não aparecem. O envio está bloqueado até os testes e as validações finais.
+              Simulação de quem poderá receber. Sem telefone não entra selecionado. Exceções permanentes não aparecem. Marcar ou desmarcar não grava nenhuma mudança. O envio está bloqueado até os testes.
             </p>
           </div>
           <Button onClick={() => void approve()} disabled={sendingLocked || approving || !selected.length} className="rounded-xl">
@@ -550,7 +557,7 @@ Casal Odonto 💚`}
             <ShieldOff className="size-5 text-[#a05a48]" />
             <div>
               <h3 className="font-display text-lg font-semibold text-[#192820]">Exceções permanentes</h3>
-              <p className="mt-1 text-sm text-[#718078]">Quem você desmarcar fica fora das listas futuras.</p>
+              <p className="mt-1 text-sm text-[#718078]">Exceções existentes continuam preservadas. Na simulação, desmarcar alguém não cria novas exceções.</p>
             </div>
           </div>
         </div>
