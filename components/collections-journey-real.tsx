@@ -631,7 +631,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
             <h3 className="font-display text-xl font-semibold text-[#192820]">Conciliação financeira com o Clinicorp {unit === "todas" ? "· Consolidado" : unit === "salto" ? "· Salto de Pirapora" : "· Sorocaba"}</h3>
             <p className="mt-1 text-sm text-[#718078]">Boletos vencidos identificados no espelho do Clinicorp, separados da fila operacional de cobrança. Não substitui o relatório oficial enquanto houver sincronização histórica pendente.</p>
           </div>
-          <Badge variant="secondary" className="w-fit">Espelho sincronizado • {reconciliation.to ? dateOnly(reconciliation.to) : "período selecionado"}</Badge>
+          <Badge variant="secondary" className="w-fit">Vencimentos até {reconciliation.to ? dateOnly(reconciliation.to) : "período selecionado"}</Badge>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-2xl border border-[#dce9e0] bg-[#f6faf7] p-4">
