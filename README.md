@@ -67,6 +67,16 @@ Fluxo operacional atual do boleto:
 
 ## Desenvolvimento
 
+### Gráficos de cobrança
+
+A aba **Gráficos** consulta um resumo agregado por unidade e por período de 1, 3, 6 ou 12 meses. O módulo e os gráficos carregam somente ao abrir a aba. As bases de data são explícitas:
+
+- **Para renegociar:** carteira atual da régua, pelo vencimento do título, com os mesmos critérios de elegibilidade e conferência usados pela régua; não representa saldos históricos de cada mês.
+- **Dívida renegociada:** um registro por título com resultado `renegotiated`, pela data do contato. Novos registros capturam o saldo original automaticamente; registros anteriores usam o valor original do título e são identificados na tela. Não representa o valor do novo acordo nem recebimento.
+- **Quitados em atraso:** títulos de boleto com baixa e identidade confirmadas no snapshot do Clinicorp, pagos a partir de D+3 dias úteis, pela data de pagamento da parcela; cada título conta uma vez. Promessas e pagamentos apenas informados não entram.
+
+Títulos sem conferência ficam fora dos valores e geram aviso de total parcial. Os três indicadores não devem ser somados. `tests/collection-analytics.sql` confere os agregados e permissões dentro de uma transação revertida, sem modificar dados financeiros.
+
 Requisitos: Node.js 22.13 ou superior.
 
 ```bash

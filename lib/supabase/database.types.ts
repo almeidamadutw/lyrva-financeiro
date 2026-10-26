@@ -159,6 +159,7 @@ export type Database = {
           occurred_at: string
           outcome: string
           performed_by: string | null
+          renegotiated_debt_amount: number | null
           unit_id: number
           voice_transcript: string | null
         }
@@ -172,6 +173,7 @@ export type Database = {
           occurred_at?: string
           outcome: string
           performed_by?: string | null
+          renegotiated_debt_amount?: number | null
           unit_id: number
           voice_transcript?: string | null
         }
@@ -185,6 +187,7 @@ export type Database = {
           occurred_at?: string
           outcome?: string
           performed_by?: string | null
+          renegotiated_debt_amount?: number | null
           unit_id?: number
           voice_transcript?: string | null
         }
@@ -1869,6 +1872,10 @@ export type Database = {
       }
     }
     Functions: {
+      get_collection_analytics: {
+        Args: { p_unit_code?: string; p_date_from?: string; p_date_to?: string }
+        Returns: Json
+      }
       import_patients: {
         Args: { p_file_name: string; p_rows: Json; p_unit_code: string }
         Returns: {

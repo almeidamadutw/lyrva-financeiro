@@ -1,10 +1,12 @@
 "use client";
 
 import { accessAuth } from "@/lib/access-auth";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   AlertCircle,
+  ChartNoAxesCombined,
   Bell,
   Building2,
   CalendarDays,
@@ -95,7 +97,12 @@ import { PaymentReminderReview } from "@/components/payment-reminder-review";
 import { WhatsAppEmbeddedSignup } from "@/components/whatsapp-embedded-signup";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "patients" | "import" | "access" | "support" | "integrations";
+const CollectionAnalyticsView = dynamic(
+  () => import("@/components/collection-analytics").then((module) => module.CollectionAnalyticsView),
+  { loading: () => <div role="status" className="surface-card grid min-h-64 place-content-center rounded-[24px] text-sm text-[#718078]">Abrindo os gráficos…</div> },
+);
+
+type View = "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 type OperationalArea = "none" | "reminders" | "collections" | "invoices" | "management" | "support";
 
@@ -233,6 +240,7 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?:
   { id: "reminders", label: "Lembretes de boleto", icon: Bell },
   { id: "invoices", label: "Notas fiscais", icon: FileText },
   { id: "collections", label: "Régua de cobrança", icon: WalletCards },
+  { id: "analytics", label: "Gráficos", icon: ChartNoAxesCombined },
   { id: "patients", label: "Pacientes", icon: Users },
   { id: "access", label: "Gerenciar acessos", icon: UserCog },
   { id: "support", label: "Central de suporte", icon: Settings },
@@ -252,6 +260,7 @@ const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   reminders: { eyebrow: "Revise a lista antes de autorizar qualquer envio", title: "Lembretes de boleto" },
   invoices: { eyebrow: "Emita e marque como concluída somente após emitir", title: "Notas fiscais" },
   collections: { eyebrow: "Registre cada contato antes de seguir para o próximo", title: "Régua de cobrança" },
+  analytics: { eyebrow: "Acompanhe a evolução da cobrança por período", title: "Gráficos" },
   patients: { eyebrow: "Pesquise antes de cadastrar para evitar duplicidade", title: "Pacientes" },
   import: { eyebrow: "Revise paciente e unidade antes de confirmar", title: "Importar planilha" },
   access: { eyebrow: "Libere somente as telas necessárias para cada função", title: "Gerenciar acessos" },
@@ -269,7 +278,7 @@ const areaLabels: Record<OperationalArea, string> = {
 };
 
 const allowedViewsFor = (user: UserAccount) => {
-  const financialViews: View[] = ["dashboard", "journey", "reminders", "invoices", "collections", "patients"];
+  const financialViews: View[] = ["dashboard", "journey", "reminders", "invoices", "collections", "analytics", "patients"];
   const supportViews: View[] = ["support", "access", "integrations"];
   return new Set<View>(user.role === "suporte" || user.operationalArea === "support" ? supportViews : financialViews);
 };
@@ -804,6 +813,7 @@ export function LyvraApp() {
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
+            {view === "analytics" && allowedViews.has("analytics") && <CollectionAnalyticsView unit={unit} />}
             {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} canEdit={currentUser.operationalArea !== "support"} onSaved={() => loadPatients(true)} />}
             {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
             {view === "support" && allowedViews.has("support") && <SupportView goTo={setView} />}
