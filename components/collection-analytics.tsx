@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, ArrowDownToLine, CalendarDays, Handshake, LoaderCircle, RefreshCw, WalletCards } from "lucide-react";
 import {
-  Bar, BarChart, CartesianGrid, Line, LineChart,
+  Bar, BarChart, CartesianGrid, LabelList, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 
@@ -105,6 +105,9 @@ export function CollectionAnalyticsView({ unit }: { unit: string }) {
 }
 
 export function CollectionAnalyticsDashboard({ data }: { data: CollectionAnalytics }) {
+  const chartGrid = data.monthly.length > 6
+    ? "grid min-w-0 gap-5"
+    : "grid min-w-0 gap-5 2xl:grid-cols-2";
   return <div className="space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#718078]">
       <p className="flex flex-wrap items-center gap-2"><CalendarDays className="size-4" />{dateLabel(data.period.from)} a {dateLabel(data.period.to)}{data.period.to.slice(0, 7) === saoPauloMonth() ? <span className="rounded-full bg-[#edf2e8] px-2 py-1 text-[10px] text-[#65795a]">Mês atual em andamento</span> : null}</p>
@@ -129,14 +132,14 @@ export function CollectionAnalyticsDashboard({ data }: { data: CollectionAnalyti
         detail="Boletos pagos no período, a partir de D+3 dias úteis de atraso, com baixa confirmada no Clinicorp." icon={ArrowDownToLine} tone="bg-[#e9f0fc] text-[#527bc0]" />
     </section>
 
-    <section className="grid min-w-0 gap-5 xl:grid-cols-2">
+    <section className={chartGrid}>
       <MonthlyChart title="O que falta renegociar" description="Saldo que continua aberto hoje, separado pelo mês de vencimento."
         data={data.monthly} dataKey="pending" label="Em aberto" color={colors.pending} />
       <MonthlyChart title="Quanto foi renegociado" description="Dívidas dos títulos renegociados, pelo mês de conclusão do acordo."
         data={data.monthly} dataKey="renegotiated" label="Dívida renegociada" color={colors.renegotiated} />
     </section>
 
-    <section className="grid min-w-0 gap-5 xl:grid-cols-2">
+    <section className={chartGrid}>
       <MonthlyChart title="Quanto foi quitado" description="Valor de boletos quitados em atraso, pelo mês do pagamento. Promessas ficam de fora."
         data={data.monthly} dataKey="received" label="Quitado" color={colors.received} line />
       <article className="surface-card min-w-0 rounded-[24px] p-5 md:p-6">
@@ -160,8 +163,8 @@ export function CollectionAnalyticsDashboard({ data }: { data: CollectionAnalyti
         <p><strong className="text-[#53645a]">Dívida renegociada:</strong> saldo do título original quando a renegociação é concluída. Não representa o valor do novo acordo nem o dinheiro recebido.{data.renegotiated.historicalCount > 0 ? ` ${data.renegotiated.historicalCount} registro(s) antigo(s) usam o valor original do título, pois ainda não guardavam o saldo na data da renegociação.` : ""}</p>
         <p><strong className="text-[#53645a]">Quitados:</strong> valor pago de cada boleto com baixa confirmada no Clinicorp, a partir de D+3 dias úteis de atraso. Cada título entra uma vez, no mês do pagamento registrado na baixa. Não atribui o resultado a uma pessoa. Os três indicadores não devem ser somados.</p>
       </div>
-      <details className="mt-5 border-t border-[#e7ebe7] pt-4">
-        <summary className="cursor-pointer text-sm font-medium text-[#39704a]">Ver os valores por mês</summary>
+      <details open className="mt-5 border-t border-[#e7ebe7] pt-4">
+        <summary className="cursor-pointer text-sm font-medium text-[#39704a]">Valores por mês</summary>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-xs">
             <caption className="sr-only">Valores e quantidades por mês, com a mesma base dos gráficos.</caption>
@@ -196,19 +199,26 @@ function MonthlyChart({ title, description, data, dataKey, label, color, line = 
   dataKey: "pending" | "renegotiated" | "received"; label: string; color: string; line?: boolean;
 }) {
   const hasValues = data.some((row) => row[dataKey] > 0);
+  const minimumWidth = Math.max(320, data.length * 80 + 110);
+  const valueLabels = <LabelList dataKey={dataKey} position="top" offset={10}
+    formatter={(value) => currency(Number(value))} fill="#26372e" fontSize={11} fontWeight={600} />;
   const axes = <>
     <CartesianGrid stroke="#e9eee7" vertical={false} />
     <XAxis dataKey="month" tickFormatter={analyticsMonthLabel} tick={{ fontSize: 11, fill: "#849087" }} axisLine={false} tickLine={false} minTickGap={18} dy={8} />
-    <YAxis tickFormatter={compactCurrency} tick={{ fontSize: 10, fill: "#849087" }} axisLine={false} tickLine={false} width={65} />
+    <YAxis tickFormatter={compactCurrency} tick={{ fontSize: 10, fill: "#849087" }} axisLine={false} tickLine={false} width={65} domain={[0, "auto"]} />
     <Tooltip formatter={(value) => currency(Number(value))} labelFormatter={(value) => analyticsMonthLabel(String(value))} contentStyle={tooltipStyle} cursor={line ? undefined : { fill: "#f5f7f1" }} />
   </>;
   return <figure className="surface-card min-w-0 rounded-[24px] p-5 md:p-6" aria-label={title}>
     <figcaption><h3 className="font-display text-lg font-semibold text-[#192820]">{title}</h3><p className="mt-1 min-h-12 text-sm leading-6 text-[#718078]">{description}</p></figcaption>
-    {hasValues ? <div className="mt-5 h-64 min-w-0 w-full">
-      <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 520, height: 256 }}>
-        {line ? <LineChart accessibilityLayer data={data} margin={{ top: 8, right: 10, bottom: 8, left: 0 }}>{axes}<Line dataKey={dataKey} name={label} type="linear" stroke={color} strokeWidth={3} dot={{ r: 4, fill: color }} isAnimationActive={false} /></LineChart>
-          : <BarChart accessibilityLayer data={data} margin={{ top: 8, right: 10, bottom: 8, left: 0 }}>{axes}<Bar dataKey={dataKey} name={label} fill={color} radius={[6, 6, 0, 0]} maxBarSize={46} isAnimationActive={false} /></BarChart>}
-      </ResponsiveContainer>
-    </div> : <div className="mt-5 grid h-64 place-content-center rounded-2xl bg-[#fafbf8] px-6 text-center text-sm leading-6 text-[#87928c]">{dataKey === "pending" ? "Sem valores conferidos neste período." : "Nenhum valor registrado neste período."}</div>}
+    <div className="mt-5 overflow-x-auto rounded-xl pb-2" tabIndex={0} role="region" aria-label={`Gráfico de ${label}, com valores sempre visíveis`}>
+      <div className="h-72 w-full" style={{ minWidth: minimumWidth }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: minimumWidth, height: 288 }}>
+          {line ? <LineChart accessibilityLayer data={data} margin={{ top: 36, right: 44, bottom: 8, left: 8 }}>{axes}<Line dataKey={dataKey} name={label} type="linear" stroke={color} strokeWidth={3} dot={{ r: 4, fill: color }} isAnimationActive={false}>{valueLabels}</Line></LineChart>
+            : <BarChart accessibilityLayer data={data} margin={{ top: 36, right: 44, bottom: 8, left: 8 }}>{axes}<Bar dataKey={dataKey} name={label} fill={color} radius={[6, 6, 0, 0]} maxBarSize={46} minPointSize={2} isAnimationActive={false}>{valueLabels}</Bar></BarChart>}
+        </ResponsiveContainer>
+      </div>
+    </div>
+    {!hasValues ? <p className="mt-2 text-xs leading-5 text-[#87928c]">{dataKey === "pending" ? "Sem valores conferidos neste período." : "Nenhum valor registrado neste período."}</p> : null}
+    <p className="mt-2 text-[11px] text-[#87928c]">Valores em reais. Em telas menores, deslize o gráfico para ver todos os meses.</p>
   </figure>;
 }
