@@ -247,14 +247,14 @@ function statusLabel(status: string) {
   return "Ligar";
 }
 
-function nextActionText(row: QueueRow) {
+function nextActionText(row: QueueRow, hasContactHistory: boolean) {
   if (row.status === "protested") return "Acompanhar protesto";
   if (row.next_action_at) {
     const prefix = row.status === "promise" ? "Confirmar pagamento" : "Retorno";
     return `${dateTime(row.next_action_at)} • ${prefix}`;
   }
   if (row.status === "promise") return "Confirmar pagamento";
-  if (row.status === "negotiating") return "Definir próximo retorno";
+  if (row.status === "negotiating" || hasContactHistory) return "Definir próximo retorno";
   return `${dateOnly(row.eligible_at)} • iniciar contato`;
 }
 
@@ -298,9 +298,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [patientQuery, setPatientQuery] = useState("");
   const [collectionTab, setCollectionTab] = useState("all");
 
-  const load = useCallback(async (silent = false) => {
+  const load = useCallback(async (silent = false, force = false) => {
     const loadKey = JSON.stringify([unit,quickPeriod,dateFrom,dateTo,monthFilter,yearFilter]);
-    if (loadingRef.current === loadKey) return;
+    if (!force && loadingRef.current === loadKey) return;
     loadingRef.current = loadKey;
     const generation = ++loadGeneration.current;
     const current = () => generation === loadGeneration.current;
@@ -471,7 +471,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         delay: daysLate(row.due_date),
         stage: stageFor(row.status),
         status: statusLabel(row.status),
-        nextAction: nextActionText(row),
+        nextAction: nextActionText(row, rowInteractions.length > 0),
         nextActionAt: row.next_action_at,
         promiseDate: row.status === "promise" && row.next_action_at ? dateTime(row.next_action_at) : undefined,
         protestedAt: row.protested_at ? dateTime(row.protested_at) : undefined,
@@ -728,7 +728,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     </section>
 
     <NegotiationSheet patient={selected} onClose={() => setSelectedId(null)} onRegistered={async () => {
-      await load();
+      await load(false, true);
       if (selectedId) {
         try { setSelectedHistory(await fetchCollectionCaseHistory(selectedId)); } catch { /* mantém a última versão visível */ }
       }
