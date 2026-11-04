@@ -26,23 +26,41 @@ function send(value: unknown, status = 200, origin = "") {
 function isDigits(value: unknown) {
   return typeof value === "string" && /^[0-9]{6,30}$/.test(value);
 }
-function cleanMessage() {
-  return "A Meta não concluiu a conexão. Verifique as permissões e tente novamente.";
+class MetaRequestError extends Error {
+  constructor(readonly httpStatus: number, readonly metaCode?: number, readonly metaSubcode?: number) {
+    super("Meta request failed");
+  }
 }
-async function graph(path: string, token: string) {
+
+async function graph(path: string | URL, token?: string) {
   const controller = new AbortController();
   const abort = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(path, { headers: { authorization: "Bearer " + token, accept: "application/json" }, signal: controller.signal });
-    const data = await res.json();
-    if (!res.ok) throw new Error("Meta validation failed");
-    return data;
+    const headers = new Headers({ accept: "application/json" });
+    if (token) headers.set("authorization", "Bearer " + token);
+    const response = await fetch(path, { headers, signal: controller.signal });
+    if (response.ok) return await response.json();
+
+    const data = await response.json().catch(() => null);
+    throw new MetaRequestError(
+      response.status,
+      typeof data?.error?.code === "number" ? data.error.code : undefined,
+      typeof data?.error?.error_subcode === "number" ? data.error.error_subcode : undefined,
+    );
   } finally { clearTimeout(abort); }
 }
-async function seal(token: string) {
-  const raw = Uint8Array.from(atob(ENCRYPTION_KEY), c => c.charCodeAt(0));
-  if (raw.byteLength !== 32) throw new Error("Invalid encryption key");
-  const key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt"]);
+
+function getEncryptionKey() {
+  try {
+    const raw = Uint8Array.from(atob(ENCRYPTION_KEY), c => c.charCodeAt(0));
+    return raw.byteLength === 32 ? raw.buffer : null;
+  } catch {
+    return null;
+  }
+}
+
+async function seal(token: string, encryptionKey: ArrayBuffer) {
+  const key = await crypto.subtle.importKey("raw", encryptionKey, { name: "AES-GCM" }, false, ["encrypt"]);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(token)));
   const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(""));
@@ -76,7 +94,11 @@ Deno.serve(async (req) => {
     if (!membership) return send({ ok: false, message: "Sem permissão nesta unidade." }, 403, origin);
   }
 
-  const ready = Boolean(META_APP_SECRET && ENCRYPTION_KEY);
+  const encryptionKey = getEncryptionKey();
+  const ready = Boolean(META_APP_SECRET && encryptionKey);
+  const requiredSetup = !META_APP_SECRET || !ENCRYPTION_KEY
+    ? "Falta configurar uma credencial da integração do WhatsApp. Avise o suporte."
+    : "A chave de proteção da integração do WhatsApp está inválida. Avise o suporte.";
   if (body.action === "status") {
     const { data: connection } = await admin.from("integration_connections")
       .select("status,non_secret_config").eq("unit_id", unit.id).eq("provider", "whatsapp").maybeSingle();
@@ -87,10 +109,10 @@ Deno.serve(async (req) => {
       phoneConfigured: Boolean(config.phone_number_id),
       phoneDisplay: config.phone_display || null,
       onboardingStatus: config.onboarding_status || null,
-      requiredSetup: ready ? null : "Configure META_APP_SECRET e META_TOKEN_ENCRYPTION_KEY nos segredos das Edge Functions do Supabase.",
+      requiredSetup: ready ? null : requiredSetup,
     }, 200, origin);
   }
-  if (!ready) return send({ ok: false, message: "Configure primeiro os segredos de integração no Supabase." }, 409, origin);
+  if (!META_APP_SECRET || !encryptionKey) return send({ ok: false, message: requiredSetup }, 409, origin);
   const authorizationCode = body.code;
   const session = body.session;
   if (typeof authorizationCode !== "string" || authorizationCode.length < 8 || authorizationCode.length > 2048 ||
@@ -104,17 +126,17 @@ Deno.serve(async (req) => {
     return send({ ok: false, message: "Coexistência não confirmada. Nenhum número foi ativado no LYRVA." }, 409, origin);
   }
 
+  let stage: "exchange_code" | "verify_number" | "protect_token" | "save_connection" = "exchange_code";
   try {
     const oauth = new URL(GRAPH + "/oauth/access_token");
     oauth.searchParams.set("client_id", APP_ID);
     oauth.searchParams.set("client_secret", META_APP_SECRET);
     oauth.searchParams.set("code", authorizationCode);
     // Exchange only on server. Do not print or return access tokens, even on failure.
-    const oauthRes = await fetch(oauth, { method: "GET" });
-    if (!oauthRes.ok) return send({ ok: false, message: cleanMessage() }, 502, origin);
-    const { access_token } = await oauthRes.json();
+    const { access_token } = await graph(oauth);
     if (typeof access_token !== "string" || access_token.length < 16) throw new Error("token missing");
 
+    stage = "verify_number";
     const phonesResult = await graph(GRAPH + "/" + wabaId + "/phone_numbers?fields=id,display_phone_number,verified_name&limit=100", access_token);
     const phones = Array.isArray(phonesResult.data) ? phonesResult.data : [];
     const matches = phones.filter((p: Record<string, unknown>) => isDigits(p.id) &&
@@ -125,7 +147,9 @@ Deno.serve(async (req) => {
     const selected = matches[0];
     const display = String(selected.display_phone_number ?? "");
     if (!display || display.length > 40) throw new Error("missing verified phone");
-    const sealed = await seal(access_token);
+    stage = "protect_token";
+    const sealed = await seal(access_token, encryptionKey);
+    stage = "save_connection";
     const { error: saveError } = await admin.rpc("save_whatsapp_embedded_connection", {
       p_unit_id: unit.id, p_waba_id: wabaId, p_phone_number_id: String(selected.id),
       p_phone_display: display, p_token_cipher: sealed.cipher, p_token_iv: sealed.iv,
@@ -133,11 +157,26 @@ Deno.serve(async (req) => {
     });
     if (saveError) {
       // Avoid untrusted error details since they may reveal identifiers.
+      console.warn("whatsapp_embedded_signup_failure", { unit: code, stage, databaseCode: saveError.code });
       return send({ ok: false, message: "Não foi possível salvar o vínculo. Confira se o número já está em outra unidade." }, 409, origin);
     }
     return send({ ok: true, status: "pending_internal_test", unit: unit.name, phoneDisplay: display,
       message: "Número identificado com coexistência; envios continuam bloqueados até o teste interno." }, 200, origin);
-  } catch {
-    return send({ ok: false, message: cleanMessage() }, 502, origin);
+  } catch (error) {
+    // Log only the stage and numeric Meta error identifiers. URLs and response messages may contain credentials.
+    console.warn("whatsapp_embedded_signup_failure", {
+      unit: code,
+      stage,
+      ...(error instanceof MetaRequestError && {
+        httpStatus: error.httpStatus, metaCode: error.metaCode, metaSubcode: error.metaSubcode,
+      }),
+    });
+    const message = {
+      exchange_code: "A autorização do WhatsApp não pôde ser validada na Meta. Avise o suporte.",
+      verify_number: "A Meta autorizou o acesso, mas não foi possível verificar o número. Avise o suporte.",
+      protect_token: "Não foi possível proteger a credencial do WhatsApp. Avise o suporte.",
+      save_connection: "Não foi possível salvar a conexão do WhatsApp. Avise o suporte.",
+    }[stage];
+    return send({ ok: false, message }, stage === "protect_token" || stage === "save_connection" ? 500 : 502, origin);
   }
 });
