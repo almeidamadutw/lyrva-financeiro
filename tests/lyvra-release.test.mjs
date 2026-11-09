@@ -116,11 +116,11 @@ test("opens promises from the metric and removes completed or renegotiated cases
   ]);
 
   assert.match(collections, /const \[collectionTab, setCollectionTab\] = useState\("all"\)/);
-  assert.match(collections, /const promisesToCheck = today/);
+  assert.match(collections, /const promisesToCheck = promises\.filter/);
   assert.match(collections, /onClick=\{\(\) => setCollectionTab\("promises"\)\}/);
   assert.match(collections, /TabsTrigger value="promises"/);
   assert.match(collections, /TabsContent value="promises"/);
-  assert.match(collections, /value="payment">Pagamento confirmado/);
+  assert.match(collections, /value="payment">Pagamento informado/);
   assert.match(collections, /value="renegotiated">Renegociação concluída/);
   assert.match(migration, /p_outcome = 'renegotiated' then 'closed'/);
   assert.match(migration, /p_outcome in \('payment','renegotiated'\)/);
@@ -217,10 +217,10 @@ test("shows the latest collection conversation and who registered it", async () 
   const collections = await read("components/collections-journey-real.tsx");
 
   assert.match(collections, /const outcomeLabels/);
-  assert.match(collections, /rowInteractions\[rowInteractions\.length - 1\]/);
+  assert.match(collections, /const latestInteraction = contact\?\.latest_interaction/);
   assert.match(collections, /lastInteraction: latestInteraction/);
   assert.match(collections, /patient\.lastInteraction\.label} · \{patient\.lastInteraction\.author/);
-  assert.match(collections, /Último: \{patient\.lastInteraction\.note\}/);
+  assert.match(collections, /Último contato \{patient\.lastInteraction\.date\}:/);
 });
 
 test("scopes settlement and operational blocking to the patient unit", async () => {

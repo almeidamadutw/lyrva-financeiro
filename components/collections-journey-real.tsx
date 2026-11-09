@@ -33,10 +33,9 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { collectionContactStage, type CollectionContact, type CollectionStage } from "@/lib/collection-contact";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { setDictationActive } from "@/lib/dictation-activity";
-
-type CollectionStage = "call" | "negotiation" | "promise" | "protested";
 
 type QueueRow = {
   id: number;
@@ -71,6 +70,11 @@ type InteractionRow = {
   notes: string;
   occurred_at: string;
   next_action_at: string | null;
+};
+
+type ContactContextRow = CollectionContact & {
+  collection_case_id: number;
+  latest_interaction: InteractionRow | null;
 };
 
 type ProfileRow = { user_id: string; full_name: string };
@@ -134,8 +138,8 @@ type CollectionPatient = {
   stage: CollectionStage;
   status: string;
   nextAction: string;
-  nextActionAt?: string | null;
-  promiseDate?: string;
+  promisedPaymentAt?: string;
+  contactOnAnotherBill?: boolean;
   protestedAt?: string;
   owner: string;
   collectionOwner: "Duda" | "Daiane";
@@ -188,9 +192,18 @@ declare global {
 
 const stageTone: Record<CollectionStage, string> = {
   call: "bg-[#fff1d8] text-[#946614]",
+  waiting: "bg-[#fff1d8] text-[#946614]",
   negotiation: "bg-[#e9f2f3] text-[#397174]",
   promise: "bg-[#e6f6ed] text-[#137044]",
   protested: "bg-[#fae8e3] text-[#9b4d3e]",
+};
+
+const stageLabels: Record<CollectionStage, string> = {
+  call: "Ligar",
+  waiting: "Aguardando resposta",
+  negotiation: "Em negociação",
+  promise: "Pagamento prometido",
+  protested: "Protestado",
 };
 
 const channelLabels: Record<string, string> = {
@@ -233,29 +246,15 @@ function daysLate(dueDate: string) {
   return days === 1 ? "1 dia em atraso" : `${days} dias em atraso`;
 }
 
-function stageFor(status: string): CollectionStage {
-  if (status === "promise") return "promise";
-  if (status === "protested") return "protested";
-  if (status === "negotiating") return "negotiation";
-  return "call";
-}
-
-function statusLabel(status: string) {
-  if (status === "promise") return "Pagamento prometido";
-  if (status === "protested") return "Protestado";
-  if (status === "negotiating") return "Em negociação";
-  return "Ligar";
-}
-
-function nextActionText(row: QueueRow, hasContactHistory: boolean) {
-  if (row.status === "protested") return "Acompanhar protesto";
-  if (row.next_action_at) {
-    const prefix = row.status === "promise" ? "Confirmar pagamento" : "Retorno";
-    return `${dateTime(row.next_action_at)} • ${prefix}`;
-  }
-  if (row.status === "promise") return "Confirmar pagamento";
-  if (row.status === "negotiating" || hasContactHistory) return "Definir próximo retorno";
-  return `${dateOnly(row.eligible_at)} • iniciar contato`;
+function nextActionText(row: QueueRow, state: ReturnType<typeof collectionContactStage>, contact?: ContactContextRow) {
+  if (state.stage === "protested") return "Acompanhar protesto";
+  if (state.stage === "call") return `${dateOnly(row.eligible_at)} • Iniciar contato`;
+  if (state.promisedPaymentAt) return `${dateTime(state.promisedPaymentAt)} • Confirmar pagamento`;
+  if (state.contactOnAnotherBill) return "Acompanhar contato do paciente";
+  if (contact?.last_action_outcome === "payment_reported") return "Aguardar confirmação no Clinicorp";
+  const nextActionAt = contact?.last_action_outcome ? contact.last_action_next_at : row.next_action_at;
+  if (nextActionAt) return `${dateTime(nextActionAt)} • Retorno`;
+  return state.stage === "waiting" ? "Aguardar resposta" : "Definir próximo retorno";
 }
 
 async function fetchCollectionCaseHistory(caseId: number) {
@@ -278,7 +277,7 @@ function CollectionMetric({ icon: Icon, label, value, detail, tone, onClick, act
 
 export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { unit: string; openPatientId?: number | null; onPatientOpened?: () => void }) {
   const [queue, setQueue] = useState<QueueRow[]>([]);
-  const [interactions, setInteractions] = useState<InteractionRow[]>([]);
+  const [contactContexts, setContactContexts] = useState<ContactContextRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [overdueBoletoCounts, setOverdueBoletoCounts] = useState<OverdueBoletoCountRow[]>([]);
   const [reconciliation, setReconciliation] = useState<CollectionReconciliation | null>(null);
@@ -309,7 +308,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       const supabase = getSupabaseBrowserClient();
       const selectedCode = unit === "salto" ? "salto_de_pirapora" : unit;
       const queueRows: QueueRow[] = [];
-      const interactionRows: InteractionRow[] = [];
+      const contactRows: ContactContextRow[] = [];
 
       let from = dateFrom || null;
       let to = dateTo || null;
@@ -341,11 +340,12 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       for (let offset = 0; offset < queueRows.length; offset += 500) {
         const caseIds = queueRows.slice(offset, offset + 500).map((row) => row.id);
         if (!caseIds.length) continue;
-        const result = await (supabase as any).rpc("get_collection_latest_interactions", {
+        const result = await (supabase as any).rpc("get_collection_contact_context", {
           p_case_ids: caseIds,
         });
+        if (!current()) return;
         if (result.error) throw result.error;
-        interactionRows.push(...((result.data ?? []) as unknown as InteractionRow[]));
+        contactRows.push(...((result.data ?? []) as ContactContextRow[]));
       }
 
       const overdueResult = await (supabase as any).rpc("get_overdue_boleto_count_map", {
@@ -357,7 +357,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       if (profileResult.error) throw profileResult.error;
       if (!current()) return;
       setQueue(queueRows);
-      setInteractions(interactionRows);
+      setContactContexts(contactRows);
       setOverdueBoletoCounts((overdueResult.data ?? []) as unknown as OverdueBoletoCountRow[]);
       setProfiles((profileResult.data ?? []) as unknown as ProfileRow[]);
 
@@ -420,19 +420,20 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const overdueCountByPatientUnit = useMemo(() => new Map(
     overdueBoletoCounts.map((row) => [`${row.unit_id}:${row.patient_id}`, Number(row.overdue_count ?? 0)]),
   ), [overdueBoletoCounts]);
-  const interactionsByCase = useMemo(() => {
-    const map = new Map<number, InteractionRow[]>();
-    for (const interaction of interactions) map.set(interaction.collection_case_id, [...(map.get(interaction.collection_case_id) ?? []), interaction]);
-    return map;
-  }, [interactions]);
+  const contactByCase = useMemo(() => new Map(
+    contactContexts.map((contact) => [contact.collection_case_id, contact]),
+  ), [contactContexts]);
 
   const patients = useMemo<CollectionPatient[]>(() => queue
     .filter((row) => !["paid", "closed"].includes(row.status) && !["paid", "cancelled", "refunded"].includes(row.installment_status ?? ""))
     .map((row) => {
       const overdueCount = Math.max(1, overdueCountByPatientUnit.get(`${row.unit_id}:${row.patient_id}`) ?? 1);
-      const latestRows = interactionsByCase.get(row.id) ?? [];
-      const latestInteraction = latestRows[latestRows.length - 1];
-      const rowInteractions = row.id === selectedId && selectedHistory.length ? selectedHistory : latestRows;
+      const contact = contactByCase.get(row.id);
+      const state = collectionContactStage(row.status, row.next_action_at, contact);
+      const latestInteraction = contact?.latest_interaction;
+      const rowInteractions = row.id === selectedId && selectedHistory.length
+        ? selectedHistory
+        : latestInteraction ? [latestInteraction] : [];
       const latestInteractionAuthor = latestInteraction
         ? latestInteraction.performed_by
           ? profileById.get(latestInteraction.performed_by) ?? "Equipe"
@@ -469,11 +470,9 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         dueDateIso: row.due_date,
         eligibleAt: row.eligible_at,
         delay: daysLate(row.due_date),
-        stage: stageFor(row.status),
-        status: statusLabel(row.status),
-        nextAction: nextActionText(row, rowInteractions.length > 0),
-        nextActionAt: row.next_action_at,
-        promiseDate: row.status === "promise" && row.next_action_at ? dateTime(row.next_action_at) : undefined,
+        ...state,
+        status: contact?.last_action_outcome === "payment_reported" ? "Pagamento informado" : stageLabels[state.stage],
+        nextAction: nextActionText(row, state, contact),
         protestedAt: row.protested_at ? dateTime(row.protested_at) : undefined,
         owner: row.responsible_name || "Daiane",
         collectionOwner: overdueCount === 1 ? "Duda" : "Daiane",
@@ -488,11 +487,10 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         history,
         updatedAt: row.updated_at,
       };
-    }), [queue, interactionsByCase, profileById, overdueCountByPatientUnit, selectedId, selectedHistory]);
+    }), [queue, contactByCase, profileById, overdueCountByPatientUnit, selectedId, selectedHistory]);
 
   const selectedUnit = useMemo(() => patients.filter((patient) => unit === "todas" || (unit === "sorocaba" ? patient.unit === "Sorocaba" : patient.unit === "Salto de Pirapora")), [patients, unit]);
   const todayKey = saoPauloDayKey();
-  const now = Date.now();
   const availableYears = Array.from({length: Number(todayKey.slice(0,4))-2015+2}, (_,index) => String(Number(todayKey.slice(0,4))+1-index));
   const periodFiltered = useMemo(() => {
     let quickStart = "";
@@ -563,25 +561,17 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     { count: 0, amount: 0 },
   ), [searched]);
 
-  const actionable = searched.filter((patient) => {
-    if (patient.stage === "protested") return true;
-    if (patient.stage === "negotiation") return true;
-    if (patient.stage === "promise") return true;
-    return patient.eligibleAt <= todayKey;
-  });
-
-  const today = actionable.filter((patient) => {
-    if (patient.stage === "call") return patient.nextActionAt ? new Date(patient.nextActionAt).getTime() <= now : patient.eligibleAt <= todayKey;
-    if (patient.stage === "promise") return patient.nextActionAt ? saoPauloDayKey(new Date(patient.nextActionAt)) <= todayKey : true;
-    return false;
-  });
-  const promisesToCheck = today
+  const firstContact = searched.filter((patient) => patient.stage === "call" && patient.eligibleAt <= todayKey);
+  const waitingForReply = searched.filter((patient) => patient.stage === "waiting");
+  const promises = searched
     .filter((patient) => patient.stage === "promise")
-    .sort((a, b) => (a.nextActionAt ?? "").localeCompare(b.nextActionAt ?? ""));
-  const negotiating = actionable
-    .filter((patient) => patient.stage === "negotiation" || patient.stage === "promise")
+    .sort((a, b) => (a.promisedPaymentAt ?? "").localeCompare(b.promisedPaymentAt ?? ""));
+  const promisesToCheck = promises.filter((patient) => patient.promisedPaymentAt
+    && saoPauloDayKey(new Date(patient.promisedPaymentAt)) <= todayKey);
+  const negotiating = searched
+    .filter((patient) => patient.stage === "negotiation")
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  const protested = actionable.filter((patient) => patient.stage === "protested");
+  const protested = searched.filter((patient) => patient.stage === "protested");
   const selected = patients.find((patient) => patient.id === selectedId) ?? null;
   const selectedVerifiedAt = selected?.sourceVerifiedAt ?? null;
   const selectedNeedsVerification = Boolean(selected) && (!selectedVerifiedAt || Date.now()-new Date(selectedVerifiedAt).getTime()>300_000);
@@ -703,26 +693,40 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <CollectionMetric icon={WalletCards} label={unverifiedCount ? "Total conferido na régua" : "Pendente para negociar • régua"} value={brl(pendingSummary.amount)} detail={unverifiedCount ? `${pendingSummary.count-unverifiedCount} de ${pendingSummary.count} títulos conferidos • total parcial` : `${pendingSummary.count} boleto(s) em aberto • mesmos filtros da régua`} tone="bg-[#e4f8ee] text-[#00884a]" />
-      <CollectionMetric icon={PhoneCall} label="Ligações para fazer" value={String(today.filter((patient) => patient.stage === "call").length)} detail="Casos que já chegaram no prazo" tone="bg-[#fff1d8] text-[#946614]" />
-      <CollectionMetric icon={CalendarClock} label="Promessas para conferir" value={String(promisesToCheck.length)} detail="Clique para abrir os pagamentos combinados que já precisam ser conferidos" tone="bg-[#e6f6ed] text-[#137044]" onClick={() => setCollectionTab("promises")} active={collectionTab === "promises"} />
-      <CollectionMetric icon={MessageSquareText} label="Em negociação" value={String(negotiating.length)} detail="Histórico e próximo retorno salvos" tone="bg-[#e9f2f3] text-[#397174]" />
+      <CollectionMetric icon={PhoneCall} label="Ligações para fazer" value={String(firstContact.length)} detail="Pacientes sem contato registrado" tone="bg-[#fff1d8] text-[#946614]" />
+      <CollectionMetric icon={CalendarClock} label="Promessas para conferir" value={String(promisesToCheck.length)} detail="Pagamentos combinados até hoje. Clique para abrir a aba Promessas." tone="bg-[#e6f6ed] text-[#137044]" onClick={() => setCollectionTab("promises")} active={collectionTab === "promises"} />
+      <CollectionMetric icon={MessageSquareText} label="Em negociação" value={String(negotiating.length)} detail="Casos em acompanhamento" tone="bg-[#e9f2f3] text-[#397174]" />
       <CollectionMetric icon={Landmark} label="Pacientes protestados" value={String(protested.length)} detail="Acompanhamento separado" tone="bg-[#fae8e3] text-[#9b4d3e]" />
     </section>
 
     <section className="lyvra-split-collections">
       <div className="surface-card min-w-0 overflow-hidden rounded-[24px]">
         <Tabs value={collectionTab} onValueChange={setCollectionTab}>
-          <div className="border-b border-[#e7ebe7] p-5 md:px-6"><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div><div className="flex flex-col gap-3 sm:flex-row sm:items-center"><div className="relative sm:w-64"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={patientQuery} onChange={(event) => setPatientQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 rounded-xl pl-9" /></div><TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 sm:w-auto"><TabsTrigger value="all" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{actionable.length}</Badge></TabsTrigger><TabsTrigger value="today" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{today.length}</Badge></TabsTrigger><TabsTrigger value="promises" className="rounded-lg px-3">Promessas <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{promisesToCheck.length}</Badge></TabsTrigger><TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger><TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[10px] text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger></TabsList></div></div></div>
-          <TabsContent value="all" className="m-0"><CollectionTable patients={actionable} onOpen={setSelectedId} loading={loading} /></TabsContent>
-          <TabsContent value="today" className="m-0"><CollectionTable patients={today} onOpen={setSelectedId} loading={loading} /></TabsContent>
-          <TabsContent value="promises" className="m-0"><CollectionTable patients={promisesToCheck} onOpen={setSelectedId} loading={loading} /></TabsContent>
+          <div className="border-b border-[#e7ebe7] p-5 md:px-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative sm:w-64"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={patientQuery} onChange={(event) => setPatientQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 rounded-xl pl-9" /></div>
+                <TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 sm:w-auto">
+                  <TabsTrigger value="all" title="Pacientes sem primeiro contato" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{firstContact.length}</Badge></TabsTrigger>
+                  <TabsTrigger value="today" title="Pacientes aguardando resposta" className="rounded-lg px-3">Hoje <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{waitingForReply.length}</Badge></TabsTrigger>
+                  <TabsTrigger value="promises" title="Pagamentos com data combinada" className="rounded-lg px-3">Promessas <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{promises.length}</Badge></TabsTrigger>
+                  <TabsTrigger value="negotiating" className="rounded-lg px-3">Negociações <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{negotiating.length}</Badge></TabsTrigger>
+                  <TabsTrigger value="protested" className="rounded-lg px-3 text-[#8f4b3f]">Protestados <Badge className="ml-1 h-5 min-w-5 bg-[#f6ddd7] px-1.5 text-[10px] text-[#934c3e] hover:bg-[#f6ddd7]">{protested.length}</Badge></TabsTrigger>
+                </TabsList>
+              </div>
+            </div>
+          </div>
+          <TabsContent value="all" className="m-0"><CollectionTable patients={firstContact} onOpen={setSelectedId} loading={loading} emptyMessage="Nenhum paciente aguardando o primeiro contato." /></TabsContent>
+          <TabsContent value="today" className="m-0"><CollectionTable patients={waitingForReply} onOpen={setSelectedId} loading={loading} emptyMessage="Nenhum paciente aguardando resposta." /></TabsContent>
+          <TabsContent value="promises" className="m-0"><CollectionTable patients={promises} onOpen={setSelectedId} loading={loading} emptyMessage="Nenhum pagamento com data combinada." /></TabsContent>
           <TabsContent value="negotiating" className="m-0"><CollectionTable patients={negotiating} onOpen={setSelectedId} loading={loading} /></TabsContent>
           <TabsContent value="protested" className="m-0"><ProtestedBlock patients={protested} onOpen={setSelectedId} loading={loading} /></TabsContent>
         </Tabs>
       </div>
 
       <aside className="min-w-0 space-y-5">
-        <div className="rounded-[24px] bg-[#10221f] p-6 text-white shadow-[0_18px_45px_rgba(24,59,50,.13)]"><div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/45">Avisos de cobrança</p><BellRing className="size-5 text-[#00BF63]" /></div><p className="font-display mt-5 text-2xl font-semibold">{today.length ? `${today.length} ação(ões) para hoje` : "Nenhuma cobrança vencida agora"}</p><p className="mt-2 text-sm leading-6 text-white/55">{today.length ? "A fila considera o prazo D+3 e os retornos que já chegaram na data combinada." : "Casos futuros ficam escondidos até chegar o dia correto."}</p></div>
+        <div className="rounded-[24px] bg-[#10221f] p-6 text-white shadow-[0_18px_45px_rgba(24,59,50,.13)]"><div className="flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-white/45">Avisos de cobrança</p><BellRing className="size-5 text-[#00BF63]" /></div><p className="font-display mt-5 text-2xl font-semibold">{waitingForReply.length ? `${waitingForReply.length} aguardando resposta` : "Nenhuma resposta pendente"}</p><p className="mt-2 text-sm leading-6 text-white/55">Acompanhe as respostas na aba Hoje e os pagamentos combinados na aba Promessas.</p></div>
         <div className="surface-card rounded-[24px] p-5 md:p-6"><p className="eyebrow">COMO A JORNADA FUNCIONA</p><div className="mt-5 space-y-4"><JourneyStep number="1" title="Vencimento" detail="Boleto permanece em acompanhamento." /><JourneyStep number="2" title="D+3 dias úteis" detail="Paciente entra na fila da Daiane." /><JourneyStep number="3" title="Negociação" detail="Conversa, acordo e retorno registrados." /><JourneyStep number="4" title="Desfecho" detail="Pagamento confirmado ou protesto." last /></div></div>
       </aside>
     </section>
@@ -740,10 +744,10 @@ function JourneyStep({ number, title, detail, last = false }: { number: string; 
   return <div className="relative flex gap-3">{!last && <span className="absolute left-[15px] top-8 h-8 w-px bg-[#dfe6df]" />}<span className="relative z-10 grid size-8 shrink-0 place-items-center rounded-full bg-[#e4f8ee] text-xs font-bold text-[#00884a]">{number}</span><div><p className="text-sm font-semibold text-[#2d3e34]">{title}</p><p className="mt-0.5 text-xs leading-5 text-[#829087]">{detail}</p></div></div>;
 }
 
-function CollectionTable({ patients, onOpen, loading }: { patients: CollectionPatient[]; onOpen: (id: number) => void; loading: boolean }) {
+function CollectionTable({ patients, onOpen, loading, emptyMessage = "Nenhum paciente nesta etapa." }: { patients: CollectionPatient[]; onOpen: (id: number) => void; loading: boolean; emptyMessage?: string }) {
   const [visibleCount, setVisibleCount] = useState(COLLECTION_RENDER_BATCH);
   if (loading) return <div className="grid min-h-56 place-items-center"><LoaderCircle className="size-5 animate-spin text-[#00BF63]" /></div>;
-  if (!patients.length) return <div className="grid min-h-56 place-items-center p-6 text-sm text-[#7d8982]">Nenhum paciente nesta etapa.</div>;
+  if (!patients.length) return <div className="grid min-h-56 place-items-center p-6 text-sm text-[#7d8982]">{emptyMessage}</div>;
   const visiblePatients = patients.slice(0, visibleCount);
   return <div className="collection-responsive-list divide-y divide-[#e7ebe7]">{visiblePatients.map((patient) => <div key={patient.id} className="collection-responsive-row">
     <div className="collection-field collection-patient-field">
@@ -752,7 +756,7 @@ function CollectionTable({ patients, onOpen, loading }: { patients: CollectionPa
     </div>
     <div className="collection-field"><span className="collection-field-label">Vencimento</span><p className="text-sm text-[#2c3b33]">{patient.dueDate}</p><p className="mt-1 text-xs text-[#a25f4d]">{patient.delay}</p></div>
     <div className="collection-field"><span className="collection-field-label">Valor</span><p className="font-semibold tabular-nums text-[#2c3b33]">{patient.amount}</p></div>
-    <div className="collection-field"><span className="collection-field-label">Situação</span><div><Badge className={`border-0 font-medium hover:opacity-100 ${stageTone[patient.stage]}`}>{patient.status}</Badge>{patient.lastInteraction ? <p className="mt-2 truncate text-xs font-semibold text-[#52635a]" title={`${patient.lastInteraction.label} · ${patient.lastInteraction.author}`}>{patient.lastInteraction.label} · {patient.lastInteraction.author}</p> : <p className="mt-2 text-xs text-[#98a29c]">Sem conversa registrada</p>}</div></div>
+    <div className="collection-field"><span className="collection-field-label">Situação</span><div><Badge className={`border-0 font-medium hover:opacity-100 ${stageTone[patient.stage]}`}>{patient.status}</Badge>{patient.lastInteraction ? <p className="mt-2 truncate text-xs font-semibold text-[#52635a]" title={`${patient.lastInteraction.label} · ${patient.lastInteraction.author}`}>{patient.lastInteraction.label} · {patient.lastInteraction.author}</p> : <p className="mt-2 text-xs text-[#98a29c]">{patient.contactOnAnotherBill ? "Contato registrado em outro boleto" : "Sem conversa registrada"}</p>}</div></div>
     <div className="collection-field collection-next-field">
       <span className="collection-field-label">Próxima ação</span>
       <p className="break-words text-sm font-medium leading-5 text-[#405148]">{patient.nextAction}</p>
@@ -922,7 +926,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     } finally { setSaving(false); }
   };
 
-  return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={patient.amount} /><MiniDetail label="Vencimento" value={patient.dueDate} /><MiniDetail label="Atraso" value={patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{(!patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000) && <p role="status" className="mt-2 text-xs text-[#8a651f]">Validando o título no Clinicorp. O registro será liberado automaticamente após a conferência.</p>}</div>{listening && <Badge className="animate-pulse bg-[#fae8e3] text-[#9b4d3e] hover:bg-[#fae8e3]"><span className="mr-1.5 size-1.5 rounded-full bg-[#c25e4c]" />Ouvindo</Badge>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="collection-outcome" className="text-xs font-semibold text-[#53645a]">Resultado do contato</Label><Select value={outcome} onValueChange={setOutcome}><SelectTrigger id="collection-outcome" className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">Contato realizado</SelectItem><SelectItem value="promise">Promessa de pagamento</SelectItem><SelectItem value="payment">Pagamento informado</SelectItem><SelectItem value="renegotiated">Renegociação concluída</SelectItem><SelectItem value="no-contact">Não atendeu</SelectItem><SelectItem value="protest">Título protestado</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label htmlFor="collection-date" className="text-xs font-semibold text-[#53645a]">Próxima data combinada</Label><Input id="collection-date" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} className="h-10 rounded-xl shadow-none" disabled={["protest", "payment", "renegotiated"].includes(outcome)} /></div></div><div className={`mt-4 overflow-hidden rounded-[20px] border bg-[#fafbf9] transition ${listening ? "border-[#00BF63] ring-3 ring-[#00BF63]/10" : "border-[#dfe5df]"}`}><Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escreva o que foi negociado ou toque no microfone para falar…" className="min-h-28 resize-none border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0" /><div className="flex items-center justify-between gap-3 border-t border-[#e6ebe6] px-3 py-2"><div className="flex items-center gap-2"><Button type="button" onClick={toggleListening} variant={listening ? "default" : "ghost"} size="icon" className={`rounded-full ${listening ? "bg-[#c85d4b] text-white hover:bg-[#b64f3e]" : "bg-white text-[#35483e] shadow-sm hover:bg-[#eef5ef]"}`} aria-label={listening ? "Parar gravação" : "Ditar observação"}>{listening ? <Square className="size-3.5 fill-current" /> : <Mic className="size-4" />}</Button><span className="hidden text-[11px] text-[#89958e] sm:inline">{listening ? "Fale agora. Toque para parar." : "Ditar observação"}</span></div><Button type="button" onClick={() => void register()} disabled={saving || !patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000} size="sm" className="rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">{saving ? <LoaderCircle className="animate-spin" /> : <>Registrar <Send /></>}</Button></div></div><p className="mt-3 flex items-center gap-2 text-[11px] leading-5 text-[#8a958e]"><CircleAlert className="size-3.5 shrink-0" />A voz é transcrita antes de salvar. O registro final fica permanente no histórico.</p></section></div></ScrollArea></>}</SheetContent></Sheet>;
+  return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={patient.amount} /><MiniDetail label="Vencimento" value={patient.dueDate} /><MiniDetail label="Atraso" value={patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{(!patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000) && <p role="status" className="mt-2 text-xs text-[#8a651f]">Validando o título no Clinicorp. O registro será liberado automaticamente após a conferência.</p>}</div>{listening && <Badge className="animate-pulse bg-[#fae8e3] text-[#9b4d3e] hover:bg-[#fae8e3]"><span className="mr-1.5 size-1.5 rounded-full bg-[#c25e4c]" />Ouvindo</Badge>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="collection-outcome" className="text-xs font-semibold text-[#53645a]">Resultado do contato</Label><Select value={outcome} onValueChange={setOutcome}><SelectTrigger id="collection-outcome" className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">Aguardando resposta</SelectItem><SelectItem value="negotiation">Em negociação</SelectItem><SelectItem value="promise">Promessa de pagamento</SelectItem><SelectItem value="payment">Pagamento informado</SelectItem><SelectItem value="renegotiated">Renegociação concluída</SelectItem><SelectItem value="no-contact">Não atendeu</SelectItem><SelectItem value="protest">Título protestado</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label htmlFor="collection-date" className="text-xs font-semibold text-[#53645a]">Próxima data combinada</Label><Input id="collection-date" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} className="h-10 rounded-xl shadow-none" disabled={["protest", "payment", "renegotiated"].includes(outcome)} /></div></div><div className={`mt-4 overflow-hidden rounded-[20px] border bg-[#fafbf9] transition ${listening ? "border-[#00BF63] ring-3 ring-[#00BF63]/10" : "border-[#dfe5df]"}`}><Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escreva o que foi negociado ou toque no microfone para falar…" className="min-h-28 resize-none border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0" /><div className="flex items-center justify-between gap-3 border-t border-[#e6ebe6] px-3 py-2"><div className="flex items-center gap-2"><Button type="button" onClick={toggleListening} variant={listening ? "default" : "ghost"} size="icon" className={`rounded-full ${listening ? "bg-[#c85d4b] text-white hover:bg-[#b64f3e]" : "bg-white text-[#35483e] shadow-sm hover:bg-[#eef5ef]"}`} aria-label={listening ? "Parar gravação" : "Ditar observação"}>{listening ? <Square className="size-3.5 fill-current" /> : <Mic className="size-4" />}</Button><span className="hidden text-[11px] text-[#89958e] sm:inline">{listening ? "Fale agora. Toque para parar." : "Ditar observação"}</span></div><Button type="button" onClick={() => void register()} disabled={saving || !patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000} size="sm" className="rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">{saving ? <LoaderCircle className="animate-spin" /> : <>Registrar <Send /></>}</Button></div></div><p className="mt-3 flex items-center gap-2 text-[11px] leading-5 text-[#8a958e]"><CircleAlert className="size-3.5 shrink-0" />A voz é transcrita antes de salvar. O registro final fica permanente no histórico.</p></section></div></ScrollArea></>}</SheetContent></Sheet>;
 }
 
 function MiniDetail({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
