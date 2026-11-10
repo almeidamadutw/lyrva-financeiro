@@ -12,7 +12,9 @@ type Verification =
 
 const checking: Verification = { state: "checking" };
 const pollIntervalMs = 2_000;
-const waitLimitMs = 60_000;
+const slowPollIntervalMs = 5_000;
+const slowAfterMs = 60_000;
+const requestTimeoutMs = 10_000;
 
 export function useClinicorpCaseVerification(caseId: number | null) {
   const [attempt, setAttempt] = useState(0);
@@ -23,25 +25,39 @@ export function useClinicorpCaseVerification(caseId: number | null) {
     if (selection.caseId === null) return;
     const id = selection.caseId;
     const supabase = getSupabaseBrowserClient();
-    let controller: AbortController;
+    let controller: AbortController | undefined;
     let nextTimer: number;
-    let waitTimer: number;
+    let slowTimer: number;
+    let requestTimer: number;
+    let active = true;
+    let slow = false;
 
     const update = (verification: Verification) => setResult({ selection, verification });
     const finish = (verification: Verification) => {
-      window.clearTimeout(waitTimer);
+      window.clearTimeout(slowTimer);
       update(verification);
     };
+    const scheduleCheck = (request: boolean) => {
+      nextTimer = window.setTimeout(() => void check(request), slow || document.hidden ? slowPollIntervalMs : pollIntervalMs);
+    };
 
-    async function check(request: boolean, signal: AbortSignal) {
-      if (signal.aborted) return;
+    async function check(request: boolean) {
+      if (!active) return;
+      if (document.hidden) {
+        scheduleCheck(request);
+        return;
+      }
+      const currentRequest = new AbortController();
+      controller = currentRequest;
+      const signal = currentRequest.signal;
+      requestTimer = window.setTimeout(() => currentRequest.abort(), requestTimeoutMs);
       const startedAt = performance.now();
       try {
         const { data, error } = await supabase
           .rpc("get_clinicorp_case_verification", { p_case_id: id })
           .abortSignal(signal);
-        if (signal.aborted) return;
-        if (error || !data) throw error ?? new Error("Conferência indisponível.");
+        if (!active) return;
+        if (signal.aborted || error || !data) throw error ?? new Error("Conferência indisponível.");
         const status = data as VerificationResult;
 
         if (status.state === "ready") {
@@ -55,7 +71,7 @@ export function useClinicorpCaseVerification(caseId: number | null) {
               start();
             }, remaining);
           } else {
-            nextTimer = window.setTimeout(() => void check(true, signal), pollIntervalMs);
+            scheduleCheck(true);
           }
           return;
         }
@@ -67,30 +83,33 @@ export function useClinicorpCaseVerification(caseId: number | null) {
           const { error: requestError } = await supabase
             .rpc("request_clinicorp_case_verification", { p_case_id: id })
             .abortSignal(signal);
-          if (signal.aborted) return;
-          if (requestError) throw requestError;
+          if (!active) return;
+          if (signal.aborted || requestError) throw requestError ?? new Error("Conferência indisponível.");
         }
-        nextTimer = window.setTimeout(() => void check(false, signal), pollIntervalMs);
+        scheduleCheck(false);
       } catch {
-        if (!signal.aborted) finish({ state: "failed" });
+        if (active) finish({ state: "failed" });
+      } finally {
+        window.clearTimeout(requestTimer);
       }
     }
 
     function start() {
-      controller = new AbortController();
-      waitTimer = window.setTimeout(() => {
-        controller.abort();
-        window.clearTimeout(nextTimer);
+      slow = false;
+      slowTimer = window.setTimeout(() => {
+        slow = true;
         update({ state: "slow" });
-      }, waitLimitMs);
-      void check(true, controller.signal);
+      }, slowAfterMs);
+      void check(true);
     }
 
     start();
     return () => {
-      controller.abort();
+      active = false;
+      controller?.abort();
       window.clearTimeout(nextTimer);
-      window.clearTimeout(waitTimer);
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(requestTimer);
     };
   }, [selection]);
 

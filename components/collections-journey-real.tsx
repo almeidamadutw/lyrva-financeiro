@@ -836,7 +836,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     checking: "Conferindo o boleto no Clinicorp…",
     missing_reference: "A referência deste boleto ainda está pendente no Clinicorp.",
     closed: "Este boleto saiu da régua de cobrança.",
-    slow: "A conferência está demorando mais que o esperado.",
+    slow: "O Clinicorp ainda está conferindo este boleto. A tela continua acompanhando.",
     failed: "Não foi possível conferir o boleto agora.",
   };
 
