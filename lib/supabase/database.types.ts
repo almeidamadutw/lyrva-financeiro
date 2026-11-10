@@ -1872,6 +1872,10 @@ export type Database = {
       }
     }
     Functions: {
+      get_clinicorp_case_verification: {
+        Args: { p_case_id: number }
+        Returns: Json
+      }
       get_collection_analytics: {
         Args: { p_unit_code?: string; p_date_from?: string; p_date_to?: string }
         Returns: Json
@@ -1884,6 +1888,10 @@ export type Database = {
           imported_count: number
           updated_count: number
         }[]
+      }
+      request_clinicorp_case_verification: {
+        Args: { p_case_id: number }
+        Returns: Json
       }
     }
     Enums: {

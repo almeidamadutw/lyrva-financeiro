@@ -36,6 +36,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { collectionContactStage, type CollectionContact, type CollectionStage } from "@/lib/collection-contact";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { setDictationActive } from "@/lib/dictation-activity";
+import { useClinicorpCaseVerification } from "@/lib/use-clinicorp-case-verification";
 
 type QueueRow = {
   id: number;
@@ -633,16 +634,6 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const protested = searched.filter((patient) => patient.stage === "protested");
   const selected = patients.find((patient) => patient.id === selectedId) ?? null;
-  const selectedVerifiedAt = selected?.sourceVerifiedAt ?? null;
-  const selectedNeedsVerification = Boolean(selected) && (!selectedVerifiedAt || Date.now()-new Date(selectedVerifiedAt).getTime()>300_000);
-  useEffect(() => {
-    if (!selectedId || !selectedNeedsVerification) return;
-    let active=true;
-    void (getSupabaseBrowserClient() as any).rpc("request_clinicorp_case_verification", {p_case_id:selectedId})
-      .then(()=>{if(active)void load(true);});
-    const timer=window.setInterval(()=>void load(true),5_000);
-    return()=>{active=false;window.clearInterval(timer);};
-  },[selectedId,selectedNeedsVerification,selectedVerifiedAt,load]);
   const unverifiedCount=searched.filter(patient=>!patient.sourceVerifiedAt).length;
 
 
@@ -833,12 +824,21 @@ function ProtestedBlock({ patients, onOpen, loading }: { patients: CollectionPat
 }
 
 function NegotiationSheet({ patient, onClose, onRegistered }: { patient: CollectionPatient | null; onClose: () => void; onRegistered: (patient: CollectionPatient) => Promise<void> }) {
+  const { verification, retry: retryVerification } = useClinicorpCaseVerification(patient?.id ?? null);
   const [note, setNote] = useState("");
   const [outcome, setOutcome] = useState("contact");
   const [nextDate, setNextDate] = useState("");
   const [listening, setListening] = useState(false);
   const [saving, setSaving] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const verified = verification.state === "ready" ? verification : null;
+  const verificationMessages = {
+    checking: "Conferindo o boleto no Clinicorp…",
+    missing_reference: "A referência deste boleto ainda está pendente no Clinicorp.",
+    closed: "Este boleto saiu da régua de cobrança.",
+    slow: "A conferência está demorando mais que o esperado.",
+    failed: "Não foi possível conferir o boleto agora.",
+  };
 
   const stopListening = () => {
     try { recognitionRef.current?.stop(); } catch { /* reconhecimento já encerrado */ }
@@ -952,6 +952,8 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
 
   const register = async () => {
     if (saving) return;
+    if (!verified) return;
+    if (performance.now() >= verified.expiresAt) { retryVerification(); return; }
     if (!patient || !note.trim()) { toast.info("Conte o que foi negociado antes de registrar."); return; }
     if (outcome === "promise" && !nextDate) { toast.info("Escolha a data combinada para o pagamento."); return; }
     setSaving(true);
@@ -964,6 +966,11 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
         p_next_action_at: nextActionAt,
         p_channel: "call",
       });
+      if (error?.code === "55000") {
+        retryVerification();
+        toast.info("Conferindo o boleto novamente", { description: "Sua observação continua aqui." });
+        return;
+      }
       if (error) throw error;
       const formattedDate = nextDate ? dateOnly(nextDate) : "";
       const successDescription = outcome === "promise"
@@ -982,7 +989,14 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     } finally { setSaving(false); }
   };
 
-  return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open && !saving) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={patient.amount} /><MiniDetail label="Vencimento" value={patient.dueDate} /><MiniDetail label="Atraso" value={patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{(!patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000) && <p role="status" className="mt-2 text-xs text-[#8a651f]">Validando o título no Clinicorp. O registro será liberado automaticamente após a conferência.</p>}</div>{listening && <Badge className="animate-pulse bg-[#fae8e3] text-[#9b4d3e] hover:bg-[#fae8e3]"><span className="mr-1.5 size-1.5 rounded-full bg-[#c25e4c]" />Ouvindo</Badge>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="collection-outcome" className="text-xs font-semibold text-[#53645a]">Resultado do contato</Label><Select value={outcome} onValueChange={setOutcome}><SelectTrigger id="collection-outcome" className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">Aguardando resposta</SelectItem><SelectItem value="negotiation">Em negociação</SelectItem><SelectItem value="promise">Promessa de pagamento</SelectItem><SelectItem value="payment">Pagamento informado</SelectItem><SelectItem value="renegotiated">Renegociação concluída</SelectItem><SelectItem value="no-contact">Não atendeu</SelectItem><SelectItem value="protest">Título protestado</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label htmlFor="collection-date" className="text-xs font-semibold text-[#53645a]">Próxima data combinada</Label><Input id="collection-date" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} className="h-10 rounded-xl shadow-none" disabled={["protest", "payment", "renegotiated"].includes(outcome)} /></div></div><div className={`mt-4 overflow-hidden rounded-[20px] border bg-[#fafbf9] transition ${listening ? "border-[#00BF63] ring-3 ring-[#00BF63]/10" : "border-[#dfe5df]"}`}><Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escreva o que foi negociado ou toque no microfone para falar…" className="min-h-28 resize-none border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0" /><div className="flex items-center justify-between gap-3 border-t border-[#e6ebe6] px-3 py-2"><div className="flex items-center gap-2"><Button type="button" onClick={toggleListening} variant={listening ? "default" : "ghost"} size="icon" className={`rounded-full ${listening ? "bg-[#c85d4b] text-white hover:bg-[#b64f3e]" : "bg-white text-[#35483e] shadow-sm hover:bg-[#eef5ef]"}`} aria-label={listening ? "Parar gravação" : "Ditar observação"}>{listening ? <Square className="size-3.5 fill-current" /> : <Mic className="size-4" />}</Button><span className="hidden text-[11px] text-[#89958e] sm:inline">{listening ? "Fale agora. Toque para parar." : "Ditar observação"}</span></div><Button type="button" onClick={() => void register()} disabled={saving || !patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000} size="sm" className="rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">{saving ? <LoaderCircle className="animate-spin" /> : <>Registrar <Send /></>}</Button></div></div><p className="mt-3 flex items-center gap-2 text-[11px] leading-5 text-[#8a958e]"><CircleAlert className="size-3.5 shrink-0" />A voz é transcrita antes de salvar. O registro final fica permanente no histórico.</p></section></div></ScrollArea></>}</SheetContent></Sheet>;
+  return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open && !saving) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={verified ? brl(verified.amount) : verification.state === "closed" ? "—" : "Em conferência"} /><MiniDetail label="Vencimento" value={verified ? dateOnly(verified.dueDate) : patient.dueDate} /><MiniDetail label="Atraso" value={verified ? daysLate(verified.dueDate) : patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{verification.state !== "ready" && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <p role="status" className="text-xs text-[#8a651f]">{verificationMessages[verification.state]}</p>
+          {["slow", "failed", "missing_reference"].includes(verification.state) && (
+            <Button type="button" variant="outline" size="sm" onClick={retryVerification}>Tentar novamente</Button>
+          )}
+        </div>
+      )}</div>{listening && <Badge className="animate-pulse bg-[#fae8e3] text-[#9b4d3e] hover:bg-[#fae8e3]"><span className="mr-1.5 size-1.5 rounded-full bg-[#c25e4c]" />Ouvindo</Badge>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="collection-outcome" className="text-xs font-semibold text-[#53645a]">Resultado do contato</Label><Select value={outcome} onValueChange={setOutcome}><SelectTrigger id="collection-outcome" className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">Aguardando resposta</SelectItem><SelectItem value="negotiation">Em negociação</SelectItem><SelectItem value="promise">Promessa de pagamento</SelectItem><SelectItem value="payment">Pagamento informado</SelectItem><SelectItem value="renegotiated">Renegociação concluída</SelectItem><SelectItem value="no-contact">Não atendeu</SelectItem><SelectItem value="protest">Título protestado</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label htmlFor="collection-date" className="text-xs font-semibold text-[#53645a]">Próxima data combinada</Label><Input id="collection-date" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} className="h-10 rounded-xl shadow-none" disabled={["protest", "payment", "renegotiated"].includes(outcome)} /></div></div><div className={`mt-4 overflow-hidden rounded-[20px] border bg-[#fafbf9] transition ${listening ? "border-[#00BF63] ring-3 ring-[#00BF63]/10" : "border-[#dfe5df]"}`}><Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escreva o que foi negociado ou toque no microfone para falar…" className="min-h-28 resize-none border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0" /><div className="flex items-center justify-between gap-3 border-t border-[#e6ebe6] px-3 py-2"><div className="flex items-center gap-2"><Button type="button" onClick={toggleListening} variant={listening ? "default" : "ghost"} size="icon" className={`rounded-full ${listening ? "bg-[#c85d4b] text-white hover:bg-[#b64f3e]" : "bg-white text-[#35483e] shadow-sm hover:bg-[#eef5ef]"}`} aria-label={listening ? "Parar gravação" : "Ditar observação"}>{listening ? <Square className="size-3.5 fill-current" /> : <Mic className="size-4" />}</Button><span className="hidden text-[11px] text-[#89958e] sm:inline">{listening ? "Fale agora. Toque para parar." : "Ditar observação"}</span></div><Button type="button" onClick={() => void register()} disabled={saving || !verified} size="sm" className="rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">{saving ? <LoaderCircle className="animate-spin" /> : <>Registrar <Send /></>}</Button></div></div><p className="mt-3 flex items-center gap-2 text-[11px] leading-5 text-[#8a958e]"><CircleAlert className="size-3.5 shrink-0" />A voz é transcrita antes de salvar. O registro final fica permanente no histórico.</p></section></div></ScrollArea></>}</SheetContent></Sheet>;
 }
 
 function MiniDetail({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
