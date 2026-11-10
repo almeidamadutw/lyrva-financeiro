@@ -389,14 +389,22 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     }
   }, [unit, quickPeriod, dateFrom, dateTo, monthFilter, yearFilter]);
 
-  useEffect(() => { void load(); return () => { ++loadGeneration.current; loadingRef.current = null; }; }, [load]);
+  const activeLoad = useRef<typeof load | null>(null);
   useEffect(() => {
-    const refresh = () => { void load(true); };
+    activeLoad.current = load;
+    void load();
+    return () => {
+      activeLoad.current = null;
+      ++loadGeneration.current;
+      loadingRef.current = null;
+    };
+  }, [load]);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") void load(true); };
     const interval = window.setInterval(refresh, 300_000);
-    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
-    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
-    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibility); window.removeEventListener("focus", refresh); };
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", refresh); window.removeEventListener("focus", refresh); };
   }, [load]);
   useEffect(() => {
     if (!openPatientId) return;
@@ -415,6 +423,58 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       .catch(() => { if (active) setSelectedHistory([]); });
     return () => { active = false; };
   }, [selectedId]);
+
+  const refreshRegisteredCase = async (patient: CollectionPatient) => {
+    if (activeLoad.current !== load) {
+      void activeLoad.current?.(true, true);
+      return;
+    }
+
+    const generation = loadGeneration.current;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const [caseResult, contactResult] = await Promise.all([
+        supabase.from("collection_cases")
+          .select("status,next_action_at,protested_at,updated_at")
+          .eq("id", patient.id)
+          .eq("unit_id", patient.unitId)
+          .maybeSingle(),
+        (supabase as any).rpc("get_collection_contact_context", { p_case_ids: [patient.id] }),
+      ]);
+      if (generation !== loadGeneration.current) return;
+      const updatedCase = caseResult.data;
+      const contact = (contactResult.data as ContactContextRow[] | null)?.[0];
+      if (caseResult.error || contactResult.error || !updatedCase || !contact) {
+        await load(true, true);
+        return;
+      }
+
+      // A recarga iniciada antes do registro pode conter a situação anterior.
+      const refreshWasRunning = loadingRef.current !== null;
+      ++loadGeneration.current;
+      loadingRef.current = null;
+      setLoading(false);
+
+      const siblingIds = new Set(queue
+        .filter((row) => row.unit_id === patient.unitId && row.patient_id === patient.patientId)
+        .map((row) => row.id));
+      setQueue((rows) => rows.map((row) => row.id === patient.id ? { ...row, ...updatedCase } : row));
+      setContactContexts((rows) => [
+        ...rows.filter((row) => row.collection_case_id !== patient.id).map((row) => siblingIds.has(row.collection_case_id) ? {
+          ...row,
+          has_patient_contact: contact.has_patient_contact,
+          patient_contact_outcome: contact.patient_contact_outcome,
+        } : row),
+        contact,
+      ]);
+
+      if (refreshWasRunning || updatedCase.status === "paid" || updatedCase.status === "closed") {
+        void load(true, true);
+      }
+    } catch {
+      if (generation === loadGeneration.current) await load(true, true);
+    }
+  };
 
   const profileById = useMemo(() => new Map(profiles.map((profile) => [profile.user_id, profile.full_name])), [profiles]);
   const overdueCountByPatientUnit = useMemo(() => new Map(
@@ -731,12 +791,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       </aside>
     </section>
 
-    <NegotiationSheet patient={selected} onClose={() => setSelectedId(null)} onRegistered={async () => {
-      await load(false, true);
-      if (selectedId) {
-        try { setSelectedHistory(await fetchCollectionCaseHistory(selectedId)); } catch { /* mantém a última versão visível */ }
-      }
-    }} />
+    <NegotiationSheet patient={selected} onClose={() => setSelectedId(null)} onRegistered={refreshRegisteredCase} />
   </div>;
 }
 
@@ -777,7 +832,7 @@ function ProtestedBlock({ patients, onOpen, loading }: { patients: CollectionPat
   return <div className="grid gap-4 p-5 md:grid-cols-2 md:p-6">{patients.map((patient) => <article key={patient.id} className="rounded-[20px] border border-[#efd7d0] bg-[#fffafa] p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[#402d28]">{patient.name}</p><p className="mt-1 text-xs text-[#9b766c]">{patient.unit} • {patient.protestedAt ?? "Protesto registrado"}</p></div><Badge className="bg-[#fae8e3] text-[#934c3e] hover:bg-[#fae8e3]">Protestado</Badge></div><div className="mt-5 flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.1em] text-[#a09089]">Valor em aberto</p><p className="mt-1 font-display text-xl font-semibold text-[#402d28]">{patient.amount}</p></div><Button onClick={() => onOpen(patient.id)} variant="outline" size="sm" className="border-[#e6cfc8] bg-white text-[#75483e] hover:bg-[#fff5f1]">Ver histórico</Button></div></article>)}</div>;
 }
 
-function NegotiationSheet({ patient, onClose, onRegistered }: { patient: CollectionPatient | null; onClose: () => void; onRegistered: () => Promise<void> }) {
+function NegotiationSheet({ patient, onClose, onRegistered }: { patient: CollectionPatient | null; onClose: () => void; onRegistered: (patient: CollectionPatient) => Promise<void> }) {
   const [note, setNote] = useState("");
   const [outcome, setOutcome] = useState("contact");
   const [nextDate, setNextDate] = useState("");
@@ -896,6 +951,7 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
   };
 
   const register = async () => {
+    if (saving) return;
     if (!patient || !note.trim()) { toast.info("Conte o que foi negociado antes de registrar."); return; }
     if (outcome === "promise" && !nextDate) { toast.info("Escolha a data combinada para o pagamento."); return; }
     setSaving(true);
@@ -919,14 +975,14 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
             : "O histórico real do paciente foi atualizado.";
       toast.success("Atualização registrada", { description: successDescription });
       setNote(""); setNextDate(""); setOutcome("contact"); stopListening();
-      await onRegistered();
+      await onRegistered(patient);
       onClose();
     } catch (error) {
       toast.error("Não foi possível registrar a negociação", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally { setSaving(false); }
   };
 
-  return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={patient.amount} /><MiniDetail label="Vencimento" value={patient.dueDate} /><MiniDetail label="Atraso" value={patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{(!patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000) && <p role="status" className="mt-2 text-xs text-[#8a651f]">Validando o título no Clinicorp. O registro será liberado automaticamente após a conferência.</p>}</div>{listening && <Badge className="animate-pulse bg-[#fae8e3] text-[#9b4d3e] hover:bg-[#fae8e3]"><span className="mr-1.5 size-1.5 rounded-full bg-[#c25e4c]" />Ouvindo</Badge>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="collection-outcome" className="text-xs font-semibold text-[#53645a]">Resultado do contato</Label><Select value={outcome} onValueChange={setOutcome}><SelectTrigger id="collection-outcome" className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">Aguardando resposta</SelectItem><SelectItem value="negotiation">Em negociação</SelectItem><SelectItem value="promise">Promessa de pagamento</SelectItem><SelectItem value="payment">Pagamento informado</SelectItem><SelectItem value="renegotiated">Renegociação concluída</SelectItem><SelectItem value="no-contact">Não atendeu</SelectItem><SelectItem value="protest">Título protestado</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label htmlFor="collection-date" className="text-xs font-semibold text-[#53645a]">Próxima data combinada</Label><Input id="collection-date" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} className="h-10 rounded-xl shadow-none" disabled={["protest", "payment", "renegotiated"].includes(outcome)} /></div></div><div className={`mt-4 overflow-hidden rounded-[20px] border bg-[#fafbf9] transition ${listening ? "border-[#00BF63] ring-3 ring-[#00BF63]/10" : "border-[#dfe5df]"}`}><Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escreva o que foi negociado ou toque no microfone para falar…" className="min-h-28 resize-none border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0" /><div className="flex items-center justify-between gap-3 border-t border-[#e6ebe6] px-3 py-2"><div className="flex items-center gap-2"><Button type="button" onClick={toggleListening} variant={listening ? "default" : "ghost"} size="icon" className={`rounded-full ${listening ? "bg-[#c85d4b] text-white hover:bg-[#b64f3e]" : "bg-white text-[#35483e] shadow-sm hover:bg-[#eef5ef]"}`} aria-label={listening ? "Parar gravação" : "Ditar observação"}>{listening ? <Square className="size-3.5 fill-current" /> : <Mic className="size-4" />}</Button><span className="hidden text-[11px] text-[#89958e] sm:inline">{listening ? "Fale agora. Toque para parar." : "Ditar observação"}</span></div><Button type="button" onClick={() => void register()} disabled={saving || !patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000} size="sm" className="rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">{saving ? <LoaderCircle className="animate-spin" /> : <>Registrar <Send /></>}</Button></div></div><p className="mt-3 flex items-center gap-2 text-[11px] leading-5 text-[#8a958e]"><CircleAlert className="size-3.5 shrink-0" />A voz é transcrita antes de salvar. O registro final fica permanente no histórico.</p></section></div></ScrollArea></>}</SheetContent></Sheet>;
+  return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open && !saving) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={patient.amount} /><MiniDetail label="Vencimento" value={patient.dueDate} /><MiniDetail label="Atraso" value={patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{(!patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000) && <p role="status" className="mt-2 text-xs text-[#8a651f]">Validando o título no Clinicorp. O registro será liberado automaticamente após a conferência.</p>}</div>{listening && <Badge className="animate-pulse bg-[#fae8e3] text-[#9b4d3e] hover:bg-[#fae8e3]"><span className="mr-1.5 size-1.5 rounded-full bg-[#c25e4c]" />Ouvindo</Badge>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="space-y-2"><Label htmlFor="collection-outcome" className="text-xs font-semibold text-[#53645a]">Resultado do contato</Label><Select value={outcome} onValueChange={setOutcome}><SelectTrigger id="collection-outcome" className="h-10 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="contact">Aguardando resposta</SelectItem><SelectItem value="negotiation">Em negociação</SelectItem><SelectItem value="promise">Promessa de pagamento</SelectItem><SelectItem value="payment">Pagamento informado</SelectItem><SelectItem value="renegotiated">Renegociação concluída</SelectItem><SelectItem value="no-contact">Não atendeu</SelectItem><SelectItem value="protest">Título protestado</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label htmlFor="collection-date" className="text-xs font-semibold text-[#53645a]">Próxima data combinada</Label><Input id="collection-date" type="date" value={nextDate} onChange={(event) => setNextDate(event.target.value)} className="h-10 rounded-xl shadow-none" disabled={["protest", "payment", "renegotiated"].includes(outcome)} /></div></div><div className={`mt-4 overflow-hidden rounded-[20px] border bg-[#fafbf9] transition ${listening ? "border-[#00BF63] ring-3 ring-[#00BF63]/10" : "border-[#dfe5df]"}`}><Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escreva o que foi negociado ou toque no microfone para falar…" className="min-h-28 resize-none border-0 bg-transparent px-4 py-4 shadow-none focus-visible:ring-0" /><div className="flex items-center justify-between gap-3 border-t border-[#e6ebe6] px-3 py-2"><div className="flex items-center gap-2"><Button type="button" onClick={toggleListening} variant={listening ? "default" : "ghost"} size="icon" className={`rounded-full ${listening ? "bg-[#c85d4b] text-white hover:bg-[#b64f3e]" : "bg-white text-[#35483e] shadow-sm hover:bg-[#eef5ef]"}`} aria-label={listening ? "Parar gravação" : "Ditar observação"}>{listening ? <Square className="size-3.5 fill-current" /> : <Mic className="size-4" />}</Button><span className="hidden text-[11px] text-[#89958e] sm:inline">{listening ? "Fale agora. Toque para parar." : "Ditar observação"}</span></div><Button type="button" onClick={() => void register()} disabled={saving || !patient.sourceVerifiedAt || Date.now()-new Date(patient.sourceVerifiedAt).getTime()>300_000} size="sm" className="rounded-xl bg-[#00BF63] font-semibold text-[#10221f] hover:bg-[#00d56e]">{saving ? <LoaderCircle className="animate-spin" /> : <>Registrar <Send /></>}</Button></div></div><p className="mt-3 flex items-center gap-2 text-[11px] leading-5 text-[#8a958e]"><CircleAlert className="size-3.5 shrink-0" />A voz é transcrita antes de salvar. O registro final fica permanente no histórico.</p></section></div></ScrollArea></>}</SheetContent></Sheet>;
 }
 
 function MiniDetail({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {

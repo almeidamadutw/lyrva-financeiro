@@ -199,7 +199,7 @@ test("keeps manual patient registration connected to the patients screen", async
 
   assert.match(app, /import \{ ManualPatientDialog \}/);
   assert.match(app, /<ManualPatientDialog onSaved=\{onSaved\} \/>/);
-  assert.match(app, /onSaved=\{\(\) => loadFinancialData\(true\)\}/);
+  assert.match(app, /onSaved=\{\(\) => loadPatients\(true\)\}/);
   assert.match(dialog, /rpc\("import_patients"/);
   assert.match(dialog, /p_file_name: "cadastro manual"/);
   assert.match(dialog, /source: "manual"/);
