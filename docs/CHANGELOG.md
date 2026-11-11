@@ -1,5 +1,10 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-11 — Acesso da equipe a Diárias
+
+- Liberado o módulo para as contas operacionais ativas de Lembretes, Cobrança e Notas fiscais nas unidades já atribuídas, por meio de `private.professional_pay_operators`.
+- Confirmadas em produção as duas unidades retornadas por `get_professional_pay_units` para cada conta ativa, em transações de leitura no contexto autenticado de cada perfil.
+
 ## 2026-11-11 — Folha de ponto e diárias
 
 - Adicionada a aba **Diárias** com folha mensal, conferência manual, regras com vigência e registro de pagamento.
