@@ -1,4 +1,14 @@
-# LYVRA
+# LYVRA | Sistema financeiro Casal Odonto
+
+**Documentação viva:** [índice completo em `docs/README.md`](docs/README.md). O projeto agora possui documentação padronizada de arquitetura, processos, dados, módulos, permissões, testes e pendências, com atualização obrigatória junto ao código.
+
+**Origem desta edição:** análise do repositório em 2026-11-11. A documentação nova diferencia funcionalidades existentes, comportamento descrito no código e requisitos ainda planejados. O histórico técnico preexistente abaixo foi preservado.
+
+> A integração com Clinicorp exige conciliação rigorosa; qualquer dado não confirmado deve continuar identificado como pendente de conferência. Nunca versionar dados financeiros pessoais nem credenciais.
+
+---
+
+## Documentação técnica preexistente (preservada)
 
 Sistema financeiro interno da Casal Odonto para acompanhar pacientes, parcelas, baixas, cobrança, tarefas financeiras e obrigações de nota fiscal das unidades de Sorocaba e Salto de Pirapora.
 

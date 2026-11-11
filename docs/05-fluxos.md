@@ -1,0 +1,35 @@
+# Fluxos passo a passo
+
+## 1. Conferir pacientes e unidade
+1. Entre com perfil autorizado.
+2. Selecione **Sorocaba** ou **Salto de Pirapora**.
+3. Abra **Pacientes** e procure antes de cadastrar.
+4. Confira identidade e informações financeiras; não confie em coincidência de nome.
+5. Se importar planilha, revise cada unidade incerta antes de confirmar.
+
+## 2. Lembrete de boleto
+1. Abra **Jornada financeira** ou **Lembretes de boleto**.
+2. Consulte títulos elegíveis no período e a conferência do Clinicorp.
+3. Revise os dados do destinatário, vencimento, valor e eventual baixa.
+4. Não enviar lembrete de título cancelado, quitado ou sem validação.
+5. Não presumir que clicar em um botão envia WhatsApp automaticamente. Validar template aprovado e configuração do canal.
+
+## 3. Cobrança e negociação
+1. Após o prazo previsto, abra **Régua de cobrança**.
+2. Use **Todos** para localizar quem não recebeu primeiro contato.
+3. Abra o caso, confira a conciliação e registre contato, canal, resultado e próxima ação.
+4. Casos aguardando resposta aparecem em **Hoje**; datas combinadas em **Promessas**.
+5. Registre renegociação somente com contexto da parcela e sem confundir promessa com quitação.
+6. Uma baixa confirmada remove o título elegível da régua; revisar divergências antes de decidir.
+
+## 4. Nota fiscal
+1. Abra **Notas fiscais**.
+2. Confira dados e condições de emissão; situações incluem pronta, pendente, emitida e divergente.
+3. Emita pelo processo fiscal autorizado, fora do LYVRA quando não houver emissão automática.
+4. Marque como emitida somente após a emissão efetiva e com evidência.
+
+## 5. Acompanhamento de integração
+1. Abra **Integrações** e/ou o indicador de sincronização do Clinicorp.
+2. Consulte falhas, limites, unidades e título em conferência.
+3. Priorize diagnóstico; não forçar união de registros com identidade ambígua.
+4. Consulte [documento especializado](clinicorp-financial-recovery.md) antes de alterar o trabalhador.
