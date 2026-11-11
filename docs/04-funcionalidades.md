@@ -10,6 +10,7 @@ Menu identificado em `components/lyvra-app.tsx`:
 | Notas fiscais | Acompanhar obrigações e marcar emissão | Implementada; não emitir automaticamente por dedução |
 | Régua de cobrança | Separar carteiras, contatos, negociações e promessas | Implementada |
 | Gráficos | Para renegociar, dívida renegociada, quitados em atraso | Implementada com critérios descritos no README |
+| Diárias | Conferir folha de ponto mensal, regras de remuneração, pendências e pagamentos de profissionais | Implementada para perfis autorizados por unidade |
 | Pacientes | Buscar, conferir cadastro e situação financeira | Implementada |
 | Gerenciar acessos | Perfis, unidades e ativação | Restrita |
 | Central de suporte | Problemas e operações autorizadas | Restrita |
@@ -28,5 +29,6 @@ Além da lista filtrada, existe conferência de estado externo do Clinicorp para
 ### Gráficos
 Não somar indicadores com bases distintas. Consultar critérios no README original e `lib/collection-analytics.ts`.
 
-### Não implementado nesta revisão
-Módulo específico de **Diárias / Pagamentos de Profissionais** não apareceu na navegação verificada; é requisito a desenvolver e está registrado em `08-pendencias.md`.
+### Diárias
+
+A tela mostra os dias da competência por profissional e unidade. Permite cadastrar regras, salvar pendências, validar o comparecimento com as duas assinaturas, registrar o pagamento já efetuado e consultar o histórico do dia. O resumo mostra os valores a pagar e pagos, com totais da unidade e do profissional selecionado.

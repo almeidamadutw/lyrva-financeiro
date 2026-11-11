@@ -33,3 +33,12 @@
 2. Consulte falhas, limites, unidades e título em conferência.
 3. Priorize diagnóstico; não forçar união de registros com identidade ambígua.
 4. Consulte [documento especializado](clinicorp-financial-recovery.md) antes de alterar o trabalhador.
+
+## 6. Conferir a folha e registrar a diária
+
+1. Abra **Diárias** e escolha a unidade e o mês de trabalho.
+2. No primeiro uso, cadastre o profissional nessa unidade e informe a forma de remuneração e a data inicial da regra. Para um reajuste, abra **Regra de remuneração** e salve a nova vigência.
+3. Com a folha física em mãos, selecione o profissional e clique em **Lançar** na linha do dia. Confirme a assinatura do profissional e o visto do financeiro.
+4. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o tipo de serviço e o valor e clique em **Validar comparecimento**. Para procedimento ou entrega, descreva o serviço e informe o total conferido do dia.
+5. Revise **A pagar** na competência. Depois de efetuar o pagamento, abra o dia e use **Registrar pagamento** com a data efetiva e a referência do comprovante, quando houver.
+6. Para corrigir um dia validado, use **Reabrir dia** e informe o motivo. Use **Cancelar lançamento** para retirar um registro indevido. O histórico do dia mostra quem fez cada ação.

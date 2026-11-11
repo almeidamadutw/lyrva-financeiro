@@ -1,17 +1,15 @@
 # Backlog e pendências
 
-## Requisito novo: Diárias / Pagamentos de Profissionais
-**Status: especificação inicial / não identificado como módulo implementado na navegação consultada em 2026-11-11.** Não lançar como entregue.
+## Diárias / Pagamentos de Profissionais
 
-Objetivo: registrar comparecimento de dentistas/profissionais, unidade, data, tipo de serviço, diária ou regra de remuneração, assinaturas de comparecimento e aprovação do responsável financeiro. Valores de diárias e exceções devem ser configuráveis e versionados, jamais fixos em código. Evitar dupla contabilização por data/profissional/unidade; apoiar fechamento por competência e trilha de alterações. Regras nominais e tabelas de valores só entram em configuração operacional após revisão e autorização, sem expor remuneração individual em documentação pública.
+A primeira versão cobre folha mensal por unidade e profissional, regras versionadas, conferência manual das assinaturas, bloqueio de duplicidade, registro do pagamento por dia e histórico.
 
-### Critérios de aceite propostos
-1. Perfis autorizados gerenciam profissionais e regras editáveis.
-2. Check-in registra data, unidade, serviço e evidências de aprovação/assinatura.
-3. Cálculo distingue diária comum, sábado, planejamento e exceção.
-4. Alteração de tabela preserva histórico e não recalcula pagamentos fechados sem ação auditada.
-5. Financeiro revisa e aprova antes de considerar pago.
-6. Testes cobrem duplicidade, acesso, unidades, cancelamento e relatório.
+| Item | Estado |
+| --- | --- |
+| Cadastro da tabela aprovada por unidade e vigência | A configurar no ambiente da clínica |
+| Agenda ou cadastro de profissionais do Clinicorp como referência | Evolução futura |
+| Anexar folha digitalizada ou comprovante | Evolução futura. A interface guarda referência textual do comprovante |
+| Fechamento em lote e estorno de lançamento pago | Evolução futura. O fechamento atual é a conferência dos totais da competência com baixas individuais |
 
 ## Outras pendências
 | Item | Estado | Próxima ação |

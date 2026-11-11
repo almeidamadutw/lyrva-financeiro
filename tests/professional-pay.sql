@@ -1,0 +1,150 @@
+-- Run after the migration on an isolated LYVRA database. Fixtures are rolled back.
+begin;
+
+insert into public.staff_invitations (email, full_name, role) values
+  ('professional-pay-manager@example.invalid', 'Gestão de teste', 'gestora'),
+  ('professional-pay-operator@example.invalid', 'Operador de teste', 'suporte'),
+  ('professional-pay-member@example.invalid', 'Membro de teste', 'membro');
+insert into public.staff_invitation_units (invitation_id, unit_id)
+select i.id, u.id from public.staff_invitations i cross join public.units u
+where i.email like 'professional-pay-%@example.invalid' and u.code in ('sorocaba', 'salto_de_pirapora');
+insert into auth.users (id, email) values
+  ('e0000000-0000-0000-0000-000000000001', 'professional-pay-manager@example.invalid'),
+  ('e0000000-0000-0000-0000-000000000002', 'professional-pay-operator@example.invalid'),
+  ('e0000000-0000-0000-0000-000000000003', 'professional-pay-member@example.invalid');
+insert into private.professional_pay_operators (user_id, unit_id)
+select 'e0000000-0000-0000-0000-000000000002', id from public.units where code = 'sorocaba';
+
+select set_config('request.jwt.claim.sub', 'e0000000-0000-0000-0000-000000000001', true);
+set local role authenticated;
+
+do $test$
+declare
+  unit_id_for_test bigint := (select id from public.get_professional_pay_units() where code = 'sorocaba');
+  other_unit bigint := (select id from public.get_professional_pay_units() where code = 'salto_de_pirapora');
+  professional bigint;
+  variable_professional bigint;
+  delivery_professional bigint;
+  daily_rule bigint;
+  updated_rule bigint;
+  attendance bigint;
+  input jsonb;
+  rates jsonb := '{"name":"Profissional de teste","effective_from":"2026-01-01","mode":"daily","daily_cents":10000,"planning_cents":6000,"saturday_cents":7000}';
+begin
+  if unit_id_for_test is null or other_unit is null then raise exception 'Gestora sem acesso às unidades autorizadas.'; end if;
+  professional := public.save_professional_pay_rule(unit_id_for_test, rates);
+  perform public.save_professional_pay_rule(other_unit, rates);
+  select id into strict daily_rule from public.professional_pay_rules where professional_id = professional;
+  input := jsonb_build_object('professional_id', professional, 'work_date', '2026-11-07',
+    'revision', 0, 'professional_signed', true, 'finance_signed', false, 'rule_id', daily_rule);
+  attendance := public.save_professional_attendance(unit_id_for_test, 'pending', input);
+
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"revision":1}');
+    raise exception 'Ausência de assinatura aceita.';
+  exception when raise_exception then
+    if sqlerrm <> 'Confirme as assinaturas do profissional e do financeiro antes de validar.' then raise; end if;
+  end;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'pay', input || '{"revision":1,"paid_on":"2026-11-09"}');
+    raise exception 'Pendência marcada como paga.';
+  exception when raise_exception then
+    if sqlerrm <> 'Apenas lançamentos validados podem ser marcados como pagos.' then raise; end if;
+  end;
+
+  perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"revision":1,"finance_signed":true}');
+  if not exists (select 1 from public.professional_attendance where id = attendance and status = 'validated'
+    and amount_cents = 7000 and service_kind = 'saturday' and paid_on is null) then
+    raise exception 'Diária de sábado ou estado de validação incorreto.';
+  end if;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"finance_signed":true}');
+    raise exception 'Tentativa duplicada aceita.';
+  exception when raise_exception then
+    if sqlerrm <> 'Este dia foi alterado. Atualize a folha antes de continuar.' then raise; end if;
+  end;
+
+  perform public.save_professional_pay_rule(unit_id_for_test, rates || jsonb_build_object('professional_id', professional, 'daily_cents', 12000, 'saturday_cents', 9000));
+  select max(id) into strict updated_rule from public.professional_pay_rules where professional_id = professional;
+  perform public.save_professional_attendance(unit_id_for_test, 'pay', input || '{"revision":2,"paid_on":"2026-11-09"}');
+  if not exists (select 1 from public.professional_attendance where id = attendance and status = 'paid'
+    and amount_cents = 7000 and rule_id = daily_rule and paid_on = '2026-11-09') then
+    raise exception 'Reajuste alterou valor validado ou pagamento ficou incorreto.';
+  end if;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'cancel', input || '{"revision":3,"reason":"Teste"}');
+    raise exception 'Pagamento cancelado indevidamente.';
+  exception when raise_exception then
+    if sqlerrm <> 'Este lançamento não pode mudar para o status solicitado.' then raise; end if;
+  end;
+  if (select count(*) from public.professional_attendance_history where attendance_id = attendance) <> 3 then
+    raise exception 'Trilha da diária incompleta.';
+  end if;
+
+  input := input || '{"work_date":"2026-11-09","finance_signed":true,"planning":true}';
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input);
+    raise exception 'Regra desatualizada aceita.';
+  exception when raise_exception then
+    if sqlerrm <> 'A regra desta data mudou. Reabra o lançamento e confira o valor.' then raise; end if;
+  end;
+  attendance := public.save_professional_attendance(unit_id_for_test, 'validate', input || jsonb_build_object('rule_id', updated_rule));
+  if not exists (select 1 from public.professional_attendance where id = attendance and service_kind = 'planning' and amount_cents = 6000) then
+    raise exception 'Valor de planejamento incorreto.';
+  end if;
+  perform public.save_professional_attendance(unit_id_for_test, 'reopen', input || '{"revision":1,"reason":"Revisar papel"}');
+  perform public.save_professional_attendance(unit_id_for_test, 'cancel', input || '{"revision":2,"reason":"Linha incorreta"}');
+  if not exists (select 1 from public.professional_attendance where id = attendance and status = 'cancelled' and amount_cents is null) then
+    raise exception 'Cancelamento não retirou o valor em aberto.';
+  end if;
+  perform public.save_professional_attendance(unit_id_for_test, 'reopen', input || '{"revision":3,"reason":"Linha recuperada"}');
+  if not exists (select 1 from public.professional_attendance where id = attendance and status = 'pending' and not finance_signed) then
+    raise exception 'Reabertura liberou valor sem reconferência.';
+  end if;
+
+  variable_professional := public.save_professional_pay_rule(unit_id_for_test, '{"name":"Procedimento teste","effective_from":"2026-01-01","mode":"procedure"}');
+  delivery_professional := public.save_professional_pay_rule(unit_id_for_test, '{"name":"Entrega teste","effective_from":"2026-01-01","mode":"delivery"}');
+  for professional in select unnest(array[variable_professional, delivery_professional]) loop
+    select id into strict updated_rule from public.professional_pay_rules where professional_id = professional;
+    input := jsonb_build_object('professional_id', professional, 'work_date', '2026-11-09', 'revision', 0,
+      'professional_signed', true, 'finance_signed', true, 'rule_id', updated_rule, 'amount_cents', 12345);
+    begin
+      perform public.save_professional_attendance(unit_id_for_test, 'validate', input);
+      raise exception 'Remuneração variável sem descrição aceita.';
+    exception when raise_exception then
+      if sqlerrm <> 'Informe o valor e descreva o procedimento ou a entrega.' then raise; end if;
+    end;
+    attendance := public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"notes":"Serviço de teste"}');
+    if not exists (select 1 from public.professional_attendance where id = attendance and amount_cents = 12345
+      and service_kind = case when professional = variable_professional then 'procedure' else 'delivery' end) then
+      raise exception 'Lançamento variável incorreto.';
+    end if;
+  end loop;
+
+  begin
+    update public.professional_attendance set amount_cents = 1 where id = attendance;
+    raise exception 'Escrita direta por usuário autenticado aceita.';
+  exception when insufficient_privilege then null;
+  end;
+  perform set_config('request.jwt.claim.sub', 'e0000000-0000-0000-0000-000000000002', true);
+  if exists (select 1 from public.units)
+    or (select count(*) from public.get_professional_pay_units()) <> 1
+    or exists (select 1 from public.professional_pay_profiles where unit_id = other_unit) then
+    raise exception 'Acesso delegado vazou dados de outra unidade.';
+  end if;
+  begin
+    perform public.save_professional_pay_rule(other_unit, rates);
+    raise exception 'Operador gravou fora da unidade liberada.';
+  exception when insufficient_privilege then null;
+  end;
+  perform set_config('request.jwt.claim.sub', 'e0000000-0000-0000-0000-000000000003', true);
+  if exists (select 1 from public.get_professional_pay_units())
+    or exists (select 1 from public.professional_attendance)
+    or exists (select 1 from public.professional_attendance_history) then
+    raise exception 'Perfil financeiro sem permissão acessou a folha.';
+  end if;
+end
+$test$;
+
+reset role;
+rollback;

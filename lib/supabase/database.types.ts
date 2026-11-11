@@ -6,6 +6,56 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export type ProfessionalPayMode = "daily" | "procedure" | "delivery"
+export type ProfessionalAttendanceStatus = "pending" | "validated" | "paid" | "cancelled"
+export type ProfessionalServiceKind = ProfessionalPayMode | "planning" | "saturday"
+
+export type ProfessionalPayUnit = { id: number; code: string; name: string }
+type ProfessionalPayProfile = { id: number; unit_id: number; name: string }
+type ProfessionalPayRule = {
+  id: number
+  unit_id: number
+  professional_id: number
+  effective_from: string
+  mode: ProfessionalPayMode
+  daily_cents: number | null
+  planning_cents: number | null
+  saturday_cents: number | null
+  created_by: string
+  created_at: string
+}
+export type ProfessionalAttendance = {
+  id: number
+  unit_id: number
+  professional_id: number
+  work_date: string
+  status: ProfessionalAttendanceStatus
+  service_kind: ProfessionalServiceKind
+  professional_signed: boolean
+  finance_signed: boolean
+  notes: string | null
+  rule_id: number | null
+  amount_cents: number | null
+  proposed_amount_cents: number | null
+  validated_by: string | null
+  validated_at: string | null
+  paid_on: string | null
+  payment_reference: string | null
+  change_reason: string | null
+  updated_by: string
+  updated_at: string
+  revision: number
+}
+type ProfessionalAttendanceHistory = {
+  id: number
+  unit_id: number
+  attendance_id: number
+  actor_name: string
+  occurred_at: string
+  snapshot: ProfessionalAttendance
+}
+type ProfessionalPayReadOnlyTable<Row> = { Row: Row; Insert: never; Update: never; Relationships: [] }
+
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
@@ -14,6 +64,10 @@ export type Database = {
   }
   public: {
     Tables: {
+      professional_pay_profiles: ProfessionalPayReadOnlyTable<ProfessionalPayProfile>
+      professional_pay_rules: ProfessionalPayReadOnlyTable<ProfessionalPayRule>
+      professional_attendance: ProfessionalPayReadOnlyTable<ProfessionalAttendance>
+      professional_attendance_history: ProfessionalPayReadOnlyTable<ProfessionalAttendanceHistory>
       audit_logs: {
         Row: {
           action: string
@@ -1872,6 +1926,18 @@ export type Database = {
       }
     }
     Functions: {
+      get_professional_pay_units: {
+        Args: Record<PropertyKey, never>
+        Returns: ProfessionalPayUnit[]
+      }
+      save_professional_pay_rule: {
+        Args: { p_unit_id: number; p_input: Json }
+        Returns: number
+      }
+      save_professional_attendance: {
+        Args: { p_unit_id: number; p_action: "pending" | "validate" | "pay" | "reopen" | "cancel"; p_input: Json }
+        Returns: number
+      }
       get_clinicorp_case_verification: {
         Args: { p_case_id: number }
         Returns: Json

@@ -1,0 +1,513 @@
+"use client";
+
+import { useEffect, useState, type FormEvent } from "react";
+import { LoaderCircle, Plus } from "lucide-react";
+import { toast } from "sonner";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  attendanceLabels,
+  formatAttendanceDay,
+  formatPayAmount,
+  isAttendanceSaturday,
+  payCents,
+  payMonthDays,
+  payToday,
+  serviceLabels,
+} from "@/lib/professional-pay";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { Database, Json, ProfessionalAttendance, ProfessionalPayMode, ProfessionalPayUnit } from "@/lib/supabase/database.types";
+
+type Profile = Database["public"]["Tables"]["professional_pay_profiles"]["Row"];
+type Rule = Database["public"]["Tables"]["professional_pay_rules"]["Row"];
+type History = Database["public"]["Tables"]["professional_attendance_history"]["Row"];
+type AttendanceAction = Database["public"]["Functions"]["save_professional_attendance"]["Args"]["p_action"];
+type MonthData = { profiles: Profile[]; rows: ProfessionalAttendance[] };
+
+const selectClass = "h-9 w-full rounded-md border border-input bg-white px-3 text-sm";
+const statusClasses = {
+  pending: "border-amber-200 bg-amber-50 text-amber-900",
+  validated: "border-sky-200 bg-sky-50 text-sky-900",
+  paid: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  cancelled: "border-stone-200 bg-stone-100 text-stone-700",
+};
+const historyDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
+const dateLabel = (date: string) => date.split("-").reverse().join("/");
+const editableAmount = (cents: number | null | undefined) => cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",");
+
+function failMessage(error: unknown) {
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  return "Tente novamente em instantes.";
+}
+
+async function listMonth(unitId: number, month: string): Promise<MonthData> {
+  const supabase = getSupabaseBrowserClient();
+  const days = payMonthDays(month);
+  const profiles: Profile[] = [];
+  const rows: ProfessionalAttendance[] = [];
+  const pageSize = 500;
+
+  const loadProfiles = async () => {
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase.from("professional_pay_profiles").select("*")
+        .eq("unit_id", unitId).order("name").order("id").range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      profiles.push(...data);
+      if (data.length < pageSize) return;
+    }
+  };
+  const loadRows = async () => {
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase.from("professional_attendance").select("*")
+        .eq("unit_id", unitId).gte("work_date", days[0]).lte("work_date", days[days.length - 1])
+        .order("id").range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      rows.push(...data);
+      if (data.length < pageSize) return;
+    }
+  };
+  await Promise.all([loadProfiles(), loadRows()]);
+  return { profiles, rows };
+}
+
+async function readRule(unitId: number, professionalId: number, workDate?: string) {
+  let query = getSupabaseBrowserClient().from("professional_pay_rules").select("*")
+    .eq("unit_id", unitId).eq("professional_id", professionalId);
+  if (workDate) query = query.lte("effective_from", workDate);
+  const { data, error } = await query.order("effective_from", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function Status({ row }: { row?: ProfessionalAttendance }) {
+  return row
+    ? <Badge variant="outline" className={statusClasses[row.status]}>{attendanceLabels[row.status]}</Badge>
+    : <span className="text-muted-foreground">Em branco</span>;
+}
+
+export function ProfessionalPayView({ units }: { units: ProfessionalPayUnit[] }) {
+  const [unitId, setUnitId] = useState(units[0]?.id);
+  const [month, setMonth] = useState(() => payToday().slice(0, 7));
+  const unit = units.find((item) => item.id === unitId) ?? units[0];
+  if (!unit) return null;
+
+  return (
+    <div className="space-y-5">
+      <section className="surface-card flex flex-wrap gap-4 rounded-[24px] p-5">
+        <div className="w-full space-y-1.5 sm:w-56">
+          <Label htmlFor="professional-pay-unit">Unidade</Label>
+          <select id="professional-pay-unit" className={selectClass} value={unit.id} onChange={(event) => setUnitId(Number(event.target.value))}>
+            {units.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+        </div>
+        <div className="w-full space-y-1.5 sm:w-48">
+          <Label htmlFor="professional-pay-month">Competência</Label>
+          <Input id="professional-pay-month" type="month" value={month} min="2000-01" max={payToday().slice(0, 7)}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (/^\d{4}-(0[1-9]|1[0-2])$/.test(value) && value >= "2000-01" && value <= payToday().slice(0, 7)) setMonth(value);
+            }} />
+        </div>
+      </section>
+      <MonthlyAttendance key={unit.id + ":" + month} unit={unit} month={month} />
+    </div>
+  );
+}
+
+function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: string }) {
+  const [data, setData] = useState<MonthData | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
+  const [professionalId, setProfessionalId] = useState<number>();
+  const [ruleDialog, setRuleDialog] = useState<"new" | "edit" | null>(null);
+  const [openDate, setOpenDate] = useState<string | null>(null);
+  const refresh = () => {
+    setLoading(true);
+    setError("");
+    setReload((value) => value + 1);
+  };
+
+  useEffect(() => {
+    let active = true;
+    void listMonth(unit.id, month).then(
+      (result) => { if (active) setData(result); },
+      () => { if (active) setError("Não foi possível carregar a folha desta unidade."); },
+    ).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [unit.id, month, reload]);
+
+  const professional = data?.profiles.find((item) => item.id === professionalId) ?? data?.profiles[0];
+  const rowsByDate = new Map(data?.rows.filter((row) => row.professional_id === professional?.id).map((row) => [row.work_date, row]));
+  const today = payToday();
+  const totals = { pending: 0, validated: 0, paid: 0 };
+  const professionalTotals = { validated: 0, paid: 0 };
+  for (const row of data?.rows ?? []) {
+    if (row.status === "pending") totals.pending++;
+    if (row.status === "validated" || row.status === "paid") {
+      totals[row.status] += row.amount_cents ?? 0;
+      if (row.professional_id === professional?.id) professionalTotals[row.status] += row.amount_cents ?? 0;
+    }
+  }
+
+  if (loading) return <div role="status" className="surface-card flex items-center gap-3 rounded-[24px] p-5"><LoaderCircle className="size-4 animate-spin" /> Carregando folha de ponto…</div>;
+  if (error || !data) {
+    return <section role="alert" className="surface-card flex flex-wrap items-center gap-3 rounded-[24px] p-5">
+      {error} <Button variant="outline" size="sm" onClick={refresh}>Tentar novamente</Button>
+    </section>;
+  }
+
+  return (
+    <>
+      <dl aria-label="Totais da unidade na competência" className="grid gap-3 sm:grid-cols-3">
+        {[
+          { label: "Pendentes de conferência", value: totals.pending },
+          { label: "A pagar na unidade", value: formatPayAmount(totals.validated) },
+          { label: "Pago na unidade", value: formatPayAmount(totals.paid) },
+        ].map((item) => (
+          <div key={item.label} className="surface-card rounded-[20px] p-4">
+            <dt className="text-sm text-muted-foreground">{item.label}</dt>
+            <dd className="mt-1 font-display text-xl font-semibold tabular-nums">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <section className="surface-card overflow-hidden rounded-[24px]">
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b p-5">
+          {professional ? (
+            <div className="w-full space-y-1.5 sm:w-64">
+              <Label htmlFor="professional-pay-profile">Folha de ponto do profissional</Label>
+              <select id="professional-pay-profile" className={selectClass} value={professional.id}
+                onChange={(event) => setProfessionalId(Number(event.target.value))}>
+                {data.profiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">A pagar {formatPayAmount(professionalTotals.validated)} · Pago {formatPayAmount(professionalTotals.paid)}</p>
+            </div>
+          ) : <p className="text-sm text-muted-foreground">Nenhum profissional cadastrado nesta unidade.</p>}
+          <div className="flex flex-wrap gap-2">
+            {professional && <Button variant="outline" onClick={() => setRuleDialog("edit")}>Regra de remuneração</Button>}
+            <Button onClick={() => setRuleDialog("new")}><Plus /> Cadastrar profissional</Button>
+          </div>
+        </div>
+        {professional && (
+          <Table className="min-w-[630px]">
+            <TableHeader className="bg-muted/40">
+              <TableRow>
+                <TableHead className="pl-5">Dia</TableHead>
+                <TableHead>Assinaturas</TableHead>
+                <TableHead>Situação</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="pr-5 text-right"><span className="sr-only">Ação</span></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {payMonthDays(month).map((date) => {
+                const row = rowsByDate.get(date);
+                return <TableRow key={date}>
+                  <TableCell className="pl-5 font-medium">{formatAttendanceDay(date)}</TableCell>
+                  <TableCell>{row ? Number(row.professional_signed) + Number(row.finance_signed) + " de 2" : "—"}</TableCell>
+                  <TableCell><Status row={row} /></TableCell>
+                  <TableCell className="text-right tabular-nums">{row?.amount_cents ? formatPayAmount(row.amount_cents) : "—"}</TableCell>
+                  <TableCell className="pr-5 text-right">
+                    {date <= today && <Button variant="outline" size="sm" aria-label={(row ? "Ver" : "Lançar") + " dia " + dateLabel(date)}
+                      onClick={() => setOpenDate(date)}>{row ? "Ver dia" : "Lançar"}</Button>}
+                  </TableCell>
+                </TableRow>;
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </section>
+      {ruleDialog && <RuleDialog unit={unit} profile={ruleDialog === "edit" ? professional : undefined}
+        onClose={() => setRuleDialog(null)} onSaved={(id) => { setProfessionalId(id); setRuleDialog(null); refresh(); }} />}
+      {professional && openDate && <AttendanceDialog unit={unit} profile={professional} date={openDate}
+        row={rowsByDate.get(openDate)} onClose={() => { setOpenDate(null); refresh(); }}
+        onSaved={() => { setOpenDate(null); refresh(); }} />}
+    </>
+  );
+}
+
+function RuleDialog({ unit, profile, onClose, onSaved }: {
+  unit: ProfessionalPayUnit; profile?: Profile; onClose: () => void; onSaved: (id: number) => void;
+}) {
+  const [mode, setMode] = useState<ProfessionalPayMode>("daily");
+  const [previous, setPrevious] = useState<Rule | null>(null);
+  const [loading, setLoading] = useState(Boolean(profile));
+  const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const profileId = profile?.id;
+
+  useEffect(() => {
+    if (!profileId) return;
+    let active = true;
+    void readRule(unit.id, profileId).then((rule) => {
+      if (active) {
+        setPrevious(rule);
+        if (rule) setMode(rule.mode);
+      }
+    }, () => { if (active) setLoadError("Não foi possível carregar a regra atual."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [unit.id, profileId]);
+
+  async function saveRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const fields = new FormData(event.currentTarget);
+    const daily = String(fields.get("daily") ?? "");
+    const planning = String(fields.get("planning") ?? "");
+    const saturday = String(fields.get("saturday") ?? "");
+    if (mode === "daily" && (!payCents(daily) || (planning.trim() && !payCents(planning)) || (saturday.trim() && !payCents(saturday)))) {
+      setSaveError("Informe valores positivos em reais. Use vírgula para os centavos.");
+      return;
+    }
+    setBusy(true);
+    setSaveError("");
+    try {
+      const { data, error } = await getSupabaseBrowserClient().rpc("save_professional_pay_rule", {
+        p_unit_id: unit.id,
+        p_input: {
+          professional_id: profile?.id ?? null,
+          name: fields.get("name")?.toString() ?? null,
+          effective_from: fields.get("effective")?.toString() ?? null,
+          mode,
+          daily_cents: mode === "daily" ? payCents(daily) : null,
+          planning_cents: mode === "daily" ? payCents(planning) : null,
+          saturday_cents: mode === "daily" ? payCents(saturday) : null,
+        },
+      });
+      if (error) throw error;
+      toast.success(profile ? "Nova regra salva" : "Profissional cadastrado");
+      onSaved(data);
+    } catch (error) {
+      setSaveError(failMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{profile ? "Regra de remuneração" : "Cadastrar profissional"}</DialogTitle>
+          <DialogDescription>{profile ? profile.name + " · " + unit.name : unit.name}</DialogDescription>
+        </DialogHeader>
+        {loading && <p role="status" className="text-sm">Carregando regra…</p>}
+        {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
+        {!loading && !loadError && <form onSubmit={saveRule} className="space-y-4">
+          {!profile && <div className="space-y-1.5"><Label htmlFor="pay-profile-name">Nome do profissional</Label>
+            <Input name="name" id="pay-profile-name" minLength={2} maxLength={120} required /></div>}
+          <div className="space-y-1.5"><Label htmlFor="pay-mode">Forma de remuneração</Label>
+            <select id="pay-mode" className={selectClass} value={mode} onChange={(event) => setMode(event.target.value as ProfessionalPayMode)}>
+              <option value="daily">Diária</option><option value="procedure">Por procedimento</option><option value="delivery">Por entrega</option>
+            </select>
+          </div>
+          <div className="space-y-1.5"><Label htmlFor="pay-effective">Válida a partir de</Label>
+            <Input name="effective" id="pay-effective" type="date" min="2000-01-01" max="2099-12-31" defaultValue={payToday()} required />
+            {previous && <p className="text-xs text-muted-foreground">Última regra cadastrada com vigência em {dateLabel(previous.effective_from)}.</p>}
+          </div>
+          {mode === "daily" && <div className="space-y-3">
+            <MoneyField id="pay-daily" name="daily" label="Valor da diária (R$)" initial={previous?.daily_cents} required />
+            <MoneyField id="pay-planning" name="planning" label="Planejamento (R$, opcional)" initial={previous?.planning_cents} />
+            <MoneyField id="pay-saturday" name="saturday" label="Sábado (R$, opcional)" initial={previous?.saturday_cents} />
+          </div>}
+          {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
+          <div className="flex justify-end"><Button disabled={busy} type="submit">{busy ? "Salvando…" : "Salvar regra"}</Button></div>
+        </form>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MoneyField({ id, name, label, initial, required }: {
+  id: string; name: string; label: string; initial?: number | null; required?: boolean;
+}) {
+  return <div className="space-y-1.5">
+    <Label htmlFor={id}>{label}</Label>
+    <Input id={id} name={name} inputMode="decimal" placeholder="0,00" defaultValue={editableAmount(initial)} required={required} maxLength={14} />
+  </div>;
+}
+
+function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
+  unit: ProfessionalPayUnit; profile: Profile; date: string; row?: ProfessionalAttendance;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const editable = !row || row.status === "pending";
+  const [rule, setRule] = useState<Rule | null>(null);
+  const [history, setHistory] = useState<History[]>([]);
+  const [historyError, setHistoryError] = useState(false);
+  const [planning, setPlanning] = useState(row?.service_kind === "planning");
+  const [professionalSigned, setProfessionalSigned] = useState(row?.professional_signed ?? false);
+  const [financeSigned, setFinanceSigned] = useState(row?.finance_signed ?? false);
+  const [notes, setNotes] = useState(row?.notes ?? "");
+  const [amount, setAmount] = useState(editableAmount(row?.proposed_amount_cents));
+  const [loading, setLoading] = useState(editable);
+  const [loadError, setLoadError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<"pay" | "reopen" | "cancel" | null>(null);
+  const attendanceId = row?.id;
+  const professionalId = profile.id;
+
+  useEffect(() => {
+    let active = true;
+    if (editable) {
+      void readRule(unit.id, professionalId, date).then(
+        (value) => { if (active) setRule(value); },
+        () => { if (active) setLoadError("Não foi possível consultar a regra de remuneração."); },
+      ).finally(() => { if (active) setLoading(false); });
+    }
+    if (attendanceId) {
+      void getSupabaseBrowserClient().from("professional_attendance_history").select("*")
+        .eq("unit_id", unit.id).eq("attendance_id", attendanceId).order("id", { ascending: false })
+        .then(({ data, error }) => {
+          if (active) {
+            setHistoryError(Boolean(error));
+            setHistory(data ?? []);
+          }
+        });
+    }
+    return () => { active = false; };
+  }, [unit.id, professionalId, date, editable, attendanceId]);
+
+  const hasPlanning = rule?.mode === "daily" && rule.planning_cents !== null;
+  const selectedPlanning = hasPlanning && planning;
+  const hasSaturday = rule?.mode === "daily" && rule.saturday_cents !== null && isAttendanceSaturday(date);
+  const service = rule?.mode === "daily" ? (selectedPlanning ? "planning" : hasSaturday ? "saturday" : "daily") : rule?.mode;
+  const fixedAmount = selectedPlanning ? rule?.planning_cents : hasSaturday ? rule?.saturday_cents : rule?.daily_cents;
+  const manualAmount = rule && rule.mode !== "daily";
+
+  async function save(nextAction: AttendanceAction, extra: Record<string, Json> = {}) {
+    if (busy) return;
+    setBusy(true);
+    setSaveError("");
+    try {
+      const { error } = await getSupabaseBrowserClient().rpc("save_professional_attendance", {
+        p_unit_id: unit.id,
+        p_action: nextAction,
+        p_input: {
+          professional_id: profile.id,
+          work_date: date,
+          revision: row?.revision ?? 0,
+          rule_id: rule?.id ?? null,
+          planning: selectedPlanning,
+          professional_signed: professionalSigned,
+          finance_signed: financeSigned,
+          notes,
+          amount_cents: payCents(amount),
+          ...extra,
+        },
+      });
+      if (error) throw error;
+      const messages = { pending: "Pendência salva", validate: "Comparecimento validado", pay: "Pagamento registrado", reopen: "Dia reaberto", cancel: "Lançamento cancelado" };
+      toast.success(messages[nextAction]);
+      onSaved();
+    } catch (error) {
+      setSaveError(failMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!action) return;
+    const fields = new FormData(event.currentTarget);
+    void save(action, {
+      paid_on: fields.get("paid_on")?.toString() ?? null,
+      payment_reference: fields.get("payment_reference")?.toString() ?? null,
+      reason: fields.get("reason")?.toString() ?? null,
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{profile.name}</DialogTitle>
+          <DialogDescription>{dateLabel(date)} · {unit.name}</DialogDescription>
+        </DialogHeader>
+        {row && <div className="flex flex-wrap items-center gap-3 text-sm">
+          <Status row={row} />
+          {!editable && <span>{serviceLabels[row.service_kind]}</span>}
+          {row.amount_cents && <strong className="tabular-nums">{formatPayAmount(row.amount_cents)}</strong>}
+        </div>}
+        {row?.paid_on && <p className="text-sm">Pagamento em {dateLabel(row.paid_on)}{row.payment_reference && " · " + row.payment_reference}</p>}
+        {!editable && row?.notes && <p className="text-sm">{row.notes}</p>}
+        {loading && <p role="status" className="text-sm">Consultando regra da data…</p>}
+        {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
+        {editable && !loading && !loadError && !rule && <p className="text-sm">Cadastre uma regra com vigência nesta data para lançar o comparecimento.</p>}
+        {editable && rule && !action && <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void save("validate"); }}>
+          <p className="text-sm">{service && serviceLabels[service]}{fixedAmount && " · " + formatPayAmount(fixedAmount)}</p>
+          {hasPlanning && <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={planning} onChange={(event) => setPlanning(event.target.checked)} /> Dia de planejamento
+          </label>}
+          <fieldset className="space-y-2 rounded-xl border p-3">
+            <legend className="px-1 text-sm font-medium">Assinaturas na folha física</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={professionalSigned} onChange={(event) => setProfessionalSigned(event.target.checked)} /> Assinatura do profissional conferida
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={financeSigned} onChange={(event) => setFinanceSigned(event.target.checked)} /> Visto do financeiro conferido
+            </label>
+          </fieldset>
+          {manualAmount && <div className="space-y-1.5">
+            <Label htmlFor="attendance-amount">Valor total conferido no dia (R$)</Label>
+            <Input id="attendance-amount" inputMode="decimal" placeholder="0,00" value={amount}
+              maxLength={14} onChange={(event) => setAmount(event.target.value)} />
+            {amount.trim() && !payCents(amount) && <p className="text-xs text-destructive">Informe um valor positivo. Use vírgula para os centavos.</p>}
+          </div>}
+          <div className="space-y-1.5"><Label htmlFor="attendance-notes">{manualAmount ? "Procedimentos ou entregas conferidos" : "Observação (opcional)"}</Label>
+            <Textarea id="attendance-notes" value={notes} maxLength={600} onChange={(event) => setNotes(event.target.value)} />
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" disabled={busy || Boolean(manualAmount && amount.trim() && !payCents(amount))} onClick={() => void save("pending")}>Salvar pendência</Button>
+            <Button type="submit" disabled={busy || !professionalSigned || !financeSigned || Boolean(manualAmount && (!payCents(amount) || !notes.trim()))}>
+              {busy ? "Salvando…" : "Validar comparecimento"}
+            </Button>
+          </div>
+        </form>}
+        {row && !action && row.status !== "paid" && <div className="flex flex-wrap justify-end gap-2">
+          {(row.status === "validated" || row.status === "cancelled") && <Button variant="outline" disabled={busy} onClick={() => { setSaveError(""); setAction("reopen"); }}>Reabrir dia</Button>}
+          {row.status !== "cancelled" && <Button variant="ghost" disabled={busy} onClick={() => { setSaveError(""); setAction("cancel"); }}>Cancelar lançamento</Button>}
+          {row.status === "validated" && <Button disabled={busy} onClick={() => { setSaveError(""); setAction("pay"); }}>Registrar pagamento</Button>}
+        </div>}
+        {action && <form onSubmit={confirm} className="space-y-4 rounded-xl border p-3">
+          {action === "pay" ? <>
+            <div className="space-y-1.5"><Label htmlFor="attendance-paid-on">Data do pagamento efetuado</Label>
+              <Input id="attendance-paid-on" name="paid_on" type="date" min={date} max={payToday()} defaultValue={payToday()} required />
+            </div>
+            <div className="space-y-1.5"><Label htmlFor="attendance-reference">Referência do comprovante (opcional)</Label>
+              <Input id="attendance-reference" name="payment_reference" maxLength={180} />
+            </div>
+          </> : <div className="space-y-1.5"><Label htmlFor="attendance-reason">{action === "cancel" ? "Motivo do cancelamento" : "Motivo da reabertura"}</Label>
+            <Textarea id="attendance-reason" name="reason" required maxLength={600} />
+          </div>}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => { setAction(null); setSaveError(""); }}>Voltar</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Salvando…" : action === "pay" ? "Confirmar pagamento" : action === "cancel" ? "Confirmar cancelamento" : "Confirmar reabertura"}</Button>
+          </div>
+        </form>}
+        {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
+        {historyError && <p role="alert" className="text-sm text-destructive">Não foi possível carregar o histórico.</p>}
+        {history.length > 0 && <details className="border-t pt-3 text-sm">
+          <summary className="cursor-pointer font-medium">Histórico deste dia</summary>
+          <ol className="mt-2 space-y-2">
+            {history.map((entry) => <li key={entry.id} className="text-muted-foreground">
+              {historyDate.format(new Date(entry.occurred_at))} · {entry.actor_name} · {attendanceLabels[entry.snapshot.status]}
+              {entry.snapshot.amount_cents && " · " + formatPayAmount(entry.snapshot.amount_cents)}
+              {entry.snapshot.change_reason && <p>{entry.snapshot.change_reason}</p>}
+            </li>)}
+          </ol>
+        </details>}
+      </DialogContent>
+    </Dialog>
+  );
+}

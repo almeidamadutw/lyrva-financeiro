@@ -25,3 +25,10 @@ npm test
 Ler `docs/clinicorp-financial-recovery.md`, preservar checkpoints e executar testes do trabalhador antes de deploy. Migrações devem ser revisadas e reversões planejadas.
 
 A publicação real e integridade financeira de toda a carteira não foram testadas nesta alteração documental.
+
+## Publicação de Diárias
+
+1. Execute o build e os testes da aplicação. Valide `tests/professional-pay.sql` após aplicar as migrações `20261111143255_professional_pay_attendance.sql` e `20261111143512_scope_professional_pay_operator_access.sql` em um banco isolado. Os lançamentos de teste são sintéticos e a transação usa rollback.
+2. Aplique a migração aditiva antes de publicar a interface. Confira o acesso das unidades pelo RPC `get_professional_pay_units`. Para delegar a operação a um perfil específico, associe o perfil às unidades necessárias em `private.professional_pay_operators`; preserve as atribuições e o papel existentes.
+3. Cadastre os profissionais e as regras aprovadas nas unidades em que trabalham, com as vigências correspondentes. Os valores são dados operacionais e ficam no ambiente da clínica.
+4. Para reverter a publicação da interface, restaure a versão anterior e mantenha as tabelas e o histórico já registrado.

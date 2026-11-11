@@ -10,6 +10,7 @@ import {
   Bell,
   Building2,
   CalendarDays,
+  ClipboardCheck,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -96,13 +97,19 @@ import { DueTaskAlert } from "@/components/due-task-alert";
 import { PaymentReminderReview } from "@/components/payment-reminder-review";
 import { WhatsAppEmbeddedSignup } from "@/components/whatsapp-embedded-signup";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { ProfessionalPayUnit } from "@/lib/supabase/database.types";
 
 const CollectionAnalyticsView = dynamic(
   () => import("@/components/collection-analytics").then((module) => module.CollectionAnalyticsView),
   { loading: () => <div role="status" className="surface-card grid min-h-64 place-content-center rounded-[24px] text-sm text-[#718078]">Abrindo os gráficos…</div> },
 );
 
-type View = "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
+const ProfessionalPayView = dynamic(
+  () => import("@/components/professional-pay").then((module) => module.ProfessionalPayView),
+  { loading: () => <div role="status" className="surface-card rounded-[24px] p-5 text-sm">Abrindo Diárias…</div> },
+);
+
+type View = "professionalPay" | "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 type OperationalArea = "none" | "reminders" | "collections" | "invoices" | "management" | "support";
 
@@ -241,6 +248,7 @@ const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?:
   { id: "invoices", label: "Notas fiscais", icon: FileText },
   { id: "collections", label: "Régua de cobrança", icon: WalletCards },
   { id: "analytics", label: "Gráficos", icon: ChartNoAxesCombined },
+  { id: "professionalPay", label: "Diárias", icon: ClipboardCheck },
   { id: "patients", label: "Pacientes", icon: Users },
   { id: "access", label: "Gerenciar acessos", icon: UserCog },
   { id: "support", label: "Central de suporte", icon: Settings },
@@ -261,6 +269,7 @@ const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   invoices: { eyebrow: "Emita e marque como concluída somente após emitir", title: "Notas fiscais" },
   collections: { eyebrow: "Registre cada contato antes de seguir para o próximo", title: "Régua de cobrança" },
   analytics: { eyebrow: "Acompanhe a evolução da cobrança por período", title: "Gráficos" },
+  professionalPay: { eyebrow: "Confira a folha de ponto dos profissionais", title: "Diárias" },
   patients: { eyebrow: "Pesquise antes de cadastrar para evitar duplicidade", title: "Pacientes" },
   import: { eyebrow: "Revise paciente e unidade antes de confirmar", title: "Importar planilha" },
   access: { eyebrow: "Libere somente as telas necessárias para cada função", title: "Gerenciar acessos" },
@@ -448,6 +457,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
 export function LyvraApp() {
   const [authReady, setAuthReady] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [professionalPayAccess, setProfessionalPayAccess] = useState<{ userId: string; units: ProfessionalPayUnit[] }>();
   const [view, setView] = useState<View>("dashboard");
   const [unit, setUnit] = useState("todas");
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -684,6 +694,16 @@ export function LyvraApp() {
     });
   }, [currentUser, view, loadPatients]);
 
+  const currentUserId = currentUser?.id;
+  useEffect(() => {
+    if (!currentUserId) return;
+    let active = true;
+    void getSupabaseBrowserClient().rpc("get_professional_pay_units").then(({ data, error }) => {
+      if (active && !error) setProfessionalPayAccess({ userId: currentUserId, units: data ?? [] });
+    });
+    return () => { active = false; };
+  }, [currentUserId]);
+
   const unitFilter = <UnitSelect value={unit} onChange={setUnit} />;
 
   const markIssued = async (id: number) => {
@@ -733,6 +753,7 @@ export function LyvraApp() {
   const logout = async () => {
     await getSupabaseBrowserClient().auth.signOut();
     setCurrentUser(null);
+    setProfessionalPayAccess(undefined);
     setPatients([]);
     setObligations([]);
     setView("dashboard");
@@ -745,6 +766,8 @@ export function LyvraApp() {
   if (!currentUser) return <LoginScreen onLogin={login} />;
 
   const allowedViews = allowedViewsFor(currentUser);
+  const professionalPayUnits = professionalPayAccess?.userId === currentUser.id ? professionalPayAccess.units : [];
+  if (professionalPayUnits.length) allowedViews.add("professionalPay");
   const visibleNavItems = navItems.filter((item) => allowedViews.has(item.id));
   const userInitials = initials(currentUser.name);
 
@@ -800,20 +823,21 @@ export function LyvraApp() {
             <div><p className="text-xs font-medium text-[#6b756f]">{viewTitles[view].eyebrow}</p><h1 className="font-display text-xl font-semibold tracking-tight text-[#16241f]">{viewTitles[view].title}</h1></div>
           </div>
           <div className="flex items-center gap-2">
-            {currentUser.operationalArea !== "support" && unitFilter}
+            {currentUser.operationalArea !== "support" && view !== "professionalPay" && unitFilter}
             {currentUser.operationalArea !== "support" && <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => allowedViews.has("journey") && setView("journey")} onOpenCollections={() => allowedViews.has("collections") && setView("collections")} />}
           </div>
         </header>
 
         <main className="lyvra-page min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4]">
           <div className="lyvra-page-inner">
-            {currentUser.operationalArea !== "support" && <ClinicorpSyncStatus unit={unit} />}
+            {currentUser.operationalArea !== "support" && view !== "professionalPay" && <ClinicorpSyncStatus unit={unit} />}
             {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView} />}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
             {view === "analytics" && allowedViews.has("analytics") && <CollectionAnalyticsView unit={unit} />}
+            {view === "professionalPay" && allowedViews.has("professionalPay") && <ProfessionalPayView units={professionalPayUnits} />}
             {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} canEdit={currentUser.operationalArea !== "support"} onSaved={() => loadPatients(true)} />}
             {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
             {view === "support" && allowedViews.has("support") && <SupportView goTo={setView} />}

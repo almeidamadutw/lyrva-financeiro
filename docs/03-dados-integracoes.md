@@ -3,6 +3,12 @@
 ## Entidades operacionais
 Pacientes, planos/contratos financeiros, parcelas, pagamentos/baixas, obrigações fiscais, tarefas, cobranças, interações, promessas, usuários/perfis, unidades, integrações e auditoria. Para nomes exatos e cardinalidades, consultar as migrações SQL e as consultas da UI antes de modificar.
 
+## Folha de ponto dos profissionais
+
+O Supabase guarda o cadastro por unidade em `professional_pay_profiles`, as regras por vigência em `professional_pay_rules` e o lançamento de cada dia em `professional_attendance`. A regra e o valor em centavos são gravados na validação. `professional_attendance_history` guarda as versões do lançamento, com usuário e horário, em trilha própria. As alterações usam RPCs autenticadas e transações do PostgreSQL.
+
+A folha física é a fonte da conferência. O cadastro e a agenda do Clinicorp ficam fora desse fluxo nesta versão. Os lançamentos de profissionais são registrados nas tabelas próprias da folha.
+
 ## Clinicorp
 - Integração separada por unidade; não cruzar Sorocaba e Salto por nome ou data.
 - Consultas são de leitura e não autorizam escrever de volta no Clinicorp.
