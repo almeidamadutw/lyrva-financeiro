@@ -2,7 +2,7 @@
 
 ## Diárias / Pagamentos de Profissionais
 
-A primeira versão cobre folha mensal por unidade e profissional, regras versionadas, conferência manual das assinaturas, bloqueio de duplicidade, registro do pagamento por dia e histórico.
+A aba cobre folha mensal por unidade e profissional, regras versionadas, cálculo de entregas e procedimentos por item, conferência manual das assinaturas, bloqueio de duplicidade, registro do pagamento por dia e histórico.
 
 | Item | Estado |
 | --- | --- |

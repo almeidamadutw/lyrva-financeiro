@@ -11,6 +11,8 @@ export type ProfessionalAttendanceStatus = "pending" | "validated" | "paid" | "c
 export type ProfessionalServiceKind = ProfessionalPayMode | "planning" | "saturday"
 
 export type ProfessionalPayUnit = { id: number; code: string; name: string }
+export type ProfessionalPayPriceItem = { name: string; unit_cents: number }
+export type ProfessionalAttendancePriceItem = ProfessionalPayPriceItem & { quantity: number }
 type ProfessionalPayProfile = { id: number; unit_id: number; name: string }
 type ProfessionalPayRule = {
   id: number
@@ -21,6 +23,7 @@ type ProfessionalPayRule = {
   daily_cents: number | null
   planning_cents: number | null
   saturday_cents: number | null
+  price_items: ProfessionalPayPriceItem[]
   created_by: string
   created_at: string
 }
@@ -37,6 +40,7 @@ export type ProfessionalAttendance = {
   rule_id: number | null
   amount_cents: number | null
   proposed_amount_cents: number | null
+  priced_items: ProfessionalAttendancePriceItem[]
   validated_by: string | null
   validated_at: string | null
   paid_on: string | null
@@ -1929,6 +1933,10 @@ export type Database = {
       get_professional_pay_units: {
         Args: Record<PropertyKey, never>
         Returns: ProfessionalPayUnit[]
+      }
+      get_professional_procedure_prices: {
+        Args: { p_unit_id: number; p_professional_id: number }
+        Returns: ProfessionalPayPriceItem[]
       }
       save_professional_pay_rule: {
         Args: { p_unit_id: number; p_input: Json }

@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { LoaderCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
 
+import { AttendancePriceCalculator, DeliveryPriceFields, normalizePayItemName } from "@/components/professional-pay-calculator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -19,10 +20,11 @@ import {
   payCents,
   payMonthDays,
   payToday,
+  pricedAttendanceTotal,
   serviceLabels,
 } from "@/lib/professional-pay";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { Database, Json, ProfessionalAttendance, ProfessionalPayMode, ProfessionalPayUnit } from "@/lib/supabase/database.types";
+import type { Database, Json, ProfessionalAttendance, ProfessionalAttendancePriceItem, ProfessionalPayMode, ProfessionalPayUnit } from "@/lib/supabase/database.types";
 
 type Profile = Database["public"]["Tables"]["professional_pay_profiles"]["Row"];
 type Rule = Database["public"]["Tables"]["professional_pay_rules"]["Row"];
@@ -267,6 +269,16 @@ function RuleDialog({ unit, profile, onClose, onSaved }: {
       setSaveError("Informe valores positivos em reais. Use vírgula para os centavos.");
       return;
     }
+    const deliveryPrices = fields.getAll("delivery-price");
+    const priceItems = fields.getAll("delivery-name").map((entry, index) => ({
+      name: normalizePayItemName(entry.toString()),
+      unit_cents: payCents(deliveryPrices[index]?.toString() ?? ""),
+    }));
+    if (priceItems.some((item) => item.name.length < 2 || !item.unit_cents)
+      || new Set(priceItems.map((item) => item.name.toLowerCase())).size !== priceItems.length) {
+      setSaveError("Informe nomes diferentes e valores positivos para as entregas.");
+      return;
+    }
     setBusy(true);
     setSaveError("");
     try {
@@ -280,6 +292,7 @@ function RuleDialog({ unit, profile, onClose, onSaved }: {
           daily_cents: mode === "daily" ? payCents(daily) : null,
           planning_cents: mode === "daily" ? payCents(planning) : null,
           saturday_cents: mode === "daily" ? payCents(saturday) : null,
+          price_items: priceItems,
         },
       });
       if (error) throw error;
@@ -318,6 +331,7 @@ function RuleDialog({ unit, profile, onClose, onSaved }: {
             <MoneyField id="pay-planning" name="planning" label="Planejamento (R$, opcional)" initial={previous?.planning_cents} />
             <MoneyField id="pay-saturday" name="saturday" label="Sábado (R$, opcional)" initial={previous?.saturday_cents} />
           </div>}
+          {mode === "delivery" && <DeliveryPriceFields items={previous?.price_items ?? []} />}
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
           <div className="flex justify-end"><Button disabled={busy} type="submit">{busy ? "Salvando…" : "Salvar regra"}</Button></div>
         </form>}
@@ -348,6 +362,8 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
   const [financeSigned, setFinanceSigned] = useState(row?.finance_signed ?? false);
   const [notes, setNotes] = useState(row?.notes ?? "");
   const [amount, setAmount] = useState(editableAmount(row?.proposed_amount_cents));
+  const [appliedItems, setAppliedItems] = useState<ProfessionalAttendancePriceItem[]>(row?.priced_items ?? []);
+  const [appliedMode, setAppliedMode] = useState(row?.service_kind);
   const [loading, setLoading] = useState(editable);
   const [loadError, setLoadError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -382,7 +398,18 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
   const hasSaturday = rule?.mode === "daily" && rule.saturday_cents !== null && isAttendanceSaturday(date);
   const service = rule?.mode === "daily" ? (selectedPlanning ? "planning" : hasSaturday ? "saturday" : "daily") : rule?.mode;
   const fixedAmount = selectedPlanning ? rule?.planning_cents : hasSaturday ? rule?.saturday_cents : rule?.daily_cents;
-  const manualAmount = rule && rule.mode !== "daily";
+  const variableMode = rule?.mode === "daily" ? undefined : rule?.mode;
+  const catalog = rule?.price_items ?? [];
+  const outdatedItems = Boolean(variableMode && appliedItems.length && (appliedMode !== variableMode
+    || (variableMode === "delivery" && appliedItems.some((item) => !catalog.some((price) => price.name === item.name && price.unit_cents === item.unit_cents)))));
+  const currentItems = variableMode && !outdatedItems ? appliedItems : [];
+  const calculatedAmount = currentItems.length ? pricedAttendanceTotal(currentItems) : null;
+  const allowManual = (variableMode === "delivery" && !catalog.length)
+    || (variableMode === "procedure" && row?.service_kind === "procedure" && Boolean(row.proposed_amount_cents) && !row.priced_items?.length);
+  const amountCents = calculatedAmount ?? (allowManual ? payCents(amount) : null);
+  const invalidManualAmount = Boolean(allowManual && calculatedAmount === null && amount.trim() && !amountCents);
+  const canValidate = !busy && professionalSigned && financeSigned && !outdatedItems
+    && (!variableMode || Boolean(amountCents && notes.trim()));
 
   async function save(nextAction: AttendanceAction, extra: Record<string, Json> = {}) {
     if (busy) return;
@@ -401,7 +428,8 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
           professional_signed: professionalSigned,
           finance_signed: financeSigned,
           notes,
-          amount_cents: payCents(amount),
+          amount_cents: amountCents,
+          priced_items: currentItems,
           ...extra,
         },
       });
@@ -441,10 +469,16 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
         </div>}
         {row?.paid_on && <p className="text-sm">Pagamento em {dateLabel(row.paid_on)}{row.payment_reference && " · " + row.payment_reference}</p>}
         {!editable && row?.notes && <p className="text-sm">{row.notes}</p>}
+        {!editable && Boolean(row?.priced_items?.length) && <ul className="space-y-1 text-sm text-muted-foreground">
+          {row?.priced_items.map((item) => <li key={item.name}>{item.quantity} × {item.name} · {formatPayAmount(item.unit_cents)} cada</li>)}
+        </ul>}
         {loading && <p role="status" className="text-sm">Consultando regra da data…</p>}
         {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
         {editable && !loading && !loadError && !rule && <p className="text-sm">Cadastre uma regra com vigência nesta data para lançar o comparecimento.</p>}
-        {editable && rule && !action && <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void save("validate"); }}>
+        {editable && rule && !action && <form className="space-y-4" onSubmit={(event) => {
+          event.preventDefault();
+          if (canValidate) void save("validate");
+        }}>
           <p className="text-sm">{service && serviceLabels[service]}{fixedAmount && " · " + formatPayAmount(fixedAmount)}</p>
           {hasPlanning && <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={planning} onChange={(event) => setPlanning(event.target.checked)} /> Dia de planejamento
@@ -458,18 +492,24 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
               <input type="checkbox" checked={financeSigned} onChange={(event) => setFinanceSigned(event.target.checked)} /> Visto do financeiro conferido
             </label>
           </fieldset>
-          {manualAmount && <div className="space-y-1.5">
+          {variableMode && <div className="space-y-1.5">
             <Label htmlFor="attendance-amount">Valor total conferido no dia (R$)</Label>
-            <Input id="attendance-amount" inputMode="decimal" placeholder="0,00" value={amount}
-              maxLength={14} onChange={(event) => setAmount(event.target.value)} />
-            {amount.trim() && !payCents(amount) && <p className="text-xs text-destructive">Informe um valor positivo. Use vírgula para os centavos.</p>}
+            <Input id="attendance-amount" inputMode="decimal" placeholder="0,00" value={calculatedAmount !== null ? editableAmount(calculatedAmount) : allowManual ? amount : ""}
+              maxLength={14} readOnly={!allowManual || calculatedAmount !== null} onChange={(event) => setAmount(event.target.value)} />
+            <AttendancePriceCalculator mode={variableMode} unitId={unit.id} professionalId={profile.id} catalog={catalog}
+              appliedItems={currentItems} disabled={busy} onApply={(items) => { setAppliedItems(items); setAppliedMode(variableMode); }} />
+            {currentItems.length > 0 && <p className="text-xs text-muted-foreground">{currentItems.map((item) => `${item.quantity} × ${item.name}`).join(" · ")}</p>}
+            {outdatedItems && <p role="alert" className="text-xs text-destructive">A regra mudou. Calcule o valor novamente com os itens da regra atual.</p>}
+            {outdatedItems && !catalog.length && variableMode === "delivery" && <Button type="button" size="sm" variant="outline"
+              onClick={() => { setAppliedItems([]); setAmount(""); }}>Limpar cálculo anterior</Button>}
+            {invalidManualAmount && <p className="text-xs text-destructive">Informe um valor positivo. Use vírgula para os centavos.</p>}
           </div>}
-          <div className="space-y-1.5"><Label htmlFor="attendance-notes">{manualAmount ? "Procedimentos ou entregas conferidos" : "Observação (opcional)"}</Label>
+          <div className="space-y-1.5"><Label htmlFor="attendance-notes">{variableMode ? "Procedimentos ou entregas conferidos" : "Observação (opcional)"}</Label>
             <Textarea id="attendance-notes" value={notes} maxLength={600} onChange={(event) => setNotes(event.target.value)} />
           </div>
           <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" disabled={busy || Boolean(manualAmount && amount.trim() && !payCents(amount))} onClick={() => void save("pending")}>Salvar pendência</Button>
-            <Button type="submit" disabled={busy || !professionalSigned || !financeSigned || Boolean(manualAmount && (!payCents(amount) || !notes.trim()))}>
+            <Button type="button" variant="outline" disabled={busy || outdatedItems || invalidManualAmount} onClick={() => void save("pending")}>Salvar pendência</Button>
+            <Button type="submit" disabled={!canValidate}>
               {busy ? "Salvando…" : "Validar comparecimento"}
             </Button>
           </div>

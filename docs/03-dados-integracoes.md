@@ -7,6 +7,8 @@ Pacientes, planos/contratos financeiros, parcelas, pagamentos/baixas, obrigaçõ
 
 O Supabase guarda o cadastro por unidade em `professional_pay_profiles`, as regras por vigência em `professional_pay_rules` e o lançamento de cada dia em `professional_attendance`. A regra e o valor em centavos são gravados na validação. `professional_attendance_history` guarda as versões do lançamento, com usuário e horário, em trilha própria. As alterações usam RPCs autenticadas e transações do PostgreSQL.
 
+Os valores padrão de entrega ficam na versão da regra em `price_items`. Cada cálculo salvo guarda nome, quantidade e valor unitário em `priced_items` no lançamento e no histórico. A RPC `get_professional_procedure_prices` consulta o último valor unitário validado ou pago de cada procedimento para o profissional e a unidade selecionados.
+
 A folha física é a fonte da conferência. O cadastro e a agenda do Clinicorp ficam fora desse fluxo nesta versão. Os lançamentos de profissionais são registrados nas tabelas próprias da folha.
 
 ## Clinicorp

@@ -39,6 +39,9 @@
 1. Abra **Diárias** no menu lateral e escolha a unidade e o mês de trabalho. Se a liberação acabou de ser feita, recarregue a página.
 2. No primeiro uso, cadastre o profissional nessa unidade e informe a forma de remuneração e a data inicial da regra. Para um reajuste, abra **Regra de remuneração** e salve a nova vigência.
 3. Com a folha física em mãos, selecione o profissional e clique em **Lançar** na linha do dia. Confirme a assinatura do profissional e o visto do financeiro.
-4. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o tipo de serviço e o valor e clique em **Validar comparecimento**. Para procedimento ou entrega, descreva o serviço e informe o total conferido do dia.
-5. Revise **A pagar** na competência. Depois de efetuar o pagamento, abra o dia e use **Registrar pagamento** com a data efetiva e a referência do comprovante, quando houver.
-6. Para corrigir um dia validado, use **Reabrir dia** e informe o motivo. Use **Cancelar lançamento** para retirar um registro indevido. O histórico do dia mostra quem fez cada ação.
+4. Para entrega ou procedimento, clique em **Calcular valores** abaixo do valor do dia. Selecione a entrega tabelada ou informe o procedimento. Quando houver histórico para aquele procedimento, confira o valor sugerido e ajuste se necessário. Informe a quantidade e clique em **Incluir** para cada item. Confira o total e use **Adicionar à diária**.
+5. Descreva os procedimentos ou entregas conferidos no campo abaixo do valor. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o valor e clique em **Validar comparecimento**.
+6. Revise **A pagar** na competência. Depois de efetuar o pagamento, abra o dia e use **Registrar pagamento** com a data efetiva e a referência do comprovante, quando houver.
+7. Para corrigir um dia validado, use **Reabrir dia** e informe o motivo. Use **Cancelar lançamento** para retirar um registro indevido. O histórico do dia mostra quem fez cada ação.
+
+Para cadastrar ou alterar a tabela de entregas, abra **Regra de remuneração**, escolha **Por entrega**, informe a vigência e use **Incluir valor padrão**.

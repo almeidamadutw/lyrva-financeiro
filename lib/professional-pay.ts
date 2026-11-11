@@ -1,4 +1,4 @@
-import type { ProfessionalAttendanceStatus, ProfessionalServiceKind } from "@/lib/supabase/database.types";
+import type { ProfessionalAttendancePriceItem, ProfessionalAttendanceStatus, ProfessionalServiceKind } from "@/lib/supabase/database.types";
 
 export const attendanceLabels: Record<ProfessionalAttendanceStatus, string> = {
   pending: "Pendente",
@@ -18,6 +18,7 @@ export const serviceLabels: Record<ProfessionalServiceKind, string> = {
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", dateStyle: "short" });
 const dayLabel = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", day: "2-digit", weekday: "short" });
+export const MAX_PAY_CENTS = 2_147_483_647;
 
 export const formatPayAmount = (cents: number) => currency.format(cents / 100);
 export const payToday = () => localDate.format(new Date());
@@ -34,7 +35,11 @@ export function payCents(input: string) {
   if (!/^(?:\d{1,8}|\d{1,3}(?:\.\d{3}){1,2})(?:,\d{1,2})?$/.test(value)) return null;
   const [whole, fraction = ""] = value.split(",");
   const cents = Number(whole.replaceAll(".", "")) * 100 + Number(fraction.padEnd(2, "0"));
-  return cents > 0 && cents <= 2_147_483_647 ? cents : null;
+  return cents > 0 && cents <= MAX_PAY_CENTS ? cents : null;
+}
+
+export function pricedAttendanceTotal(items: ProfessionalAttendancePriceItem[]) {
+  return items.reduce((total, item) => total + item.unit_cents * item.quantity, 0);
 }
 
 export function isAttendanceSaturday(date: string) {

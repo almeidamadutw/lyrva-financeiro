@@ -28,6 +28,7 @@ declare
   daily_rule bigint;
   updated_rule bigint;
   attendance bigint;
+  priced_attendance bigint;
   input jsonb;
   rates jsonb := '{"name":"Profissional de teste","effective_from":"2026-01-01","mode":"daily","daily_cents":10000,"planning_cents":6000,"saturday_cents":7000}';
 begin
@@ -121,6 +122,66 @@ begin
     end if;
   end loop;
 
+  perform public.save_professional_pay_rule(unit_id_for_test, jsonb_build_object('professional_id', delivery_professional,
+    'effective_from', '2026-01-01', 'mode', 'delivery', 'price_items',
+    '[{"name":"Lente teste","unit_cents":30000},{"name":"Onlay teste","unit_cents":15000}]'::jsonb));
+  select max(id) into updated_rule from public.professional_pay_rules where professional_id = delivery_professional;
+  input := jsonb_build_object('professional_id', delivery_professional, 'work_date', '2026-11-10', 'revision', 0,
+    'professional_signed', true, 'finance_signed', true, 'rule_id', updated_rule, 'notes', 'Entregas conferidas', 'amount_cents', 75000,
+    'priced_items', '[{"name":"Lente teste","unit_cents":30000,"quantity":2},{"name":"Onlay teste","unit_cents":15000,"quantity":1}]'::jsonb);
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"amount_cents":1}');
+    raise exception 'Total adulterado aceito.';
+  exception when raise_exception then
+    if sqlerrm <> 'O total não corresponde aos itens da calculadora.' then raise; end if;
+  end;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"priced_items":[{"name":"Lente teste","unit_cents":1,"quantity":1}]}');
+    raise exception 'Valor unitário da entrega adulterado aceito.';
+  exception when raise_exception then
+    if sqlerrm <> 'A entrega ou o valor unitário não corresponde à regra desta data.' then raise; end if;
+  end;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input - 'priced_items');
+    raise exception 'Entrega tabelada aceita com valor manual.';
+  exception when raise_exception then
+    if sqlerrm <> 'Selecione as entregas conferidas na calculadora.' then raise; end if;
+  end;
+  priced_attendance := public.save_professional_attendance(unit_id_for_test, 'validate', input);
+  if not exists (select 1 from public.professional_attendance a where a.id = priced_attendance
+    and amount_cents = 75000 and priced_items = input -> 'priced_items') then
+    raise exception 'Total ou itens de entrega incorretos.';
+  end if;
+  if not exists (select 1 from public.professional_attendance_history where attendance_id = priced_attendance
+    and snapshot -> 'priced_items' = input -> 'priced_items') then
+    raise exception 'Itens da entrega ausentes no histórico.';
+  end if;
+
+  select max(id) into updated_rule from public.professional_pay_rules where professional_id = variable_professional;
+  input := jsonb_build_object('professional_id', variable_professional, 'work_date', '2026-11-10', 'revision', 0,
+    'professional_signed', true, 'finance_signed', true, 'rule_id', updated_rule, 'notes', 'Procedimento conferido', 'amount_cents', 45690,
+    'priced_items', '[{"name":"Procedimento reutilizável","unit_cents":22845,"quantity":2}]'::jsonb);
+  priced_attendance := public.save_professional_attendance(unit_id_for_test, 'pending', input);
+  if exists (select 1 from public.get_professional_procedure_prices(unit_id_for_test, variable_professional)) then
+    raise exception 'Pendência entrou no histórico de preços.';
+  end if;
+  perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"revision":1}');
+  if not exists (select 1 from public.get_professional_procedure_prices(unit_id_for_test, variable_professional)
+    where name = 'Procedimento reutilizável' and unit_cents = 22845) then
+    raise exception 'Procedimento validado não disponibilizou o valor unitário.';
+  end if;
+  if exists (select 1 from public.get_professional_procedure_prices(unit_id_for_test, delivery_professional)) then
+    raise exception 'O histórico misturou procedimentos com entregas.';
+  end if;
+  perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"work_date":"2026-11-11","amount_cents":25000,
+    "priced_items":[{"name":"procedimento reutilizável","unit_cents":25000,"quantity":1}]}');
+  if (select unit_cents from public.get_professional_procedure_prices(unit_id_for_test, variable_professional)) <> 25000 then
+    raise exception 'Reajuste não foi sugerido para o próximo lançamento.';
+  end if;
+  if not exists (select 1 from public.professional_attendance where id = priced_attendance and amount_cents = 45690) then
+    raise exception 'Novo valor alterou procedimento validado anteriormente.';
+  end if;
+
   begin
     update public.professional_attendance set amount_cents = 1 where id = attendance;
     raise exception 'Escrita direta por usuário autenticado aceita.';
@@ -139,6 +200,7 @@ begin
   end;
   perform set_config('request.jwt.claim.sub', 'e0000000-0000-0000-0000-000000000003', true);
   if exists (select 1 from public.get_professional_pay_units())
+    or exists (select 1 from public.get_professional_procedure_prices(unit_id_for_test, variable_professional))
     or exists (select 1 from public.professional_attendance)
     or exists (select 1 from public.professional_attendance_history) then
     raise exception 'Perfil financeiro sem permissão acessou a folha.';

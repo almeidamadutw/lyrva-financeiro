@@ -32,3 +32,5 @@ Não somar indicadores com bases distintas. Consultar critérios no README origi
 ### Diárias
 
 A tela mostra os dias da competência por profissional e unidade. Permite cadastrar regras, salvar pendências, validar o comparecimento com as duas assinaturas, registrar o pagamento já efetuado e consultar o histórico do dia. O resumo mostra os valores a pagar e pagos, com totais da unidade e do profissional selecionado.
+
+Em remuneração por entrega ou procedimento, o botão **Calcular valores** fica abaixo do campo de valor e abre uma janela sobre o lançamento. A calculadora soma os itens conferidos por quantidade e transfere o total para a diária. Entregas usam valores da regra vigente. Procedimentos podem sugerir um valor de uma validação anterior.

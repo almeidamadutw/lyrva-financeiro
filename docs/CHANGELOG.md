@@ -1,5 +1,12 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-11 — Calculadora de entregas e procedimentos
+
+- Adicionado **Calcular valores** abaixo do valor do lançamento, com seleção dos itens, quantidade e aplicação do total à diária. A validação continua exigindo descrição e as duas assinaturas.
+- Entregas usam valores da regra vigente. Procedimentos sugerem o último valor unitário validado ou pago por profissional e unidade. Cada lançamento preserva seus itens, quantidades e valores unitários.
+- Código em `components/professional-pay-calculator.tsx` e `components/professional-pay.tsx`. Regras de cálculo, armazenamento e consulta na migração `20261111184909_professional_pay_item_calculator.sql`.
+- Validados os builds Next.js e Vinext, a checagem TypeScript, os 49 testes da aplicação, as interações da folha em DOM simulado e a regressão SQL isolada, incluindo valores alterados, sugestões e escopo de acesso.
+
 ## 2026-11-11 — Acesso da equipe a Diárias
 
 - Liberado o módulo para as contas operacionais ativas de Lembretes, Cobrança e Notas fiscais nas unidades já atribuídas, por meio de `private.professional_pay_operators`.
