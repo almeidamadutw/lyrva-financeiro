@@ -7,6 +7,8 @@ Pacientes, planos/contratos financeiros, parcelas, pagamentos/baixas, obrigaçõ
 
 O Supabase guarda o cadastro por unidade em `professional_pay_profiles`, as regras por vigência em `professional_pay_rules` e o lançamento de cada dia em `professional_attendance`. A regra e o valor em centavos são gravados na validação. `professional_attendance_history` guarda as versões do lançamento, com usuário e horário, em trilha própria. As alterações usam RPCs autenticadas e transações do PostgreSQL.
 
+A competência limita os lançamentos da folha. O cadastro do profissional é consultado por unidade e a regra vale desde sua vigência até a próxima regra aplicável. Arquivar preenche `archived_at` no mesmo cadastro. Arquivamento e reativação ficam no log de auditoria.
+
 Os valores padrão de entrega e de serviço do dia ficam na versão da regra em `price_items`. Cada cálculo salvo guarda nome, quantidade e valor em `priced_items` no lançamento e no histórico. No modo `fixed_day`, a quantidade é sempre um e o valor corresponde ao serviço na tabela vigente. A RPC `get_professional_procedure_prices` consulta o último valor unitário validado ou pago de cada procedimento para o profissional e a unidade selecionados.
 
 As diárias validadas sem `approved_at` entram na consulta paginada `get_pending_professional_pay_approvals`. A RPC `approve_professional_attendance` confere o perfil, a unidade e a revisão do lançamento, grava `approved_at` e `approved_by` e adiciona a decisão ao histórico na mesma transação. A regra de transição da folha exige aprovação para novos registros de pagamento.

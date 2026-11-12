@@ -13,7 +13,7 @@ export type ProfessionalServiceKind = ProfessionalPayMode | "planning" | "saturd
 export type ProfessionalPayUnit = { id: number; code: string; name: string }
 export type ProfessionalPayPriceItem = { name: string; unit_cents: number }
 export type ProfessionalAttendancePriceItem = ProfessionalPayPriceItem & { quantity: number }
-type ProfessionalPayProfile = { id: number; unit_id: number; name: string }
+type ProfessionalPayProfile = { id: number; unit_id: number; name: string; archived_at: string | null }
 type ProfessionalPayRule = {
   id: number
   unit_id: number
@@ -1963,6 +1963,10 @@ export type Database = {
       }
       save_professional_pay_rule: {
         Args: { p_unit_id: number; p_input: Json }
+        Returns: number
+      }
+      set_professional_pay_profile_archived: {
+        Args: { p_unit_id: number; p_professional_id: number; p_archived: boolean }
         Returns: number
       }
       save_professional_attendance: {

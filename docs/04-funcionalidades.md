@@ -41,6 +41,8 @@ Tela da direção e das gestoras para revisar os lançamentos que exigem decisã
 
 A tela mostra os dias da competência por profissional e unidade. Permite cadastrar regras, salvar pendências, validar o comparecimento com as duas assinaturas, registrar o pagamento já efetuado e consultar o histórico do dia. O resumo mostra **A pagar na unidade** e **A pagar para o profissional** em cartões separados. O valor pago ao profissional aparece abaixo do filtro individual.
 
+O cadastro é feito uma vez por unidade e continua disponível nas próximas competências. **Arquivar profissional** retira o cadastro da lista ativa. **Arquivados** permite abrir as folhas anteriores, concluir lançamentos existentes e reativar o cadastro quando necessário. Os totais da unidade incluem os lançamentos dos profissionais arquivados.
+
 No filtro **Profissional**, **Todos** mostra uma linha por profissional da unidade selecionada, com dias pendentes, valor a pagar e valor pago na competência. A opção **Abrir folha** leva aos lançamentos daquele profissional. A troca entre o resumo e a folha individual usa os dados já carregados.
 
 Em remuneração por entrega ou procedimento, o botão **Calcular valores** fica abaixo do campo de valor e abre uma janela sobre o lançamento. A calculadora soma os itens conferidos por quantidade e transfere o total para a diária. Entregas usam valores da regra vigente. Procedimentos podem sugerir um valor de uma validação anterior.

@@ -136,7 +136,9 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [professionalId, setProfessionalId] = useState<number>();
+  const [showArchived, setShowArchived] = useState(false);
   const [ruleDialog, setRuleDialog] = useState<"new" | "edit" | null>(null);
+  const [archiveDialog, setArchiveDialog] = useState(false);
   const [openDate, setOpenDate] = useState<string | null>(null);
   const openProfessional = (id: number) => {
     setProfessionalId(id);
@@ -164,7 +166,9 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
     </section>;
   }
 
-  const professional = showAll ? undefined : (data.profiles.find((item) => item.id === professionalId) ?? data.profiles[0]);
+  const visibleProfiles = data.profiles.filter((item) => Boolean(item.archived_at) === showArchived);
+  const hasArchived = data.profiles.some((item) => Boolean(item.archived_at));
+  const professional = showAll ? undefined : (visibleProfiles.find((item) => item.id === professionalId) ?? visibleProfiles[0]);
   const rowsByDate = new Map<string, ProfessionalAttendance>();
   const totals = { ...emptyTotals };
   const totalsByProfessional = new Map<number, AttendanceTotals>();
@@ -205,9 +209,9 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
       </dl>
       <section className="surface-card overflow-hidden rounded-[24px]">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b p-5">
-          {data.profiles.length > 0 ? (
+          {visibleProfiles.length > 0 ? (
             <div className="w-full space-y-1.5 sm:w-64">
-              <Label htmlFor="professional-pay-profile">Profissional</Label>
+              <Label htmlFor="professional-pay-profile">{showArchived ? "Profissional arquivado" : "Profissional"}</Label>
               <select id="professional-pay-profile" className={selectClass} value={showAll ? "all" : professional?.id}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -215,17 +219,22 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
                   else openProfessional(Number(value));
                 }}>
                 <option value="all">Todos</option>
-                {data.profiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                {visibleProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
               {professional && <p className="text-xs text-muted-foreground">Pago para o profissional {formatPayAmount(professionalTotals.paid)}</p>}
             </div>
-          ) : <p className="text-sm text-muted-foreground">Nenhum profissional cadastrado nesta unidade.</p>}
+          ) : <p className="text-sm text-muted-foreground">{showArchived ? "Nenhum profissional arquivado nesta unidade." : "Nenhum profissional ativo nesta unidade."}</p>}
           <div className="flex flex-wrap gap-2">
-            {professional && <Button variant="outline" onClick={() => setRuleDialog("edit")}>Regra de remuneração</Button>}
-            <Button onClick={() => setRuleDialog("new")}><Plus /> Cadastrar profissional</Button>
+            {(hasArchived || showArchived) && <Button variant="outline" onClick={() => {
+              setShowArchived(!showArchived);
+              setProfessionalId(undefined);
+            }}>{showArchived ? "Profissionais ativos" : "Arquivados"}</Button>}
+            {professional && <Button variant="outline" onClick={() => setArchiveDialog(true)}>{showArchived ? "Reativar profissional" : "Arquivar profissional"}</Button>}
+            {!showArchived && professional && <Button variant="outline" onClick={() => setRuleDialog("edit")}>Regra de remuneração</Button>}
+            {!showArchived && <Button onClick={() => setRuleDialog("new")}><Plus /> Cadastrar profissional</Button>}
           </div>
         </div>
-        {showAll && data.profiles.length > 0 && (
+        {showAll && visibleProfiles.length > 0 && (
           <Table className="min-w-[580px]" aria-label="Resumo de diárias por profissional">
             <TableHeader className="bg-muted/40">
               <TableRow>
@@ -237,7 +246,7 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.profiles.map((profile) => {
+              {visibleProfiles.map((profile) => {
                 const subtotal = totalsByProfessional.get(profile.id) ?? emptyTotals;
                 return <TableRow key={profile.id}>
                   <TableCell className="pl-5 font-medium">{profile.name}</TableCell>
@@ -279,7 +288,7 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
                   <TableCell><Status row={row} /></TableCell>
                   <TableCell className="text-right tabular-nums">{row?.amount_cents ? formatPayAmount(row.amount_cents) : "—"}</TableCell>
                   <TableCell className="pr-5 text-right">
-                    {date <= today && <Button variant="outline" size="sm" aria-label={(row ? "Ver" : "Lançar") + " dia " + dateLabel(date)}
+                    {date <= today && (row || !showArchived) && <Button variant="outline" size="sm" aria-label={(row ? "Ver" : "Lançar") + " dia " + dateLabel(date)}
                       onClick={() => setOpenDate(date)}>{row ? "Ver dia" : "Lançar"}</Button>}
                   </TableCell>
                 </TableRow>;
@@ -290,11 +299,63 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
       </section>
       {ruleDialog && <RuleDialog unit={unit} profile={ruleDialog === "edit" ? professional : undefined}
         onClose={() => setRuleDialog(null)} onSaved={(id) => { openProfessional(id); setRuleDialog(null); refresh(); }} />}
+      {professional && archiveDialog && <ProfileArchiveDialog unit={unit} profile={professional}
+        onClose={() => setArchiveDialog(false)} onSaved={() => {
+          setArchiveDialog(false);
+          setShowArchived(false);
+          setProfessionalId(showArchived ? professional.id : undefined);
+          refresh();
+        }} />}
       {professional && openDate && <AttendanceDialog unit={unit} profile={professional} date={openDate}
         row={rowsByDate.get(openDate)} onClose={() => { setOpenDate(null); refresh(); }}
         onSaved={() => { setOpenDate(null); refresh(); }} />}
     </>
   );
+}
+
+function ProfileArchiveDialog({ unit, profile, onClose, onSaved }: {
+  unit: ProfessionalPayUnit; profile: Profile; onClose: () => void; onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const reactivating = Boolean(profile.archived_at);
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { error: requestError } = await getSupabaseBrowserClient().rpc("set_professional_pay_profile_archived", {
+        p_unit_id: unit.id,
+        p_professional_id: profile.id,
+        p_archived: !reactivating,
+      });
+      if (requestError) throw requestError;
+      toast.success(reactivating ? "Profissional reativado" : "Profissional arquivado");
+      onSaved();
+    } catch (cause) {
+      setError(failMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{reactivating ? "Reativar profissional" : "Arquivar profissional"}</DialogTitle>
+        <DialogDescription>{profile.name} · {unit.name}</DialogDescription>
+      </DialogHeader>
+      <p className="text-sm">{reactivating
+        ? "O cadastro voltará à lista de profissionais ativos desta unidade."
+        : "O cadastro sairá da lista ativa. Os lançamentos existentes ficam disponíveis em Arquivados."}</p>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" disabled={busy} onClick={onClose}>Voltar</Button>
+        <Button disabled={busy} onClick={() => void save()}>{busy ? "Salvando…" : reactivating ? "Confirmar reativação" : "Confirmar arquivamento"}</Button>
+      </div>
+    </DialogContent>
+  </Dialog>;
 }
 
 function RuleDialog({ unit, profile, onClose, onSaved }: {

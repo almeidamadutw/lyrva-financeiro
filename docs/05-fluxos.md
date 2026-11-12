@@ -37,7 +37,7 @@
 ## 6. Conferir a folha e registrar a diária
 
 1. Abra **Diárias** no menu lateral e escolha a unidade e o mês de trabalho. Se a liberação acabou de ser feita, recarregue a página.
-2. No primeiro uso, cadastre o profissional nessa unidade e informe a forma de remuneração e a data inicial da regra. Para um reajuste, abra **Regra de remuneração** e salve a nova vigência.
+2. Cadastre o profissional uma vez na unidade e informe a forma de remuneração e a data inicial da regra. Nas competências seguintes, selecione o cadastro já salvo. Para um reajuste, abra **Regra de remuneração** e salve a nova vigência.
 3. Com a folha física em mãos, selecione o profissional e clique em **Lançar** na linha do dia. Confirme a assinatura do profissional e o visto do financeiro.
 4. Para entrega ou procedimento, clique em **Calcular valores** abaixo do valor do dia. Selecione a entrega tabelada ou informe o procedimento. Quando houver histórico para aquele procedimento, confira o valor sugerido e ajuste se necessário. Informe a quantidade e clique em **Incluir** para cada item. Confira o total e use **Adicionar à diária**.
 5. Descreva os procedimentos ou entregas conferidos no campo abaixo do valor. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o valor e clique em **Validar comparecimento** para enviar a diária à fila de aprovações.
@@ -47,6 +47,8 @@
 Para cadastrar ou alterar a tabela de entregas, abra **Regra de remuneração**, escolha **Por entrega**, informe a vigência e use **Incluir valor padrão**.
 
 Para uma diária com preço conforme o serviço, escolha **Valor fixo por serviço do dia** na **Regra de remuneração** e cadastre os serviços com seus valores. No lançamento, selecione **Serviço do dia** e confira o valor preenchido. Se o valor estiver indefinido, selecione **A confirmar**, anote o caso na observação e salve como pendência.
+
+Para retirar um profissional da lista ativa, selecione-o na unidade e use **Arquivar profissional**. Para consultar a folha depois, escolha a competência, abra **Arquivados** e selecione o profissional. Se ele voltar à unidade, selecione **Reativar profissional** para usar o cadastro existente.
 
 Para revisar a competência de toda a equipe da unidade, selecione **Todos** em **Profissional**. Na linha da pessoa que precisa de conferência, clique em **Abrir folha**.
 

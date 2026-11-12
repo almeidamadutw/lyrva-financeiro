@@ -29,6 +29,8 @@ declare
   variable_professional bigint;
   delivery_professional bigint;
   fixed_day_professional bigint;
+  persistent_professional bigint;
+  persistent_rule bigint;
   daily_rule bigint;
   updated_rule bigint;
   attendance bigint;
@@ -285,6 +287,39 @@ begin
     raise exception 'Serviço fixo não seguiu para aprovação pelo valor tabelado.';
   end if;
 
+  rates := rates || '{"name":"Cadastro mensal de teste","effective_from":"2026-10-01"}';
+  persistent_professional := public.save_professional_pay_rule(unit_id_for_test, rates);
+  select id into strict persistent_rule from public.professional_pay_rules where professional_id = persistent_professional;
+  input := jsonb_build_object('professional_id', persistent_professional, 'work_date', '2026-10-30', 'revision', 0,
+    'professional_signed', true, 'finance_signed', true, 'rule_id', persistent_rule);
+  perform public.save_professional_attendance(unit_id_for_test, 'validate', input);
+  input := input || '{"work_date":"2026-11-02"}';
+  attendance := public.save_professional_attendance(unit_id_for_test, 'validate', input);
+  if (select count(*) from public.professional_attendance where professional_id = persistent_professional and rule_id = persistent_rule) <> 2 then
+    raise exception 'Cadastro ou regra não foi reaproveitado na competência seguinte.';
+  end if;
+
+  perform public.set_professional_pay_profile_archived(unit_id_for_test, persistent_professional, true);
+  perform public.set_professional_pay_profile_archived(unit_id_for_test, persistent_professional, true);
+  if not exists (select 1 from public.professional_pay_profiles where id = persistent_professional and archived_at is not null)
+    or not exists (select 1 from public.get_pending_professional_pay_approvals() where id = attendance) then
+    raise exception 'Arquivamento não preservou a folha e o pagamento pendente.';
+  end if;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'pending', input || '{"work_date":"2026-11-03"}');
+    raise exception 'Novo lançamento aceito para profissional arquivado.';
+  exception when raise_exception then
+    if sqlerrm <> 'Reative o profissional para criar um novo lançamento.' then raise; end if;
+  end;
+  perform public.approve_professional_attendance(unit_id_for_test, attendance, 1);
+  perform public.save_professional_attendance(unit_id_for_test, 'pay', input || '{"revision":2,"paid_on":"2026-11-03"}');
+  perform public.set_professional_pay_profile_archived(unit_id_for_test, persistent_professional, false);
+  perform public.save_professional_attendance(unit_id_for_test, 'pending', input || '{"work_date":"2026-11-03"}');
+  if not exists (select 1 from public.professional_pay_profiles where id = persistent_professional and archived_at is null)
+    or not exists (select 1 from public.professional_attendance where id = attendance and status = 'paid') then
+    raise exception 'Reativação não preservou o cadastro e seu histórico.';
+  end if;
+
   begin
     update public.professional_attendance set amount_cents = 1 where id = attendance;
     raise exception 'Escrita direta por usuário autenticado aceita.';
@@ -301,6 +336,11 @@ begin
     raise exception 'Operador gravou fora da unidade liberada.';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.set_professional_pay_profile_archived(other_unit, persistent_professional, true);
+    raise exception 'Operador arquivou fora da unidade liberada.';
+  exception when insufficient_privilege then null;
+  end;
   perform set_config('request.jwt.claim.sub', 'e0000000-0000-0000-0000-000000000003', true);
   if exists (select 1 from public.get_professional_pay_units())
     or exists (select 1 from public.get_professional_procedure_prices(unit_id_for_test, variable_professional))
@@ -312,4 +352,14 @@ end
 $test$;
 
 reset role;
+do $audit_test$
+begin
+  if (select count(*) from public.audit_logs a
+    join public.professional_pay_profiles p on p.id::text = a.record_id and p.unit_id = a.unit_id
+    where p.name = 'Cadastro mensal de teste' and a.table_name = 'professional_pay_profiles'
+      and a.action = 'UPDATE' and a.actor_user_id = 'e0000000-0000-0000-0000-000000000001') <> 2 then
+    raise exception 'Arquivamento e reativação devem gerar um evento de auditoria por mudança.';
+  end if;
+end
+$audit_test$;
 rollback;

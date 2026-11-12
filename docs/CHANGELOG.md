@@ -1,5 +1,12 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-12 — Cadastro de profissionais entre competências
+
+- Formalizado o reaproveitamento do cadastro por unidade nas competências seguintes. Adicionadas as ações **Arquivar profissional** e **Reativar profissional**, com consulta dos lançamentos em **Arquivados** e registro na auditoria.
+- A folha da unidade inclui as diárias de profissionais arquivados nos totais. Os lançamentos já abertos continuam disponíveis para conferência e pagamento.
+- Código em `components/professional-pay.tsx` e migração `20261112180711_professional_pay_profile_archiving.sql`.
+- Validados os builds Next.js e Vinext, os 49 testes da aplicação, o fluxo em DOM simulado e a regressão SQL isolada de virada de competência, arquivamento, auditoria e reativação.
+
 ## 2026-11-12 — Valor fixo por serviço do dia
 
 - Adicionada a forma de remuneração **Valor fixo por serviço do dia**. O lançamento aceita um serviço tabelado e guarda o valor vigente com o histórico. A folha e a fila exibem o serviço selecionado.
