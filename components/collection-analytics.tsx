@@ -28,9 +28,9 @@ function saoPauloMonth() {
     .format(new Date());
 }
 
-export function CollectionAnalyticsView({ unit }: { unit: string }) {
+export function CollectionAnalyticsView({ unit, initialMonths = 6 }: { unit: string; initialMonths?: AnalyticsMonths }) {
   const [endMonth, setEndMonth] = useState(saoPauloMonth);
-  const [months, setMonths] = useState<AnalyticsMonths>(6);
+  const [months, setMonths] = useState<AnalyticsMonths>(initialMonths);
   const [refresh, setRefresh] = useState(0);
   const [result, setResult] = useState<{ key: string; data: CollectionAnalytics } | null>(null);
   const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);

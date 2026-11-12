@@ -41,7 +41,16 @@
 3. Com a folha física em mãos, selecione o profissional e clique em **Lançar** na linha do dia. Confirme a assinatura do profissional e o visto do financeiro.
 4. Para entrega ou procedimento, clique em **Calcular valores** abaixo do valor do dia. Selecione a entrega tabelada ou informe o procedimento. Quando houver histórico para aquele procedimento, confira o valor sugerido e ajuste se necessário. Informe a quantidade e clique em **Incluir** para cada item. Confira o total e use **Adicionar à diária**.
 5. Descreva os procedimentos ou entregas conferidos no campo abaixo do valor. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o valor e clique em **Validar comparecimento**.
-6. Revise **A pagar** na competência. Depois de efetuar o pagamento, abra o dia e use **Registrar pagamento** com a data efetiva e a referência do comprovante, quando houver.
+6. Revise **A pagar para o profissional** e **A pagar na unidade** na competência. Depois de efetuar o pagamento, abra o dia e use **Registrar pagamento** com a data efetiva e a referência do comprovante, quando houver.
 7. Para corrigir um dia validado, use **Reabrir dia** e informe o motivo. Use **Cancelar lançamento** para retirar um registro indevido. O histórico do dia mostra quem fez cada ação.
 
 Para cadastrar ou alterar a tabela de entregas, abra **Regra de remuneração**, escolha **Por entrega**, informe a vigência e use **Incluir valor padrão**.
+
+Para revisar a competência de toda a equipe da unidade, selecione **Todos** em **Profissional**. Na linha da pessoa que precisa de conferência, clique em **Abrir folha**.
+
+## 7. Acompanhar o financeiro pela direção
+
+1. Entre com um perfil **CEO** para abrir o **Painel da direção**.
+2. Use o filtro de unidade para acompanhar os indicadores consolidados ou de uma unidade.
+3. Confira as notas emitidas e atrasadas da competência e os lembretes D-1 em aberto no dia. Use os atalhos para abrir as respectivas rotinas.
+4. Em **Desempenho da cobrança**, ajuste o mês e o período para consultar renegociações e boletos quitados. Confira os avisos de cobertura da conciliação antes de interpretar os valores.

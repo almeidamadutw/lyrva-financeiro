@@ -31,8 +31,10 @@ type Rule = Database["public"]["Tables"]["professional_pay_rules"]["Row"];
 type History = Database["public"]["Tables"]["professional_attendance_history"]["Row"];
 type AttendanceAction = Database["public"]["Functions"]["save_professional_attendance"]["Args"]["p_action"];
 type MonthData = { profiles: Profile[]; rows: ProfessionalAttendance[] };
+type AttendanceTotals = { pending: number; validated: number; paid: number };
 
 const selectClass = "h-9 w-full rounded-md border border-input bg-white px-3 text-sm";
+const emptyTotals: AttendanceTotals = { pending: 0, validated: 0, paid: 0 };
 const statusClasses = {
   pending: "border-amber-200 bg-amber-50 text-amber-900",
   validated: "border-sky-200 bg-sky-50 text-sky-900",
@@ -96,6 +98,7 @@ function Status({ row }: { row?: ProfessionalAttendance }) {
 export function ProfessionalPayView({ units }: { units: ProfessionalPayUnit[] }) {
   const [unitId, setUnitId] = useState(units[0]?.id);
   const [month, setMonth] = useState(() => payToday().slice(0, 7));
+  const [showAll, setShowAll] = useState(false);
   const unit = units.find((item) => item.id === unitId) ?? units[0];
   if (!unit) return null;
 
@@ -117,12 +120,14 @@ export function ProfessionalPayView({ units }: { units: ProfessionalPayUnit[] })
             }} />
         </div>
       </section>
-      <MonthlyAttendance key={unit.id + ":" + month} unit={unit} month={month} />
+      <MonthlyAttendance key={unit.id + ":" + month} unit={unit} month={month} showAll={showAll} setShowAll={setShowAll} />
     </div>
   );
 }
 
-function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: string }) {
+function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
+  unit: ProfessionalPayUnit; month: string; showAll: boolean; setShowAll: (value: boolean) => void;
+}) {
   const [data, setData] = useState<MonthData | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -130,6 +135,10 @@ function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: 
   const [professionalId, setProfessionalId] = useState<number>();
   const [ruleDialog, setRuleDialog] = useState<"new" | "edit" | null>(null);
   const [openDate, setOpenDate] = useState<string | null>(null);
+  const openProfessional = (id: number) => {
+    setProfessionalId(id);
+    setShowAll(false);
+  };
   const refresh = () => {
     setLoading(true);
     setError("");
@@ -145,19 +154,6 @@ function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: 
     return () => { active = false; };
   }, [unit.id, month, reload]);
 
-  const professional = data?.profiles.find((item) => item.id === professionalId) ?? data?.profiles[0];
-  const rowsByDate = new Map(data?.rows.filter((row) => row.professional_id === professional?.id).map((row) => [row.work_date, row]));
-  const today = payToday();
-  const totals = { pending: 0, validated: 0, paid: 0 };
-  const professionalTotals = { validated: 0, paid: 0 };
-  for (const row of data?.rows ?? []) {
-    if (row.status === "pending") totals.pending++;
-    if (row.status === "validated" || row.status === "paid") {
-      totals[row.status] += row.amount_cents ?? 0;
-      if (row.professional_id === professional?.id) professionalTotals[row.status] += row.amount_cents ?? 0;
-    }
-  }
-
   if (loading) return <div role="status" className="surface-card flex items-center gap-3 rounded-[24px] p-5"><LoaderCircle className="size-4 animate-spin" /> Carregando folha de ponto…</div>;
   if (error || !data) {
     return <section role="alert" className="surface-card flex flex-wrap items-center gap-3 rounded-[24px] p-5">
@@ -165,14 +161,32 @@ function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: 
     </section>;
   }
 
+  const professional = showAll ? undefined : (data.profiles.find((item) => item.id === professionalId) ?? data.profiles[0]);
+  const rowsByDate = new Map<string, ProfessionalAttendance>();
+  const totals = { ...emptyTotals };
+  const totalsByProfessional = new Map<number, AttendanceTotals>();
+  for (const row of data.rows) {
+    if (row.professional_id === professional?.id) rowsByDate.set(row.work_date, row);
+    if (row.status === "cancelled") continue;
+    const value = row.status === "pending" ? 1 : (row.amount_cents ?? 0);
+    totals[row.status] += value;
+    const subtotal = totalsByProfessional.get(row.professional_id) ?? { ...emptyTotals };
+    subtotal[row.status] += value;
+    totalsByProfessional.set(row.professional_id, subtotal);
+  }
+  const professionalTotals = professional ? (totalsByProfessional.get(professional.id) ?? emptyTotals) : emptyTotals;
+  const summaryCards = [
+    { label: "Pendentes de conferência", value: totals.pending },
+    { label: "A pagar na unidade", value: formatPayAmount(totals.validated) },
+    ...(professional ? [{ label: "A pagar para o profissional", value: formatPayAmount(professionalTotals.validated) }] : []),
+    { label: "Pago na unidade", value: formatPayAmount(totals.paid) },
+  ];
+  const today = payToday();
+
   return (
     <>
-      <dl aria-label="Totais da unidade na competência" className="grid gap-3 sm:grid-cols-3">
-        {[
-          { label: "Pendentes de conferência", value: totals.pending },
-          { label: "A pagar na unidade", value: formatPayAmount(totals.validated) },
-          { label: "Pago na unidade", value: formatPayAmount(totals.paid) },
-        ].map((item) => (
+      <dl aria-label="Totais de diárias na competência" className={"grid gap-3 " + (professional ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3")}>
+        {summaryCards.map((item) => (
           <div key={item.label} className="surface-card rounded-[20px] p-4">
             <dt className="text-sm text-muted-foreground">{item.label}</dt>
             <dd className="mt-1 font-display text-xl font-semibold tabular-nums">{item.value}</dd>
@@ -181,14 +195,19 @@ function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: 
       </dl>
       <section className="surface-card overflow-hidden rounded-[24px]">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b p-5">
-          {professional ? (
+          {data.profiles.length > 0 ? (
             <div className="w-full space-y-1.5 sm:w-64">
-              <Label htmlFor="professional-pay-profile">Folha de ponto do profissional</Label>
-              <select id="professional-pay-profile" className={selectClass} value={professional.id}
-                onChange={(event) => setProfessionalId(Number(event.target.value))}>
+              <Label htmlFor="professional-pay-profile">Profissional</Label>
+              <select id="professional-pay-profile" className={selectClass} value={showAll ? "all" : professional?.id}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "all") setShowAll(true);
+                  else openProfessional(Number(value));
+                }}>
+                <option value="all">Todos</option>
                 {data.profiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
-              <p className="text-xs text-muted-foreground">A pagar {formatPayAmount(professionalTotals.validated)} · Pago {formatPayAmount(professionalTotals.paid)}</p>
+              {professional && <p className="text-xs text-muted-foreground">Pago para o profissional {formatPayAmount(professionalTotals.paid)}</p>}
             </div>
           ) : <p className="text-sm text-muted-foreground">Nenhum profissional cadastrado nesta unidade.</p>}
           <div className="flex flex-wrap gap-2">
@@ -196,6 +215,34 @@ function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: 
             <Button onClick={() => setRuleDialog("new")}><Plus /> Cadastrar profissional</Button>
           </div>
         </div>
+        {showAll && data.profiles.length > 0 && (
+          <Table className="min-w-[580px]" aria-label="Resumo de diárias por profissional">
+            <TableHeader className="bg-muted/40">
+              <TableRow>
+                <TableHead className="pl-5">Profissional</TableHead>
+                <TableHead className="text-right">Dias pendentes</TableHead>
+                <TableHead className="text-right">A pagar</TableHead>
+                <TableHead className="text-right">Pago</TableHead>
+                <TableHead className="pr-5 text-right"><span className="sr-only">Ação</span></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.profiles.map((profile) => {
+                const subtotal = totalsByProfessional.get(profile.id) ?? emptyTotals;
+                return <TableRow key={profile.id}>
+                  <TableCell className="pl-5 font-medium">{profile.name}</TableCell>
+                  <TableCell className="text-right tabular-nums">{subtotal.pending}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatPayAmount(subtotal.validated)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatPayAmount(subtotal.paid)}</TableCell>
+                  <TableCell className="pr-5 text-right">
+                    <Button variant="outline" size="sm" aria-label={"Abrir folha de " + profile.name}
+                      onClick={() => openProfessional(profile.id)}>Abrir folha</Button>
+                  </TableCell>
+                </TableRow>;
+              })}
+            </TableBody>
+          </Table>
+        )}
         {professional && (
           <Table className="min-w-[630px]">
             <TableHeader className="bg-muted/40">
@@ -226,7 +273,7 @@ function MonthlyAttendance({ unit, month }: { unit: ProfessionalPayUnit; month: 
         )}
       </section>
       {ruleDialog && <RuleDialog unit={unit} profile={ruleDialog === "edit" ? professional : undefined}
-        onClose={() => setRuleDialog(null)} onSaved={(id) => { setProfessionalId(id); setRuleDialog(null); refresh(); }} />}
+        onClose={() => setRuleDialog(null)} onSaved={(id) => { openProfessional(id); setRuleDialog(null); refresh(); }} />}
       {professional && openDate && <AttendanceDialog unit={unit} profile={professional} date={openDate}
         row={rowsByDate.get(openDate)} onClose={() => { setOpenDate(null); refresh(); }}
         onSaved={() => { setOpenDate(null); refresh(); }} />}

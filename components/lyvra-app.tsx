@@ -276,6 +276,7 @@ const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   support: { eyebrow: "Use esta área para acessos e problemas de integração", title: "Central de suporte" },
   integrations: { eyebrow: "Sincronize uma unidade por vez e confira o resultado", title: "Integrações" },
 };
+const executiveDashboardTitle = { eyebrow: "Acompanhe os resultados e as pendências do financeiro", title: "Painel da direção" };
 
 const areaLabels: Record<OperationalArea, string> = {
   none: "Sem rotina definida",
@@ -464,6 +465,7 @@ export function LyvraApp() {
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [obligations, setObligations] = useState<InvoiceObligation[]>([]);
   const [reminderCounts, setReminderCounts] = useState<Record<string, number>>({ todas: 0, sorocaba: 0, salto: 0 });
+  const [financialDataStatus, setFinancialDataStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const loadProfile = useCallback(async (userId: string): Promise<UserAccount | null> => {
     const supabase = getSupabaseBrowserClient();
@@ -559,6 +561,7 @@ export function LyvraApp() {
 
   const loadFinancialData = useCallback(async (_silent = false) => {
     const supabase = getSupabaseBrowserClient();
+    if (!_silent) setFinancialDataStatus("loading");
     try {
       const todayKey = saoPauloDate(new Date());
       const tomorrowDate = new Date(`${todayKey}T12:00:00Z`);
@@ -625,9 +628,11 @@ export function LyvraApp() {
         if (code === "salto_de_pirapora") nextReminderCounts.salto += 1;
       }
       setReminderCounts(nextReminderCounts);
+      setFinancialDataStatus("ready");
     } catch (error) {
       setObligations([]);
       setReminderCounts({ todas: 0, sorocaba: 0, salto: 0 });
+      setFinancialDataStatus("error");
       throw error;
     }
   }, []);
@@ -770,6 +775,8 @@ export function LyvraApp() {
   if (professionalPayUnits.length) allowedViews.add("professionalPay");
   const visibleNavItems = navItems.filter((item) => allowedViews.has(item.id));
   const userInitials = initials(currentUser.name);
+  const isExecutive = currentUser.role === "ceo";
+  const pageTitle = isExecutive && view === "dashboard" ? executiveDashboardTitle : viewTitles[view];
 
   return (
     <SidebarProvider className="app-density">
@@ -791,17 +798,20 @@ export function LyvraApp() {
         </SidebarHeader>
         <SidebarContent className="sidebar-scroll-clean px-2">
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">{currentUser.operationalArea === "support" ? "Suporte" : "Financeiro"}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-[0.16em] text-white/35">{currentUser.operationalArea === "support" ? "Suporte" : isExecutive ? "Direção" : "Financeiro"}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {visibleNavItems.map((item) => (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton onClick={() => setView(item.id)} isActive={view === item.id} tooltip={item.label} className="h-10 rounded-xl px-3 text-white/62 hover:bg-white/8 hover:text-white data-[active=true]:bg-[#00BF63] data-[active=true]:text-[#10221f]">
-                      <item.icon /><span>{item.label}</span>
-                    </SidebarMenuButton>
-                    {item.badge && <SidebarMenuBadge className="right-2 top-2.5 bg-white/10 text-white/70 group-data-[collapsible=icon]:hidden">{item.badge}</SidebarMenuBadge>}
-                  </SidebarMenuItem>
-                ))}
+                {visibleNavItems.map((item) => {
+                  const label = isExecutive && item.id === "dashboard" ? executiveDashboardTitle.title : item.label;
+                  return (
+                    <SidebarMenuItem key={item.id}>
+                      <SidebarMenuButton onClick={() => setView(item.id)} isActive={view === item.id} tooltip={label} className="h-10 rounded-xl px-3 text-white/62 hover:bg-white/8 hover:text-white data-[active=true]:bg-[#00BF63] data-[active=true]:text-[#10221f]">
+                        <item.icon /><span>{label}</span>
+                      </SidebarMenuButton>
+                      {item.badge && <SidebarMenuBadge className="right-2 top-2.5 bg-white/10 text-white/70 group-data-[collapsible=icon]:hidden">{item.badge}</SidebarMenuBadge>}
+                    </SidebarMenuItem>
+                  );
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -820,7 +830,7 @@ export function LyvraApp() {
           <div className="flex min-w-0 items-center gap-3">
             <SidebarTrigger className="size-9 rounded-xl border border-[#dfe5df] bg-white" />
             <div className="hidden h-7 w-px bg-[#dfe5df] md:block" />
-            <div><p className="text-xs font-medium text-[#6b756f]">{viewTitles[view].eyebrow}</p><h1 className="font-display text-xl font-semibold tracking-tight text-[#16241f]">{viewTitles[view].title}</h1></div>
+            <div><p className="text-xs font-medium text-[#6b756f]">{pageTitle.eyebrow}</p><h1 className="font-display text-xl font-semibold tracking-tight text-[#16241f]">{pageTitle.title}</h1></div>
           </div>
           <div className="flex items-center gap-2">
             {currentUser.operationalArea !== "support" && view !== "professionalPay" && unitFilter}
@@ -831,7 +841,11 @@ export function LyvraApp() {
         <main className="lyvra-page min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4]">
           <div className="lyvra-page-inner">
             {currentUser.operationalArea !== "support" && view !== "professionalPay" && <ClinicorpSyncStatus unit={unit} />}
-            {view === "dashboard" && allowedViews.has("dashboard") && <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView} />}
+            {view === "dashboard" && allowedViews.has("dashboard") && (isExecutive
+              ? <ExecutiveDashboardView unit={unit} obligations={obligations} financialDataStatus={financialDataStatus}
+                reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView}
+                retry={() => { void loadFinancialData().catch(() => undefined); }} />
+              : <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView} />)}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
@@ -877,6 +891,58 @@ const visibleFiscalRows = (rows: InvoiceObligation[]) => {
     && clinicorpKeys.has(`${item.unit}|${obligationMonthKey(item)}`)
   ));
 };
+
+function ExecutiveDashboardView({ unit, obligations, financialDataStatus, reminderCount, goTo, retry }: {
+  unit: string;
+  obligations: InvoiceObligation[];
+  financialDataStatus: "loading" | "ready" | "error";
+  reminderCount: number;
+  goTo: (view: View) => void;
+  retry: () => void;
+}) {
+  const today = saoPauloDate(new Date());
+  const month = today.slice(0, 7);
+  const unitName = unit === "sorocaba" ? "Sorocaba" : "Salto de Pirapora";
+  const fiscal = visibleFiscalRows(obligations.filter((item) => unit === "todas" || item.unit === unitName))
+    .filter((item) => obligationMonthKey(item) === month);
+  const issuedCount = fiscal.filter((item) => item.rawStatus === "issued").length;
+  const lateCount = fiscal.filter((item) => item.rawStatus !== "issued" && item.scheduledIssueDate && item.scheduledIssueDate < today).length;
+
+  return <div className="space-y-6">
+    <section aria-labelledby="executive-finance-summary" className="surface-card space-y-4 rounded-[24px] p-5 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id="executive-finance-summary" className="font-display text-xl font-semibold text-[#192820]">Acompanhamento do financeiro</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Competência de {competenceLabel(month)}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => goTo("invoices")}>Notas fiscais <ChevronRight /></Button>
+          <Button variant="outline" size="sm" onClick={() => goTo("reminders")}>Lembretes de boleto <ChevronRight /></Button>
+        </div>
+      </div>
+      {financialDataStatus === "loading" && <p role="status" className="text-sm text-muted-foreground">Carregando notas e lembretes…</p>}
+      {financialDataStatus === "error" && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
+        <span>Não foi possível carregar o resumo de notas e lembretes.</span>
+        <Button variant="outline" size="sm" onClick={retry}>Tentar novamente</Button>
+      </div>}
+      {financialDataStatus === "ready" && <dl className="grid gap-3 sm:grid-cols-3">
+        {[
+          { label: "Notas emitidas no mês", value: fiscal.length ? issuedCount : "—" },
+          { label: "Notas atrasadas no mês", value: fiscal.length ? lateCount : "—" },
+          { label: "Lembretes D-1 em aberto hoje", value: reminderCount },
+        ].map((item) => <div key={item.label} className="rounded-xl border border-[#dfe7df] bg-[#fafbf8] p-4">
+          <dt className="text-sm text-muted-foreground">{item.label}</dt>
+          <dd className="mt-1 font-display text-2xl font-semibold tabular-nums">{item.value}</dd>
+        </div>)}
+      </dl>}
+      {financialDataStatus === "ready" && !fiscal.length && <p className="text-xs text-muted-foreground">Nenhuma obrigação fiscal registrada nesta competência e filtro.</p>}
+    </section>
+    <section aria-labelledby="executive-finance-performance" className="space-y-4">
+      <h2 id="executive-finance-performance" className="font-display text-xl font-semibold text-[#192820]">Desempenho da cobrança</h2>
+      <CollectionAnalyticsView unit={unit} initialMonths={1} />
+    </section>
+  </div>;
+}
 
 function DashboardView({ unit, obligations, reminderCount, goTo }: { unit: string; obligations: InvoiceObligation[]; reminderCount: number; goTo: (view: View) => void }) {
   const todayKey = saoPauloDate(new Date());

@@ -1,5 +1,11 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-12 — Resumo de diárias e painel da direção
+
+- Adicionado o filtro **Todos** em Diárias, com pendências e valores por profissional, e o cartão **A pagar para o profissional** na folha individual. A troca de profissional reaproveita a consulta da competência e unidade.
+- Adicionado o **Painel da direção** como tela inicial do perfil CEO, com indicadores de notas fiscais e lembretes e os gráficos existentes de cobrança. Código em `components/professional-pay.tsx`, `components/lyvra-app.tsx` e `components/collection-analytics.tsx`.
+- Validados os builds Next.js e Vinext, os 49 testes da aplicação, o filtro e os totais de diárias em DOM simulado e a consulta de cobrança em produção para o perfil CEO nas duas unidades.
+
 ## 2026-11-11 — Calculadora de entregas e procedimentos
 
 - Adicionado **Calcular valores** abaixo do valor do lançamento, com seleção dos itens, quantidade e aplicação do total à diária. A validação continua exigindo descrição e as duas assinaturas.
