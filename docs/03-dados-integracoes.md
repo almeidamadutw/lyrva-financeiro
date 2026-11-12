@@ -9,6 +9,8 @@ O Supabase guarda o cadastro por unidade em `professional_pay_profiles`, as regr
 
 Os valores padrão de entrega ficam na versão da regra em `price_items`. Cada cálculo salvo guarda nome, quantidade e valor unitário em `priced_items` no lançamento e no histórico. A RPC `get_professional_procedure_prices` consulta o último valor unitário validado ou pago de cada procedimento para o profissional e a unidade selecionados.
 
+As diárias validadas sem `approved_at` entram na consulta paginada `get_pending_professional_pay_approvals`. A RPC `approve_professional_attendance` confere o perfil, a unidade e a revisão do lançamento, grava `approved_at` e `approved_by` e adiciona a decisão ao histórico na mesma transação. A regra de transição da folha exige aprovação para novos registros de pagamento.
+
 A folha física é a fonte da conferência. O cadastro e a agenda do Clinicorp ficam fora desse fluxo nesta versão. Os lançamentos de profissionais são registrados nas tabelas próprias da folha.
 
 ## Clinicorp

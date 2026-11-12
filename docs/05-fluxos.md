@@ -40,8 +40,8 @@
 2. No primeiro uso, cadastre o profissional nessa unidade e informe a forma de remuneração e a data inicial da regra. Para um reajuste, abra **Regra de remuneração** e salve a nova vigência.
 3. Com a folha física em mãos, selecione o profissional e clique em **Lançar** na linha do dia. Confirme a assinatura do profissional e o visto do financeiro.
 4. Para entrega ou procedimento, clique em **Calcular valores** abaixo do valor do dia. Selecione a entrega tabelada ou informe o procedimento. Quando houver histórico para aquele procedimento, confira o valor sugerido e ajuste se necessário. Informe a quantidade e clique em **Incluir** para cada item. Confira o total e use **Adicionar à diária**.
-5. Descreva os procedimentos ou entregas conferidos no campo abaixo do valor. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o valor e clique em **Validar comparecimento**.
-6. Revise **A pagar para o profissional** e **A pagar na unidade** na competência. Depois de efetuar o pagamento, abra o dia e use **Registrar pagamento** com a data efetiva e a referência do comprovante, quando houver.
+5. Descreva os procedimentos ou entregas conferidos no campo abaixo do valor. Use **Salvar pendência** para um dia que ainda precisa de conferência. Com os dois vistos, confira o valor e clique em **Validar comparecimento** para enviar a diária à fila de aprovações.
+6. Revise **A pagar para o profissional** e **A pagar na unidade** na competência. Os totais indicam a parcela que aguarda aprovação. Depois da aprovação e do pagamento efetivo, abra o dia e use **Registrar pagamento** com a data e a referência do comprovante, quando houver.
 7. Para corrigir um dia validado, use **Reabrir dia** e informe o motivo. Use **Cancelar lançamento** para retirar um registro indevido. O histórico do dia mostra quem fez cada ação.
 
 Para cadastrar ou alterar a tabela de entregas, abra **Regra de remuneração**, escolha **Por entrega**, informe a vigência e use **Incluir valor padrão**.
@@ -54,3 +54,10 @@ Para revisar a competência de toda a equipe da unidade, selecione **Todos** em 
 2. Use o filtro de unidade para acompanhar os indicadores consolidados ou de uma unidade.
 3. Confira as notas emitidas e atrasadas da competência e os lembretes D-1 em aberto no dia. Use os atalhos para abrir as respectivas rotinas.
 4. Em **Desempenho da cobrança**, ajuste o mês e o período para consultar renegociações e boletos quitados. Confira os avisos de cobertura da conciliação antes de interpretar os valores.
+
+## 8. Decidir na fila de aprovações
+
+1. Com um perfil **CEO** ou **Gestora**, abra **Aprovações** no menu. Selecione uma unidade para revisar apenas os lançamentos dela.
+2. Clique em **Revisar** na diária e confira data, profissional, tipo de serviço, valor e os detalhes disponíveis.
+3. Clique em **Aprovar diária** para liberar o registro de pagamento. Para solicitar ajuste, use **Devolver para correção** e informe o motivo. O financeiro precisa conferir e validar a diária novamente para reenviá-la.
+4. Consulte **Histórico deste dia** na folha individual para verificar a decisão, a pessoa responsável e a data.

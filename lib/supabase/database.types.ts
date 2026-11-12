@@ -43,6 +43,8 @@ export type ProfessionalAttendance = {
   priced_items: ProfessionalAttendancePriceItem[]
   validated_by: string | null
   validated_at: string | null
+  approved_at: string | null
+  approved_by: string | null
   paid_on: string | null
   payment_reference: string | null
   change_reason: string | null
@@ -56,7 +58,20 @@ type ProfessionalAttendanceHistory = {
   attendance_id: number
   actor_name: string
   occurred_at: string
-  snapshot: ProfessionalAttendance
+  snapshot: ProfessionalAttendance & { approval_event?: "approved" }
+}
+export type PendingProfessionalPayApproval = {
+  id: number
+  unit_id: number
+  unit_name: string
+  professional_id: number
+  professional_name: string
+  work_date: string
+  service_kind: ProfessionalServiceKind
+  amount_cents: number
+  notes: string | null
+  priced_items: ProfessionalAttendancePriceItem[]
+  revision: number
 }
 type ProfessionalPayReadOnlyTable<Row> = { Row: Row; Insert: never; Update: never; Relationships: [] }
 
@@ -1933,6 +1948,14 @@ export type Database = {
       get_professional_pay_units: {
         Args: Record<PropertyKey, never>
         Returns: ProfessionalPayUnit[]
+      }
+      get_pending_professional_pay_approvals: {
+        Args: { p_unit_code?: string; p_offset?: number }
+        Returns: PendingProfessionalPayApproval[]
+      }
+      approve_professional_attendance: {
+        Args: { p_unit_id: number; p_attendance_id: number; p_revision: number }
+        Returns: number
       }
       get_professional_procedure_prices: {
         Args: { p_unit_id: number; p_professional_id: number }

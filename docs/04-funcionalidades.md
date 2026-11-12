@@ -33,6 +33,10 @@ Não somar indicadores com bases distintas. Consultar critérios no README origi
 
 A tela inicial do perfil **CEO** mostra o acompanhamento de notas fiscais da competência atual, lembretes D-1 em aberto hoje e desempenho de cobrança. O filtro de unidade serve para a leitura consolidada ou por unidade atribuída. Os gráficos abrem no mês atual e permitem trocar o período.
 
+### Aprovações
+
+Tela da direção e das gestoras para revisar os lançamentos que exigem decisão. A fila começa com as diárias conferidas e mostra profissional, unidade, data e valor. Em **Revisar**, a gestora ou a direção pode aprovar para pagamento ou devolver ao financeiro com o motivo. O Painel da direção tem um atalho para a fila.
+
 ### Diárias
 
 A tela mostra os dias da competência por profissional e unidade. Permite cadastrar regras, salvar pendências, validar o comparecimento com as duas assinaturas, registrar o pagamento já efetuado e consultar o histórico do dia. O resumo mostra **A pagar na unidade** e **A pagar para o profissional** em cartões separados. O valor pago ao profissional aparece abaixo do filtro individual.

@@ -1,5 +1,12 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-12 — Fila de aprovações
+
+- Adicionada a tela **Aprovações** para perfis ativos CEO e Gestora, com filtro por unidade e atalho no Painel da direção. A primeira fila reúne diárias conferidas para aprovação ou devolução com motivo.
+- Novos registros de pagamento exigem a aprovação da diária. A decisão guarda responsável, data e revisão. Reabrir exige nova conferência e nova aprovação. Os valores em aberto continuam nos totais com indicação do montante que aguarda decisão.
+- Código em `components/finance-approvals.tsx` e `components/professional-pay.tsx`. Regra e consulta na migração `20261112125350_professional_pay_management_approval.sql`.
+- Validados os builds Next.js e Vinext, os 49 testes da aplicação, a fila em DOM simulado, a regressão SQL isolada e a consulta em produção nos perfis CEO, Gestora e operacional.
+
 ## 2026-11-12 — Resumo de diárias e painel da direção
 
 - Adicionado o filtro **Todos** em Diárias, com pendências e valores por profissional, e o cartão **A pagar para o profissional** na folha individual. A troca de profissional reaproveita a consulta da competência e unidade.

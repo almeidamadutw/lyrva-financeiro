@@ -14,7 +14,7 @@ A aba cobre folha mensal por unidade e profissional, regras versionadas, cálcul
 ## Outras pendências
 | Item | Estado | Próxima ação |
 | --- | --- | --- |
-| Fila de aprovações da direção | Regra a definir | Confirmar quais tipos de lançamento entram na fila e em qual etapa exigem aprovação |
+| Novos tipos na fila de aprovações | Diárias disponíveis | Integrar outros fluxos conforme suas regras de aprovação entrarem em operação |
 | Regra de envio de lembretes vs. últimos pedidos operacionais | A reconciliar | Confirmar regra vigente e alinhar código, templates e documentação |
 | Integração WhatsApp Meta para disparos | Código de base presente; ativação a validar | Conferir aprovação, custo, consentimento e testes |
 | Conciliação histórica Clinicorp | Processo documentado | Continuar monitorando cobertura e divergências |

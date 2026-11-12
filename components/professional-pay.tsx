@@ -31,10 +31,10 @@ type Rule = Database["public"]["Tables"]["professional_pay_rules"]["Row"];
 type History = Database["public"]["Tables"]["professional_attendance_history"]["Row"];
 type AttendanceAction = Database["public"]["Functions"]["save_professional_attendance"]["Args"]["p_action"];
 type MonthData = { profiles: Profile[]; rows: ProfessionalAttendance[] };
-type AttendanceTotals = { pending: number; validated: number; paid: number };
+type AttendanceTotals = { pending: number; validated: number; paid: number; awaitingApproval: number };
 
 const selectClass = "h-9 w-full rounded-md border border-input bg-white px-3 text-sm";
-const emptyTotals: AttendanceTotals = { pending: 0, validated: 0, paid: 0 };
+const emptyTotals: AttendanceTotals = { pending: 0, validated: 0, paid: 0, awaitingApproval: 0 };
 const statusClasses = {
   pending: "border-amber-200 bg-amber-50 text-amber-900",
   validated: "border-sky-200 bg-sky-50 text-sky-900",
@@ -44,6 +44,7 @@ const statusClasses = {
 const historyDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 const dateLabel = (date: string) => date.split("-").reverse().join("/");
 const editableAmount = (cents: number | null | undefined) => cents == null ? "" : (cents / 100).toFixed(2).replace(".", ",");
+const awaitsApproval = (row: ProfessionalAttendance) => row.status === "validated" && !row.approved_at;
 
 function failMessage(error: unknown) {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
@@ -90,9 +91,11 @@ async function readRule(unitId: number, professionalId: number, workDate?: strin
 }
 
 function Status({ row }: { row?: ProfessionalAttendance }) {
-  return row
-    ? <Badge variant="outline" className={statusClasses[row.status]}>{attendanceLabels[row.status]}</Badge>
-    : <span className="text-muted-foreground">Em branco</span>;
+  if (!row) return <span className="text-muted-foreground">Em branco</span>;
+  const awaiting = awaitsApproval(row);
+  return <Badge variant="outline" className={statusClasses[awaiting ? "pending" : row.status]}>
+    {awaiting ? "Aguardando aprovação" : attendanceLabels[row.status]}
+  </Badge>;
 }
 
 export function ProfessionalPayView({ units }: { units: ProfessionalPayUnit[] }) {
@@ -172,14 +175,18 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
     totals[row.status] += value;
     const subtotal = totalsByProfessional.get(row.professional_id) ?? { ...emptyTotals };
     subtotal[row.status] += value;
+    if (awaitsApproval(row)) {
+      totals.awaitingApproval += value;
+      subtotal.awaitingApproval += value;
+    }
     totalsByProfessional.set(row.professional_id, subtotal);
   }
   const professionalTotals = professional ? (totalsByProfessional.get(professional.id) ?? emptyTotals) : emptyTotals;
   const summaryCards = [
-    { label: "Pendentes de conferência", value: totals.pending },
-    { label: "A pagar na unidade", value: formatPayAmount(totals.validated) },
-    ...(professional ? [{ label: "A pagar para o profissional", value: formatPayAmount(professionalTotals.validated) }] : []),
-    { label: "Pago na unidade", value: formatPayAmount(totals.paid) },
+    { label: "Pendentes de conferência", value: totals.pending, awaitingApproval: 0 },
+    { label: "A pagar na unidade", value: formatPayAmount(totals.validated), awaitingApproval: totals.awaitingApproval },
+    ...(professional ? [{ label: "A pagar para o profissional", value: formatPayAmount(professionalTotals.validated), awaitingApproval: professionalTotals.awaitingApproval }] : []),
+    { label: "Pago na unidade", value: formatPayAmount(totals.paid), awaitingApproval: 0 },
   ];
   const today = payToday();
 
@@ -189,7 +196,10 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
         {summaryCards.map((item) => (
           <div key={item.label} className="surface-card rounded-[20px] p-4">
             <dt className="text-sm text-muted-foreground">{item.label}</dt>
-            <dd className="mt-1 font-display text-xl font-semibold tabular-nums">{item.value}</dd>
+            <dd className="mt-1">
+              <span className="font-display text-xl font-semibold tabular-nums">{item.value}</span>
+              {item.awaitingApproval > 0 && <span className="block text-xs text-muted-foreground">{formatPayAmount(item.awaitingApproval)} aguardando aprovação</span>}
+            </dd>
           </div>
         ))}
       </dl>
@@ -232,7 +242,10 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
                 return <TableRow key={profile.id}>
                   <TableCell className="pl-5 font-medium">{profile.name}</TableCell>
                   <TableCell className="text-right tabular-nums">{subtotal.pending}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatPayAmount(subtotal.validated)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatPayAmount(subtotal.validated)}
+                    {subtotal.awaitingApproval > 0 && <span className="block text-xs text-muted-foreground">{formatPayAmount(subtotal.awaitingApproval)} aguardando aprovação</span>}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{formatPayAmount(subtotal.paid)}</TableCell>
                   <TableCell className="pr-5 text-right">
                     <Button variant="outline" size="sm" aria-label={"Abrir folha de " + profile.name}
@@ -481,7 +494,7 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
         },
       });
       if (error) throw error;
-      const messages = { pending: "Pendência salva", validate: "Comparecimento validado", pay: "Pagamento registrado", reopen: "Dia reaberto", cancel: "Lançamento cancelado" };
+      const messages = { pending: "Pendência salva", validate: "Comparecimento enviado para aprovação", pay: "Pagamento registrado", reopen: "Dia reaberto", cancel: "Lançamento cancelado" };
       toast.success(messages[nextAction]);
       onSaved();
     } catch (error) {
@@ -564,7 +577,7 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
         {row && !action && row.status !== "paid" && <div className="flex flex-wrap justify-end gap-2">
           {(row.status === "validated" || row.status === "cancelled") && <Button variant="outline" disabled={busy} onClick={() => { setSaveError(""); setAction("reopen"); }}>Reabrir dia</Button>}
           {row.status !== "cancelled" && <Button variant="ghost" disabled={busy} onClick={() => { setSaveError(""); setAction("cancel"); }}>Cancelar lançamento</Button>}
-          {row.status === "validated" && <Button disabled={busy} onClick={() => { setSaveError(""); setAction("pay"); }}>Registrar pagamento</Button>}
+          {row.status === "validated" && row.approved_at && <Button disabled={busy} onClick={() => { setSaveError(""); setAction("pay"); }}>Registrar pagamento</Button>}
         </div>}
         {action && <form onSubmit={confirm} className="space-y-4 rounded-xl border p-3">
           {action === "pay" ? <>
@@ -588,7 +601,7 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
           <summary className="cursor-pointer font-medium">Histórico deste dia</summary>
           <ol className="mt-2 space-y-2">
             {history.map((entry) => <li key={entry.id} className="text-muted-foreground">
-              {historyDate.format(new Date(entry.occurred_at))} · {entry.actor_name} · {attendanceLabels[entry.snapshot.status]}
+              {historyDate.format(new Date(entry.occurred_at))} · {entry.actor_name} · {entry.snapshot.approval_event === "approved" ? "Diária aprovada" : entry.snapshot.status === "validated" ? "Comparecimento validado" : attendanceLabels[entry.snapshot.status]}
               {entry.snapshot.amount_cents && " · " + formatPayAmount(entry.snapshot.amount_cents)}
               {entry.snapshot.change_reason && <p>{entry.snapshot.change_reason}</p>}
             </li>)}

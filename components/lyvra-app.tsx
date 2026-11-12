@@ -108,8 +108,12 @@ const ProfessionalPayView = dynamic(
   () => import("@/components/professional-pay").then((module) => module.ProfessionalPayView),
   { loading: () => <div role="status" className="surface-card rounded-[24px] p-5 text-sm">Abrindo Diárias…</div> },
 );
+const FinanceApprovalsView = dynamic(
+  () => import("@/components/finance-approvals").then((module) => module.FinanceApprovalsView),
+  { loading: () => <div role="status" className="surface-card rounded-[24px] p-5 text-sm">Abrindo Aprovações…</div> },
+);
 
-type View = "professionalPay" | "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
+type View = "professionalPay" | "approvals" | "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 type OperationalArea = "none" | "reminders" | "collections" | "invoices" | "management" | "support";
 
@@ -243,6 +247,7 @@ type ClinicorpFunctionResponse = {
 
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
+  { id: "approvals", label: "Aprovações", icon: ShieldCheck },
   { id: "journey", label: "Jornada financeira", icon: Sparkles },
   { id: "reminders", label: "Lembretes de boleto", icon: Bell },
   { id: "invoices", label: "Notas fiscais", icon: FileText },
@@ -264,6 +269,7 @@ const roleLabels: Record<Role, string> = {
 
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: "Confira primeiro o que precisa de ação", title: "Visão geral" },
+  approvals: { eyebrow: "Revise os lançamentos enviados pelo financeiro", title: "Aprovações" },
   journey: { eyebrow: "Execute as tarefas pela data de vencimento", title: "Jornada financeira" },
   reminders: { eyebrow: "Revise a lista antes de autorizar qualquer envio", title: "Lembretes de boleto" },
   invoices: { eyebrow: "Emita e marque como concluída somente após emitir", title: "Notas fiscais" },
@@ -290,6 +296,7 @@ const areaLabels: Record<OperationalArea, string> = {
 const allowedViewsFor = (user: UserAccount) => {
   const financialViews: View[] = ["dashboard", "journey", "reminders", "invoices", "collections", "analytics", "patients"];
   const supportViews: View[] = ["support", "access", "integrations"];
+  if (user.role === "ceo" || user.role === "gestora") financialViews.push("approvals");
   return new Set<View>(user.role === "suporte" || user.operationalArea === "support" ? supportViews : financialViews);
 };
 
@@ -840,7 +847,7 @@ export function LyvraApp() {
 
         <main className="lyvra-page min-h-[calc(100svh-4.5rem)] bg-[#f7f8f4]">
           <div className="lyvra-page-inner">
-            {currentUser.operationalArea !== "support" && view !== "professionalPay" && <ClinicorpSyncStatus unit={unit} />}
+            {currentUser.operationalArea !== "support" && view !== "professionalPay" && view !== "approvals" && <ClinicorpSyncStatus unit={unit} />}
             {view === "dashboard" && allowedViews.has("dashboard") && (isExecutive
               ? <ExecutiveDashboardView unit={unit} obligations={obligations} financialDataStatus={financialDataStatus}
                 reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView}
@@ -851,6 +858,7 @@ export function LyvraApp() {
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}
             {view === "collections" && allowedViews.has("collections") && <CollectionsJourney unit={unit} />}
             {view === "analytics" && allowedViews.has("analytics") && <CollectionAnalyticsView unit={unit} />}
+            {view === "approvals" && allowedViews.has("approvals") && <FinanceApprovalsView key={unit} unit={unit} />}
             {view === "professionalPay" && allowedViews.has("professionalPay") && <ProfessionalPayView units={professionalPayUnits} />}
             {view === "patients" && allowedViews.has("patients") && <PatientsView unit={unit} patients={patients} loading={loadingPatients} canEdit={currentUser.operationalArea !== "support"} onSaved={() => loadPatients(true)} />}
             {view === "access" && allowedViews.has("access") && <AccessManagementView currentRole={currentUser.role} />}
@@ -916,6 +924,7 @@ function ExecutiveDashboardView({ unit, obligations, financialDataStatus, remind
           <p className="mt-1 text-sm text-muted-foreground">Competência de {competenceLabel(month)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => goTo("approvals")}>Abrir aprovações <ChevronRight /></Button>
           <Button variant="outline" size="sm" onClick={() => goTo("invoices")}>Notas fiscais <ChevronRight /></Button>
           <Button variant="outline" size="sm" onClick={() => goTo("reminders")}>Lembretes de boleto <ChevronRight /></Button>
         </div>
