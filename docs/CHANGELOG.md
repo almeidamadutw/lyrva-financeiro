@@ -1,5 +1,12 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-12 — Valor fixo por serviço do dia
+
+- Adicionada a forma de remuneração **Valor fixo por serviço do dia**. O lançamento aceita um serviço tabelado e guarda o valor vigente com o histórico. A folha e a fila exibem o serviço selecionado.
+- A opção **A confirmar** permite salvar uma pendência sem valor para conferência. Os lançamentos confirmados seguem a fila existente de aprovações.
+- Código em `components/professional-pay.tsx` e migração `20261112173236_professional_pay_fixed_day_services.sql`.
+- Validados os builds Next.js e Vinext, os 49 testes da aplicação, o formulário em DOM simulado e a regressão SQL isolada para preço tabelado, quantidade, pendência e aprovação.
+
 ## 2026-11-12 — Fila de aprovações
 
 - Adicionada a tela **Aprovações** para perfis ativos CEO e Gestora, com filtro por unidade e atalho no Painel da direção. A primeira fila reúne diárias conferidas para aprovação ou devolução com motivo.

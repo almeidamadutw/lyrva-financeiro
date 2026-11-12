@@ -17,26 +17,27 @@ const selectClass = "h-9 w-full rounded-md border border-input bg-white px-3 tex
 const amountText = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
 export const normalizePayItemName = (name: string) => name.trim().replace(/\s+/g, " ");
 
-export function DeliveryPriceFields({ items }: { items: ProfessionalPayPriceItem[] }) {
+export function FixedPriceFields({ items, mode }: { items: ProfessionalPayPriceItem[]; mode: "delivery" | "fixed_day" }) {
   const [drafts, setDrafts] = useState<PriceDraft[]>(() => items.map((item, id) => ({
     id, name: item.name, amount: amountText(item.unit_cents),
   })));
   const [nextId, setNextId] = useState(items.length);
+  const itemLabel = mode === "delivery" ? "Entrega" : "Serviço";
 
   return <fieldset className="space-y-3 rounded-xl border p-3">
-    <legend className="px-1 text-sm font-medium">Valores por entrega</legend>
+    <legend className="px-1 text-sm font-medium">{mode === "delivery" ? "Valores por entrega" : "Valores por serviço do dia"}</legend>
     {drafts.map((item, index) => <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 sm:grid-cols-[minmax(0,1fr)_6rem_auto]">
       <div className="col-span-2 space-y-1 sm:col-span-1">
-        <Label htmlFor={`delivery-name-${item.id}`}>Entrega {index + 1}</Label>
-        <Input id={`delivery-name-${item.id}`} name="delivery-name" value={item.name} minLength={2} maxLength={120} required
+        <Label htmlFor={`fixed-price-name-${item.id}`}>{itemLabel} {index + 1}</Label>
+        <Input id={`fixed-price-name-${item.id}`} name="fixed-price-name" value={item.name} minLength={2} maxLength={120} required
           onChange={(event) => setDrafts((current) => current.map((draft) => draft.id === item.id ? { ...draft, name: event.target.value } : draft))} />
       </div>
       <div className="space-y-1">
-        <Label htmlFor={`delivery-price-${item.id}`}>Valor (R$)</Label>
-        <Input id={`delivery-price-${item.id}`} name="delivery-price" inputMode="decimal" placeholder="0,00" value={item.amount} maxLength={14} required
+        <Label htmlFor={`fixed-price-amount-${item.id}`}>Valor (R$)</Label>
+        <Input id={`fixed-price-amount-${item.id}`} name="fixed-price-amount" inputMode="decimal" placeholder="0,00" value={item.amount} maxLength={14} required
           onChange={(event) => setDrafts((current) => current.map((draft) => draft.id === item.id ? { ...draft, amount: event.target.value } : draft))} />
       </div>
-      <Button type="button" variant="ghost" size="icon" aria-label={`Remover entrega ${index + 1}`}
+      <Button type="button" variant="ghost" size="icon" aria-label={`Remover ${itemLabel.toLowerCase()} ${index + 1}`}
         onClick={() => setDrafts((current) => current.filter((draft) => draft.id !== item.id))}><Trash2 /></Button>
     </div>)}
     <Button type="button" variant="outline" size="sm" onClick={() => {

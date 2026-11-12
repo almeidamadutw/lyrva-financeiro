@@ -6,7 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type ProfessionalPayMode = "daily" | "procedure" | "delivery"
+export type ProfessionalPayMode = "daily" | "procedure" | "delivery" | "fixed_day"
 export type ProfessionalAttendanceStatus = "pending" | "validated" | "paid" | "cancelled"
 export type ProfessionalServiceKind = ProfessionalPayMode | "planning" | "saturday"
 

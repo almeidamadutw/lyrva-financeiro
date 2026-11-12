@@ -44,3 +44,5 @@ A tela mostra os dias da competência por profissional e unidade. Permite cadast
 No filtro **Profissional**, **Todos** mostra uma linha por profissional da unidade selecionada, com dias pendentes, valor a pagar e valor pago na competência. A opção **Abrir folha** leva aos lançamentos daquele profissional. A troca entre o resumo e a folha individual usa os dados já carregados.
 
 Em remuneração por entrega ou procedimento, o botão **Calcular valores** fica abaixo do campo de valor e abre uma janela sobre o lançamento. A calculadora soma os itens conferidos por quantidade e transfere o total para a diária. Entregas usam valores da regra vigente. Procedimentos podem sugerir um valor de uma validação anterior.
+
+Em **Valor fixo por serviço do dia**, selecione o serviço realizado no lançamento. A folha exibe o serviço e preenche o valor tabelado. Use **A confirmar** e **Salvar pendência** se ainda faltar definir o serviço ou o valor.

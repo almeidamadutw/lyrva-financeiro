@@ -148,7 +148,9 @@ function ApprovalDialog({ row, onClose, onRefresh }: {
       </div>
       {row.notes && <p className="whitespace-pre-wrap text-sm">{row.notes}</p>}
       {row.priced_items.length > 0 && <ul className="space-y-1 text-sm text-muted-foreground">
-        {row.priced_items.map((item) => <li key={item.name}>{item.quantity} × {item.name} · {formatPayAmount(item.unit_cents)} cada</li>)}
+        {row.priced_items.map((item) => <li key={item.name}>
+          {row.service_kind === "fixed_day" ? item.name : `${item.quantity} × ${item.name} · ${formatPayAmount(item.unit_cents)} cada`}
+        </li>)}
       </ul>}
       {returning ? (
         <form onSubmit={returnForCorrection} className="space-y-3">

@@ -46,6 +46,8 @@
 
 Para cadastrar ou alterar a tabela de entregas, abra **Regra de remuneração**, escolha **Por entrega**, informe a vigência e use **Incluir valor padrão**.
 
+Para uma diária com preço conforme o serviço, escolha **Valor fixo por serviço do dia** na **Regra de remuneração** e cadastre os serviços com seus valores. No lançamento, selecione **Serviço do dia** e confira o valor preenchido. Se o valor estiver indefinido, selecione **A confirmar**, anote o caso na observação e salve como pendência.
+
 Para revisar a competência de toda a equipe da unidade, selecione **Todos** em **Profissional**. Na linha da pessoa que precisa de conferência, clique em **Abrir folha**.
 
 ## 7. Acompanhar o financeiro pela direção

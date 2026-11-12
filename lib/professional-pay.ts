@@ -13,6 +13,7 @@ export const serviceLabels: Record<ProfessionalServiceKind, string> = {
   saturday: "Diária de sábado",
   procedure: "Por procedimento",
   delivery: "Por entrega",
+  fixed_day: "Valor fixo por serviço do dia",
 };
 
 const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });

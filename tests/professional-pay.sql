@@ -28,6 +28,7 @@ declare
   professional bigint;
   variable_professional bigint;
   delivery_professional bigint;
+  fixed_day_professional bigint;
   daily_rule bigint;
   updated_rule bigint;
   attendance bigint;
@@ -228,6 +229,60 @@ begin
   end if;
   if not exists (select 1 from public.professional_attendance where id = priced_attendance and amount_cents = 45690) then
     raise exception 'Novo valor alterou procedimento validado anteriormente.';
+  end if;
+
+  begin
+    perform public.save_professional_pay_rule(unit_id_for_test, '{"name":"Regra vazia de teste","effective_from":"2026-01-01","mode":"fixed_day"}');
+    raise exception 'Regra fixa sem tabela aceita.';
+  exception when raise_exception then
+    if sqlerrm <> 'Inclua ao menos um serviço com valor fixo.' then raise; end if;
+  end;
+  fixed_day_professional := public.save_professional_pay_rule(unit_id_for_test, '{"name":"Serviço fixo de teste","effective_from":"2026-01-01",
+    "mode":"fixed_day","price_items":[{"name":"Serviço A","unit_cents":21500},{"name":"Serviço B","unit_cents":58500}]}');
+  select id into strict updated_rule from public.professional_pay_rules where professional_id = fixed_day_professional;
+  input := jsonb_build_object('professional_id', fixed_day_professional, 'work_date', '2026-11-07', 'revision', 0,
+    'professional_signed', true, 'finance_signed', true, 'rule_id', updated_rule);
+  attendance := public.save_professional_attendance(unit_id_for_test, 'pending', input || '{"notes":"Valor a confirmar"}');
+  if not exists (select 1 from public.professional_attendance where id = attendance and status = 'pending'
+    and service_kind = 'fixed_day' and amount_cents is null and proposed_amount_cents is null)
+    or exists (select 1 from public.get_pending_professional_pay_approvals() where id = attendance) then
+    raise exception 'Serviço sem valor confirmado entrou no financeiro.';
+  end if;
+  input := input || '{"revision":1}';
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"amount_cents":21500}');
+    raise exception 'Valor manual aceito em regra fixa.';
+  exception when raise_exception then
+    if sqlerrm <> 'Selecione o serviço do dia com valor confirmado.' then raise; end if;
+  end;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"amount_cents":43000,
+      "priced_items":[{"name":"Serviço A","unit_cents":21500,"quantity":2}]}');
+    raise exception 'Serviço fixo foi multiplicado.';
+  exception when raise_exception then
+    if sqlerrm <> 'O valor fixo do serviço é cobrado uma vez no dia.' then raise; end if;
+  end;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"amount_cents":80000,
+      "priced_items":[{"name":"Serviço A","unit_cents":21500,"quantity":1},{"name":"Serviço B","unit_cents":58500,"quantity":1}]}');
+    raise exception 'Dois serviços fixos somados no dia.';
+  exception when raise_exception then
+    if sqlerrm <> 'Selecione um único serviço para o dia.' then raise; end if;
+  end;
+  begin
+    perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"amount_cents":1,
+      "priced_items":[{"name":"Serviço A","unit_cents":1,"quantity":1}]}');
+    raise exception 'Valor fixo alterado no cliente.';
+  exception when raise_exception then
+    if sqlerrm <> 'O serviço ou o valor fixo não corresponde à regra desta data.' then raise; end if;
+  end;
+  perform public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"amount_cents":21500,
+    "priced_items":[{"name":"Serviço A","unit_cents":21500,"quantity":1}]}');
+  priced_attendance := public.save_professional_attendance(unit_id_for_test, 'validate', input || '{"work_date":"2026-11-10","revision":0,
+    "amount_cents":58500,"priced_items":[{"name":"Serviço B","unit_cents":58500,"quantity":1}]}');
+  if not exists (select 1 from public.get_pending_professional_pay_approvals() where id = attendance and amount_cents = 21500)
+    or not exists (select 1 from public.get_pending_professional_pay_approvals() where id = priced_attendance and amount_cents = 58500) then
+    raise exception 'Serviço fixo não seguiu para aprovação pelo valor tabelado.';
   end if;
 
   begin

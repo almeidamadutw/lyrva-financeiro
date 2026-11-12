@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { LoaderCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { AttendancePriceCalculator, DeliveryPriceFields, normalizePayItemName } from "@/components/professional-pay-calculator";
+import { AttendancePriceCalculator, FixedPriceFields, normalizePayItemName } from "@/components/professional-pay-calculator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -271,7 +271,10 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
               {payMonthDays(month).map((date) => {
                 const row = rowsByDate.get(date);
                 return <TableRow key={date}>
-                  <TableCell className="pl-5 font-medium">{formatAttendanceDay(date)}</TableCell>
+                  <TableCell className="pl-5 font-medium">
+                    {formatAttendanceDay(date)}
+                    {row?.service_kind === "fixed_day" && <span className="block text-xs text-muted-foreground">{row.priced_items[0]?.name ?? "Serviço a confirmar"}</span>}
+                  </TableCell>
                   <TableCell>{row ? Number(row.professional_signed) + Number(row.finance_signed) + " de 2" : "—"}</TableCell>
                   <TableCell><Status row={row} /></TableCell>
                   <TableCell className="text-right tabular-nums">{row?.amount_cents ? formatPayAmount(row.amount_cents) : "—"}</TableCell>
@@ -329,14 +332,18 @@ function RuleDialog({ unit, profile, onClose, onSaved }: {
       setSaveError("Informe valores positivos em reais. Use vírgula para os centavos.");
       return;
     }
-    const deliveryPrices = fields.getAll("delivery-price");
-    const priceItems = fields.getAll("delivery-name").map((entry, index) => ({
+    const fixedPrices = fields.getAll("fixed-price-amount");
+    const priceItems = fields.getAll("fixed-price-name").map((entry, index) => ({
       name: normalizePayItemName(entry.toString()),
-      unit_cents: payCents(deliveryPrices[index]?.toString() ?? ""),
+      unit_cents: payCents(fixedPrices[index]?.toString() ?? ""),
     }));
+    if (mode === "fixed_day" && !priceItems.length) {
+      setSaveError("Inclua ao menos um serviço com valor fixo.");
+      return;
+    }
     if (priceItems.some((item) => item.name.length < 2 || !item.unit_cents)
       || new Set(priceItems.map((item) => item.name.toLowerCase())).size !== priceItems.length) {
-      setSaveError("Informe nomes diferentes e valores positivos para as entregas.");
+      setSaveError("Informe nomes diferentes e valores positivos para os itens.");
       return;
     }
     setBusy(true);
@@ -380,6 +387,7 @@ function RuleDialog({ unit, profile, onClose, onSaved }: {
           <div className="space-y-1.5"><Label htmlFor="pay-mode">Forma de remuneração</Label>
             <select id="pay-mode" className={selectClass} value={mode} onChange={(event) => setMode(event.target.value as ProfessionalPayMode)}>
               <option value="daily">Diária</option><option value="procedure">Por procedimento</option><option value="delivery">Por entrega</option>
+              <option value="fixed_day">Valor fixo por serviço do dia</option>
             </select>
           </div>
           <div className="space-y-1.5"><Label htmlFor="pay-effective">Válida a partir de</Label>
@@ -391,7 +399,8 @@ function RuleDialog({ unit, profile, onClose, onSaved }: {
             <MoneyField id="pay-planning" name="planning" label="Planejamento (R$, opcional)" initial={previous?.planning_cents} />
             <MoneyField id="pay-saturday" name="saturday" label="Sábado (R$, opcional)" initial={previous?.saturday_cents} />
           </div>}
-          {mode === "delivery" && <DeliveryPriceFields items={previous?.price_items ?? []} />}
+          {(mode === "delivery" || mode === "fixed_day") && <FixedPriceFields key={mode} mode={mode}
+            items={previous?.mode === mode ? previous.price_items : []} />}
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
           <div className="flex justify-end"><Button disabled={busy} type="submit">{busy ? "Salvando…" : "Salvar regra"}</Button></div>
         </form>}
@@ -458,18 +467,19 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
   const hasSaturday = rule?.mode === "daily" && rule.saturday_cents !== null && isAttendanceSaturday(date);
   const service = rule?.mode === "daily" ? (selectedPlanning ? "planning" : hasSaturday ? "saturday" : "daily") : rule?.mode;
   const fixedAmount = selectedPlanning ? rule?.planning_cents : hasSaturday ? rule?.saturday_cents : rule?.daily_cents;
-  const variableMode = rule?.mode === "daily" ? undefined : rule?.mode;
+  const pricedMode = rule?.mode === "daily" ? undefined : rule?.mode;
+  const isFixedDay = pricedMode === "fixed_day";
   const catalog = rule?.price_items ?? [];
-  const outdatedItems = Boolean(variableMode && appliedItems.length && (appliedMode !== variableMode
-    || (variableMode === "delivery" && appliedItems.some((item) => !catalog.some((price) => price.name === item.name && price.unit_cents === item.unit_cents)))));
-  const currentItems = variableMode && !outdatedItems ? appliedItems : [];
+  const outdatedItems = Boolean(pricedMode && appliedItems.length && (appliedMode !== pricedMode
+    || (pricedMode !== "procedure" && appliedItems.some((item) => !catalog.some((price) => price.name === item.name && price.unit_cents === item.unit_cents)))));
+  const currentItems = pricedMode && !outdatedItems ? appliedItems : [];
   const calculatedAmount = currentItems.length ? pricedAttendanceTotal(currentItems) : null;
-  const allowManual = (variableMode === "delivery" && !catalog.length)
-    || (variableMode === "procedure" && row?.service_kind === "procedure" && Boolean(row.proposed_amount_cents) && !row.priced_items?.length);
+  const allowManual = (pricedMode === "delivery" && !catalog.length)
+    || (pricedMode === "procedure" && row?.service_kind === "procedure" && Boolean(row.proposed_amount_cents) && !row.priced_items?.length);
   const amountCents = calculatedAmount ?? (allowManual ? payCents(amount) : null);
   const invalidManualAmount = Boolean(allowManual && calculatedAmount === null && amount.trim() && !amountCents);
   const canValidate = !busy && professionalSigned && financeSigned && !outdatedItems
-    && (!variableMode || Boolean(amountCents && notes.trim()));
+    && (!pricedMode || Boolean(amountCents && (isFixedDay || notes.trim())));
 
   async function save(nextAction: AttendanceAction, extra: Record<string, Json> = {}) {
     if (busy) return;
@@ -530,7 +540,9 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
         {row?.paid_on && <p className="text-sm">Pagamento em {dateLabel(row.paid_on)}{row.payment_reference && " · " + row.payment_reference}</p>}
         {!editable && row?.notes && <p className="text-sm">{row.notes}</p>}
         {!editable && Boolean(row?.priced_items?.length) && <ul className="space-y-1 text-sm text-muted-foreground">
-          {row?.priced_items.map((item) => <li key={item.name}>{item.quantity} × {item.name} · {formatPayAmount(item.unit_cents)} cada</li>)}
+          {row?.priced_items.map((item) => <li key={item.name}>
+            {row.service_kind === "fixed_day" ? item.name : `${item.quantity} × ${item.name} · ${formatPayAmount(item.unit_cents)} cada`}
+          </li>)}
         </ul>}
         {loading && <p role="status" className="text-sm">Consultando regra da data…</p>}
         {loadError && <p role="alert" className="text-sm text-destructive">{loadError}</p>}
@@ -552,19 +564,31 @@ function AttendanceDialog({ unit, profile, date, row, onClose, onSaved }: {
               <input type="checkbox" checked={financeSigned} onChange={(event) => setFinanceSigned(event.target.checked)} /> Visto do financeiro conferido
             </label>
           </fieldset>
-          {variableMode && <div className="space-y-1.5">
+          {isFixedDay && <div className="space-y-1.5">
+            <Label htmlFor="attendance-fixed-day-service">Serviço do dia</Label>
+            <select id="attendance-fixed-day-service" className={selectClass} value={currentItems[0]?.name ?? ""} disabled={busy}
+              onChange={(event) => {
+                const item = catalog.find((price) => price.name === event.target.value);
+                setAppliedItems(item ? [{ ...item, quantity: 1 }] : []);
+                setAppliedMode("fixed_day");
+              }}>
+              <option value="">A confirmar</option>
+              {catalog.map((item) => <option key={item.name} value={item.name}>{item.name} · {formatPayAmount(item.unit_cents)}</option>)}
+            </select>
+          </div>}
+          {pricedMode && <div className="space-y-1.5">
             <Label htmlFor="attendance-amount">Valor total conferido no dia (R$)</Label>
             <Input id="attendance-amount" inputMode="decimal" placeholder="0,00" value={calculatedAmount !== null ? editableAmount(calculatedAmount) : allowManual ? amount : ""}
               maxLength={14} readOnly={!allowManual || calculatedAmount !== null} onChange={(event) => setAmount(event.target.value)} />
-            <AttendancePriceCalculator mode={variableMode} unitId={unit.id} professionalId={profile.id} catalog={catalog}
-              appliedItems={currentItems} disabled={busy} onApply={(items) => { setAppliedItems(items); setAppliedMode(variableMode); }} />
-            {currentItems.length > 0 && <p className="text-xs text-muted-foreground">{currentItems.map((item) => `${item.quantity} × ${item.name}`).join(" · ")}</p>}
-            {outdatedItems && <p role="alert" className="text-xs text-destructive">A regra mudou. Calcule o valor novamente com os itens da regra atual.</p>}
-            {outdatedItems && !catalog.length && variableMode === "delivery" && <Button type="button" size="sm" variant="outline"
+            {pricedMode !== "fixed_day" && <AttendancePriceCalculator mode={pricedMode} unitId={unit.id} professionalId={profile.id} catalog={catalog}
+              appliedItems={currentItems} disabled={busy} onApply={(items) => { setAppliedItems(items); setAppliedMode(pricedMode); }} />}
+            {!isFixedDay && currentItems.length > 0 && <p className="text-xs text-muted-foreground">{currentItems.map((item) => `${item.quantity} × ${item.name}`).join(" · ")}</p>}
+            {outdatedItems && <p role="alert" className="text-xs text-destructive">A regra mudou. Confira o valor pela regra atual.</p>}
+            {outdatedItems && (isFixedDay || (!catalog.length && pricedMode === "delivery")) && <Button type="button" size="sm" variant="outline"
               onClick={() => { setAppliedItems([]); setAmount(""); }}>Limpar cálculo anterior</Button>}
             {invalidManualAmount && <p className="text-xs text-destructive">Informe um valor positivo. Use vírgula para os centavos.</p>}
           </div>}
-          <div className="space-y-1.5"><Label htmlFor="attendance-notes">{variableMode ? "Procedimentos ou entregas conferidos" : "Observação (opcional)"}</Label>
+          <div className="space-y-1.5"><Label htmlFor="attendance-notes">{pricedMode && !isFixedDay ? "Procedimentos ou entregas conferidos" : "Observação (opcional)"}</Label>
             <Textarea id="attendance-notes" value={notes} maxLength={600} onChange={(event) => setNotes(event.target.value)} />
           </div>
           <div className="flex flex-wrap justify-end gap-2">
