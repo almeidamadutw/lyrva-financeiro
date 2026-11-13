@@ -65,3 +65,6 @@ Para revisar a competência de toda a equipe da unidade, selecione **Todos** em 
 2. Clique em **Revisar** na diária e confira data, profissional, tipo de serviço, valor e os detalhes disponíveis.
 3. Clique em **Aprovar diária** para liberar o registro de pagamento. Para solicitar ajuste, use **Devolver para correção** e informe o motivo. O financeiro precisa conferir e validar a diária novamente para reenviá-la.
 4. Consulte **Histórico deste dia** na folha individual para verificar a decisão, a pessoa responsável e a data.
+
+## Controle de Entrada de Vendas
+Siga o [passo a passo da negociação e da confirmação de recebimentos](entrada-de-vendas.md).

@@ -1,5 +1,10 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-13 — Controle de Entrada de Vendas
+
+- Adicionado o [fluxo de entrada programada, baixas confirmadas e previsão de aprovação](entrada-de-vendas.md).
+- Build Vinext e testes existentes da versão publicada executados. O cenário do banco do AVERA foi conferido com dados fictícios.
+
 ## 2026-11-12 — Cadastro de profissionais entre competências
 
 - Formalizado o reaproveitamento do cadastro por unidade nas competências seguintes. Adicionadas as ações **Arquivar profissional** e **Reativar profissional**, com consulta dos lançamentos em **Arquivados** e registro na auditoria.

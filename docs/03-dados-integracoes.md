@@ -30,3 +30,6 @@ Existem Edge Functions e infraestrutura de webhook/revisão para integração Me
 
 ## Proteção
 CPF, telefone, valores, tokens e payloads de API são dados sensíveis. Não incluir amostras reais em commits, testes ou documentação.
+
+## Controle de Entrada de Vendas
+Consulte [o modelo de dados, os indicadores e a integração por unidade](entrada-de-vendas.md).

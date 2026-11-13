@@ -32,3 +32,6 @@ A publicação real e integridade financeira de toda a carteira não foram testa
 2. Aplique a migração aditiva antes de publicar a interface. Para liberar Diárias a uma conta de Lembretes, Cobrança, Notas fiscais ou Suporte, registre em `private.professional_pay_operators` as unidades ativas já atribuídas à conta. Confira o acesso pelo RPC `get_professional_pay_units` no contexto dessa conta.
 3. Cadastre os profissionais e as regras aprovadas nas unidades em que trabalham, com as vigências correspondentes. Os valores são dados operacionais e ficam no ambiente da clínica.
 4. Para reverter a publicação da interface, restaure a versão anterior e mantenha as tabelas e o histórico já registrado.
+
+## Controle de Entrada de Vendas
+Consulte [o fluxo e a integração](entrada-de-vendas.md) para conferir os testes e os requisitos da publicação.

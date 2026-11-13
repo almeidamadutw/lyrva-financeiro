@@ -1,6 +1,7 @@
 "use client";
 
 import { accessAuth } from "@/lib/access-auth";
+import { SalesEntries } from "@/components/sales-entries";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -113,7 +114,7 @@ const FinanceApprovalsView = dynamic(
   { loading: () => <div role="status" className="surface-card rounded-[24px] p-5 text-sm">Abrindo Aprovações…</div> },
 );
 
-type View = "professionalPay" | "approvals" | "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
+type View = "salesEntries" | "professionalPay" | "approvals" | "dashboard" | "journey" | "reminders" | "invoices" | "collections" | "analytics" | "patients" | "import" | "access" | "support" | "integrations";
 type Role = "membro" | "gestora" | "ceo" | "suporte";
 type OperationalArea = "none" | "reminders" | "collections" | "invoices" | "management" | "support";
 
@@ -248,6 +249,7 @@ type ClinicorpFunctionResponse = {
 const navItems: { id: View; label: string; icon: typeof LayoutDashboard; badge?: string }[] = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
   { id: "approvals", label: "Aprovações", icon: ShieldCheck },
+  { id: "salesEntries", label: "Entrada de Vendas", icon: CircleDollarSign },
   { id: "journey", label: "Jornada financeira", icon: Sparkles },
   { id: "reminders", label: "Lembretes de boleto", icon: Bell },
   { id: "invoices", label: "Notas fiscais", icon: FileText },
@@ -268,6 +270,7 @@ const roleLabels: Record<Role, string> = {
 };
 
 const viewTitles: Record<View, { eyebrow: string; title: string }> = {
+  salesEntries: { eyebrow: "Operação financeira", title: "Entrada de Vendas" },
   dashboard: { eyebrow: "Confira primeiro o que precisa de ação", title: "Visão geral" },
   approvals: { eyebrow: "Revise os lançamentos enviados pelo financeiro", title: "Aprovações" },
   journey: { eyebrow: "Execute as tarefas pela data de vencimento", title: "Jornada financeira" },
@@ -853,6 +856,7 @@ export function LyvraApp() {
                 reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView}
                 retry={() => { void loadFinancialData().catch(() => undefined); }} />
               : <DashboardView unit={unit} obligations={obligations} reminderCount={reminderCounts[unit] ?? reminderCounts.todas} goTo={setView} />)}
+            {view === "salesEntries" && <SalesEntries unit={unit} />}
             {view === "journey" && allowedViews.has("journey") && <FinancialJourney unit={unit} mode="management" />}
             {view === "reminders" && allowedViews.has("reminders") && <PaymentReminderReview unit={unit} />}
             {view === "invoices" && allowedViews.has("invoices") && <InvoicesView unit={unit} obligations={obligations} onIssued={markIssued} />}

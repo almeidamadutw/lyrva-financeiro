@@ -33,3 +33,6 @@ Não marcar NF como emitida antes da emissão real.
 - Procedimentos sugerem o último valor unitário validado ou pago do mesmo nome para o profissional naquela unidade. Um valor ajustado passa a ser sugerido após validação. Pendências e cancelamentos ficam fora das sugestões.
 - Alterações de regra preservam a versão aplicada em cada diária validada. Se a regra mudar durante uma conferência, o responsável precisa reabrir o dia e conferir o novo valor.
 - O estado **Pago** exige um lançamento validado, aprovado e com a data efetiva do pagamento. O pagamento é realizado fora do módulo. Lançamentos pagos antes da implantação ficam preservados para auditoria. Os lançamentos validados ainda em aberto entram na fila. Reabrir um lançamento exige motivo, remove a aprovação anterior e requer nova conferência do visto financeiro.
+
+## Controle de Entrada de Vendas
+Consulte [as permissões, os critérios e a trilha de auditoria](entrada-de-vendas.md).

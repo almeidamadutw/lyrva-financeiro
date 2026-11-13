@@ -48,3 +48,6 @@ No filtro **Profissional**, **Todos** mostra uma linha por profissional da unida
 Em remuneração por entrega ou procedimento, o botão **Calcular valores** fica abaixo do campo de valor e abre uma janela sobre o lançamento. A calculadora soma os itens conferidos por quantidade e transfere o total para a diária. Entregas usam valores da regra vigente. Procedimentos podem sugerir um valor de uma validação anterior.
 
 Em **Valor fixo por serviço do dia**, selecione o serviço realizado no lançamento. A folha exibe o serviço e preenche o valor tabelado. Use **A confirmar** e **Salvar pendência** se ainda faltar definir o serviço ou o valor.
+
+## Controle de Entrada de Vendas
+Consulte [a tela e seus indicadores](entrada-de-vendas.md).

@@ -17,3 +17,5 @@ Repositório: `lyrva-financeiro`. Referência do código e migrações: `main` i
 - [Conferência financeira Clinicorp](clinicorp-financial-recovery.md): detalhes do processamento de histórico, identidade, limites e reconciliação.
 
 **Escopo da revisão:** documentação, não homologação operacional. Uma página, rotina ou migração presente no código não comprova que a API externa e os dados da instância estejam corretos.
+
+- [Controle de Entrada de Vendas](entrada-de-vendas.md)

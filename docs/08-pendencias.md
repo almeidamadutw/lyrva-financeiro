@@ -22,3 +22,6 @@ A aba cobre folha mensal por unidade e profissional, regras versionadas, cálcul
 | Rastreio de todas as rotinas e telas em produção | Não homologado nesta revisão | Executar smoke tests por papel/unidade |
 
 Uma pendência só vira concluída com código publicado, verificação e registro no changelog.
+
+## Controle de Entrada de Vendas
+O [fluxo implementado](entrada-de-vendas.md) usa confirmação manual de baixas. A conferência de registros históricos das planilhas depende dos comprovantes da clínica.
