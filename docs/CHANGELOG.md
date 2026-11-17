@@ -1,5 +1,11 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-17 — Carregamento da Régua de Cobrança
+
+- A migração [speed_up_collection_queue](../supabase/migrations/20261117135835_speed_up_collection_queue.sql) resolve a elegibilidade pela unidade, pelo vínculo do paciente e pelo caso. A consulta busca a parcela correspondente e pagina antes de carregar os detalhes de exibição.
+- Comparados os resultados completos e a ordem das páginas para Salto, Sorocaba e ambas as unidades. Em produção, as duas páginas sem filtros testadas com o perfil de cobrança responderam em 427 e 498 ms.
+- Executados o build Vinext, os 49 testes da aplicação e `tests/collection-analytics.sql`. A conferência incluiu o total da fila, os estados de confirmação do Clinicorp e o acesso por perfil.
+
 ## 2026-11-13 — Controle de Entrada de Vendas
 
 - Adicionado o [fluxo de entrada programada, baixas confirmadas e previsão de aprovação](entrada-de-vendas.md).

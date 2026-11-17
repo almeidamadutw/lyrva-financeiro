@@ -27,9 +27,13 @@ O CPF do responsável financeiro só identifica o paciente quando o nome do resp
 
 A régua inicia no mês atual e aplica mês, ano e intervalo de vencimento no servidor, em páginas de 300 registros. A divisão Duda/Daiane considera todos os boletos vencidos do paciente na unidade, independentemente do período exibido. Contagens são devolvidas em um resultado JSON para evitar o limite padrão de linhas da API.
 
+`get_collection_queue_filtered` seleciona os vínculos ativos nas unidades acessíveis e os casos já elegíveis. A consulta localiza a parcela de cada caso pela chave e aplica os filtros de vencimento. O banco consulta o nome, o responsável e a confirmação do Clinicorp para os casos da página retornada. A confirmação de boletos em planos com outra forma de pagamento faz parte da seleção da página.
+
 Pacientes e notas têm leitura paginada e ordenação estável, evitando totais ou listas cortados silenciosamente. Respostas de uma consulta anterior não substituem a unidade/período atual da régua. O aviso global informa a cobertura inicial e as tentativas pendentes.
 
 ## Acompanhamento
+
+Se a tela da régua falhar ao carregar, confira nos logs do PostgREST o código `57014` na RPC `get_collection_queue_filtered`. Confira a execução do agendamento `lyvra_clinicorp_financial_sync` em `cron.job_run_details` e a conclusão dos lotes em `private.clinicorp_sync_days.last_success_at` para verificar a atualização da fonte.
 
 `public.get_clinicorp_sync_status(p_unit_code)` respeita as unidades do usuário autenticado. Detalhes operacionais e respostas completas ficam restritos ao serviço:
 
