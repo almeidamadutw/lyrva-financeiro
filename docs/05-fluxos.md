@@ -16,7 +16,7 @@
 
 ## 3. Cobrança e negociação
 1. Após o prazo previsto, abra **Régua de cobrança**.
-2. Use **Todos** para localizar quem não recebeu primeiro contato.
+2. Use **Todos** para localizar quem aguarda o primeiro contato. Os pacientes com um boleto vencido na unidade ficam na carteira da Duda e aparecem primeiro. Dentro de cada carteira, os casos aparecem pela ordem de entrada na régua.
 3. Abra o caso, confira a conciliação e registre contato, canal, resultado e próxima ação.
 4. Casos aguardando resposta aparecem em **Hoje**; datas combinadas em **Promessas**.
 5. Registre renegociação somente com contexto da parcela e sem confundir promessa com quitação.

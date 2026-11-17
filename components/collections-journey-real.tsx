@@ -622,7 +622,12 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
     { count: 0, amount: 0 },
   ), [searched]);
 
-  const firstContact = searched.filter((patient) => patient.stage === "call" && patient.eligibleAt <= todayKey);
+  const firstContact = searched
+    .filter((patient) => patient.stage === "call" && patient.eligibleAt <= todayKey)
+    .sort((a, b) => {
+      if (a.collectionOwner === b.collectionOwner) return 0;
+      return a.collectionOwner === "Duda" ? -1 : 1;
+    });
   const waitingForReply = searched.filter((patient) => patient.stage === "waiting");
   const promises = searched
     .filter((patient) => patient.stage === "promise")

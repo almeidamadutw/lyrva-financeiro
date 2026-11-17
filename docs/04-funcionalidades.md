@@ -19,7 +19,7 @@ Menu identificado em `components/lyvra-app.tsx`:
 
 ### Régua de cobrança
 A interface `components/collections-journey-real.tsx` separa:
-- **Todos:** casos sem primeiro contato;
+- **Todos:** casos sem primeiro contato, com os pacientes da carteira da Duda no topo;
 - **Hoje:** aguardando resposta;
 - **Promessas:** pagamento com data combinada;
 - **Negociações** e **Protestados:** situações específicas.

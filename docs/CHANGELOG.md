@@ -1,5 +1,10 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-17 — Prioridade para os primeiros contatos da Duda
+
+- A aba **Todos** da Régua de Cobrança exibe primeiro os pacientes da carteira da Duda que aguardam o primeiro contato. A ordem dentro de cada carteira segue a entrada na régua. Código em `components/collections-journey-real.tsx`.
+- Validados o build Vinext, a checagem TypeScript e os 49 testes da aplicação. O teste com dados fictícios conferiu a prioridade entre páginas, os filtros de responsável e a mudança para **Hoje** ao registrar um contato aguardando resposta.
+
 ## 2026-11-17 — Carregamento da Régua de Cobrança
 
 - A migração [speed_up_collection_queue](../supabase/migrations/20261117135835_speed_up_collection_queue.sql) resolve a elegibilidade pela unidade, pelo vínculo do paciente e pelo caso. A consulta busca a parcela correspondente e pagina antes de carregar os detalhes de exibição.
