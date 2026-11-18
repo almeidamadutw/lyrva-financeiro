@@ -25,6 +25,8 @@ A folha física é a fonte da conferência. O cadastro e a agenda do Clinicorp f
 ## Pagamentos e nota fiscal
 Os estados financeiros e fiscais são persistidos no Supabase. A emissão de NF é acompanhada pelo sistema, mas **não está documentada como emissão fiscal automática ativa**.
 
+A política de leitura de `financial_tasks` calcula as unidades permitidas com `private.has_unit_access` para a consulta. O índice parcial `financial_tasks_assignee_open_due_idx` atende notificações pendentes por responsável e vencimento. A régua busca o plano financeiro vinculado a cada parcela pela chave primária antes de paginar.
+
 ## WhatsApp
 Existem Edge Functions e infraestrutura de webhook/revisão para integração Meta. A existência do código **não equivale a disparo automatizado habilitado, aprovação de templates ou cobrança configurada**. Conferir ambiente, consentimento, template e logs antes de ativar.
 

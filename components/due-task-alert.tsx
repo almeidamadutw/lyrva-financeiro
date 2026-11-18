@@ -27,7 +27,7 @@ export function DueTaskAlert({ userId, onOpenJourney, onOpenCollections }: Props
   const deferredByDictation = useRef(false);
 
   const check = useCallback(async () => {
-    if (running.current) return;
+    if (running.current || document.visibilityState === "hidden") return;
     if (isDictationActive()) {
       deferredByDictation.current = true;
       return;

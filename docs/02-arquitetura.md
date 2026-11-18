@@ -30,6 +30,7 @@ tests/                          # testes automáticos
 ```
 
 ## Separação de responsabilidades
+- A fila de notas fiscais e os contadores do painel são carregados ao abrir **Visão geral** ou **Notas fiscais**. A atualização periódica acompanha a tela visível e agrupa os eventos de foco enquanto há uma leitura em andamento.
 - Frontend apresenta tarefas/estados; não deve ser fonte autoritativa de baixa.
 - Backend/banco controla elegibilidade, identidade do título, pagamentos e acesso.
 - Clinicorp é consultado por unidade e o resultado é reconciliado conservadoramente.

@@ -476,6 +476,7 @@ export function LyvraApp() {
   const [obligations, setObligations] = useState<InvoiceObligation[]>([]);
   const [reminderCounts, setReminderCounts] = useState<Record<string, number>>({ todas: 0, sorocaba: 0, salto: 0 });
   const [financialDataStatus, setFinancialDataStatus] = useState<"loading" | "ready" | "error">("loading");
+  const financialLoadGeneration = useRef(0);
 
   const loadProfile = useCallback(async (userId: string): Promise<UserAccount | null> => {
     const supabase = getSupabaseBrowserClient();
@@ -570,6 +571,8 @@ export function LyvraApp() {
   }, []);
 
   const loadFinancialData = useCallback(async (_silent = false) => {
+    const generation = ++financialLoadGeneration.current;
+    const current = () => generation === financialLoadGeneration.current;
     const supabase = getSupabaseBrowserClient();
     if (!_silent) setFinancialDataStatus("loading");
     try {
@@ -586,6 +589,7 @@ export function LyvraApp() {
           for(let offset=0;;offset+=500) {
             const page=await supabase.from("invoice_queue").select("*")
               .order("period_end",{ascending:true}).order("id").order("source_type").range(offset,offset+499);
+            if (!current()) return { data: [], error: null };
             if(page.error) return {data:null,error:page.error};
             rows.push(...(page.data??[]));
             if((page.data?.length??0)<500) return {data:rows,error:null};
@@ -601,6 +605,7 @@ export function LyvraApp() {
         supabase.from("units").select("id,code").eq("is_active", true),
       ]);
 
+      if (!current()) return;
       const firstError = obligationResult.error ?? reminderResult.error ?? unitResult.error;
       if (firstError) throw firstError;
 
@@ -640,6 +645,7 @@ export function LyvraApp() {
       setReminderCounts(nextReminderCounts);
       setFinancialDataStatus("ready");
     } catch (error) {
+      if (!current()) return;
       setObligations([]);
       setReminderCounts({ todas: 0, sorocaba: 0, salto: 0 });
       setFinancialDataStatus("error");
@@ -670,11 +676,6 @@ export function LyvraApp() {
         setView(defaultViewFor(account));
         setAuthReady(true);
       }
-      if (account.operationalArea !== "support") {
-        void loadFinancialData().catch(() => {
-          if (active) toast.error("Você entrou no LYVRA, mas alguns dados financeiros ainda estão carregando.");
-        });
-      }
     };
 
     void initialize();
@@ -686,21 +687,30 @@ export function LyvraApp() {
       active = false;
       listener.subscription.unsubscribe();
     };
-  }, [loadFinancialData, loadProfile]);
+  }, [loadProfile]);
 
   useEffect(() => {
-    if (!currentUser || currentUser.operationalArea === "support") return;
-    const refresh = () => { void loadFinancialData(true).catch(() => undefined); };
-    const interval = window.setInterval(refresh, 300_000);
-    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", refresh);
+    if (!currentUser || currentUser.operationalArea === "support" || (view !== "dashboard" && view !== "invoices")) return;
+    let running = false;
+    const refresh = (silent: boolean) => {
+      if (running || document.visibilityState === "hidden") return;
+      running = true;
+      void loadFinancialData(silent).catch(() => {
+        if (!silent) toast.error("Não foi possível carregar os dados financeiros agora.");
+      }).finally(() => { running = false; });
     };
-  }, [currentUser, loadFinancialData]);
+    const onRefresh = () => refresh(true);
+    refresh(false);
+    const interval = window.setInterval(onRefresh, 300_000);
+    document.addEventListener("visibilitychange", onRefresh);
+    window.addEventListener("focus", onRefresh);
+    return () => {
+      ++financialLoadGeneration.current;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onRefresh);
+      window.removeEventListener("focus", onRefresh);
+    };
+  }, [currentUser, view, loadFinancialData]);
 
   useEffect(() => {
     if (!currentUser || view !== "patients") return;
@@ -710,6 +720,12 @@ export function LyvraApp() {
   }, [currentUser, view, loadPatients]);
 
   const currentUserId = currentUser?.id;
+  const openFinancialJourney = useCallback(() => {
+    if (currentUser && allowedViewsFor(currentUser).has("journey")) setView("journey");
+  }, [currentUser]);
+  const openCollections = useCallback(() => {
+    if (currentUser && allowedViewsFor(currentUser).has("collections")) setView("collections");
+  }, [currentUser]);
   useEffect(() => {
     if (!currentUserId) return;
     let active = true;
@@ -757,11 +773,6 @@ export function LyvraApp() {
 
     setCurrentUser(account);
     setView(defaultViewFor(account));
-    if (account.operationalArea !== "support") {
-      void loadFinancialData().catch(() => {
-        toast.error("Você entrou no LYVRA, mas alguns dados financeiros ainda estão carregando.");
-      });
-    }
     return null;
   };
 
@@ -796,7 +807,7 @@ export function LyvraApp() {
         closeButton
         toastOptions={{ closeButtonAriaLabel: "Fechar notificação" }}
       />
-      {currentUser.operationalArea !== "support" && <DueTaskAlert userId={currentUser.id} onOpenJourney={() => allowedViews.has("journey") && setView("journey")} onOpenCollections={() => allowedViews.has("collections") && setView("collections")} />}
+      {currentUser.operationalArea !== "support" && <DueTaskAlert userId={currentUser.id} onOpenJourney={openFinancialJourney} onOpenCollections={openCollections} />}
       <Sidebar collapsible="icon" className="border-r-0 bg-[#10221f] text-white">
         <SidebarHeader className="px-4 pb-3 pt-5">
           <div className="flex items-center gap-3 overflow-hidden px-1">
@@ -844,7 +855,7 @@ export function LyvraApp() {
           </div>
           <div className="flex items-center gap-2">
             {currentUser.operationalArea !== "support" && view !== "professionalPay" && unitFilter}
-            {currentUser.operationalArea !== "support" && <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={() => allowedViews.has("journey") && setView("journey")} onOpenCollections={() => allowedViews.has("collections") && setView("collections")} />}
+            {currentUser.operationalArea !== "support" && <FinancialNotifications userId={currentUser.id} unit={unit} onOpenJourney={openFinancialJourney} onOpenCollections={openCollections} />}
           </div>
         </header>
 

@@ -1,5 +1,13 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-18 — Custo das leituras ao abrir o sistema
+
+- A fila fiscal e os contadores do painel são carregados ao abrir **Visão geral** ou **Notas fiscais**. Eventos simultâneos de foco compartilham a leitura em andamento. Ao trocar de tela, a consulta anterior para de buscar páginas e de atualizar o estado.
+- Os callbacks dos alertas permanecem estáveis durante atualizações dos dados. O alerta de tarefas aguarda a aba ficar visível para consultar novamente.
+- A migração `20261118180011_reduce_financial_read_cost.sql` calcula as unidades permitidas uma vez por leitura de tarefas e adiciona índice para as notificações pendentes do responsável. A régua localiza o plano de cada parcela pela chave primária.
+- Validados o build Vinext, os 49 testes existentes, TypeScript e um fluxo com dados fictícios de entrada, troca de telas, paginação e retomada de foco. `tests/financial-read-scope.sql` confirmou os mesmos IDs de tarefas autorizados para todos os perfis, conta desconhecida e sessão sem identidade.
+- Em leituras de produção com o perfil da cobrança, 50 notificações responderam em 6 ms e a página do mês da régua respondeu em 2,7 s. Os registros e valores da régua foram comparados com a consulta anterior nas duas unidades e em páginas consolidadas.
+
 ## 2026-11-17 — Prioridade para os primeiros contatos da Duda
 
 - A aba **Todos** da Régua de Cobrança exibe primeiro os pacientes da carteira da Duda que aguardam o primeiro contato. A ordem dentro de cada carteira segue a entrada na régua. Código em `components/collections-journey-real.tsx`.

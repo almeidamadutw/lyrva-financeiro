@@ -24,6 +24,8 @@ npm test
 ## Mudanças em integrações
 Ler `docs/clinicorp-financial-recovery.md`, preservar checkpoints e executar testes do trabalhador antes de deploy. Migrações devem ser revisadas e reversões planejadas.
 
+A regressão `tests/financial-read-scope.sql` confere, em transação de leitura revertida, que a consulta de tarefas retorna os mesmos IDs autorizados pelas unidades de cada perfil, incluindo conta desconhecida e sessão sem identidade.
+
 A publicação real e integridade financeira de toda a carteira não foram testadas nesta alteração documental.
 
 ## Publicação de Diárias
