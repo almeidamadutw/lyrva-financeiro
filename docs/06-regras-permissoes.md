@@ -5,6 +5,7 @@ O código declara `membro`, `gestora`, `ceo` e `suporte`. O conjunto de telas é
 
 ## Parcela e cobrança
 - A documentação legada descreve um lembrete **D-1**, sem lembrete automático no vencimento, e início da cobrança em **D+3 dias úteis**. Qualquer alteração posterior desejada precisa ser conferida e implementada explicitamente, não alterada apenas neste documento.
+- **Exatamente 2 vencidos** seleciona a contagem igual a dois boletos vencidos e abertos por paciente/unidade, independentemente do período da lista. Um boleto corresponde à carteira da Duda; dois ou mais, à da Daiane. A quantidade de boletos não determina automaticamente o estado de protesto.
 - Pagamento informado por telefone **não** é baixa confirmada.
 - Pagamento efetivo do Clinicorp requer marcadores de confirmação e identidade da parcela.
 - Cancelados, quitados e status externos conflitantes exigem conferência e não cobrança automática.

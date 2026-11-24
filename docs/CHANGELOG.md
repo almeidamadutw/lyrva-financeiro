@@ -1,5 +1,11 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-24 — Filtro de exatamente dois boletos vencidos
+
+- A Régua de cobrança oferece **Exatamente 2 vencidos** no filtro **Boletos vencidos**, ao lado das carteiras existentes. Usa a contagem completa de boletos vencidos e abertos do paciente na unidade, independente do período da lista. Código em `components/collections-journey-real.tsx`.
+- O filtro reaproveita os dados carregados e aplica-se às abas sem alterar responsável, histórico ou estado de protesto.
+- Executados build Vinext, TypeScript e os 49 testes da aplicação. Um fluxo com dados fictícios em DOM simulado conferiu contagens de um, dois, três e quatro vencidos, duas páginas de banco, ambas as unidades, primeiro contato, aguardando resposta, promessas, limpeza do filtro e ausência de novas consultas ao alterná-lo.
+
 ## 2026-11-18 — Custo das leituras ao abrir o sistema
 
 - A fila fiscal e os contadores do painel são carregados ao abrir **Visão geral** ou **Notas fiscais**. Eventos simultâneos de foco compartilham a leitura em andamento. Ao trocar de tela, a consulta anterior para de buscar páginas e de atualizar o estado.

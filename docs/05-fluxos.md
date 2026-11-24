@@ -17,10 +17,11 @@
 ## 3. Cobrança e negociação
 1. Após o prazo previsto, abra **Régua de cobrança**.
 2. Use **Todos** para localizar quem aguarda o primeiro contato. Os pacientes com um boleto vencido na unidade ficam na carteira da Duda e aparecem primeiro. Dentro de cada carteira, os casos aparecem pela ordem de entrada na régua.
-3. Abra o caso, confira a conciliação e registre contato, canal, resultado e próxima ação.
-4. Casos aguardando resposta aparecem em **Hoje**; datas combinadas em **Promessas**.
-5. Registre renegociação somente com contexto da parcela e sem confundir promessa com quitação.
-6. Uma baixa confirmada remove o título elegível da régua; revisar divergências antes de decidir.
+3. Para localizar pacientes com dois boletos vencidos antes de avisá-los, escolha **Exatamente 2 vencidos** no filtro **Boletos vencidos**. Ajuste unidade e período; use **Todos** para o primeiro contato ou **Hoje** para acompanhar quem aguarda resposta. **Limpar** restaura todos os vencimentos e carteiras.
+4. Abra o caso, confira a conciliação e registre contato, canal, resultado e próxima ação.
+5. Casos aguardando resposta aparecem em **Hoje**; datas combinadas em **Promessas**.
+6. Registre renegociação somente com contexto da parcela e sem confundir promessa com quitação.
+7. Uma baixa confirmada remove o título elegível da régua; revisar divergências antes de decidir.
 
 ## 4. Nota fiscal
 1. Abra **Notas fiscais**.

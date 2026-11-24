@@ -24,6 +24,8 @@ A interface `components/collections-journey-real.tsx` separa:
 - **Promessas:** pagamento com data combinada;
 - **Negociações** e **Protestados:** situações específicas.
 
+O filtro **Boletos vencidos** oferece **Exatamente 2 vencidos** para localizar os pacientes com dois boletos vencidos e ainda abertos na unidade. A contagem considera todos os vencimentos do paciente, mesmo fora do período escolhido. A opção aplica-se às abas da régua e pode ser combinada com a busca por nome. O estado de protesto segue o registro do caso.
+
 Além da lista filtrada, existe conferência de estado externo do Clinicorp para evitar cobrar valores incorretos.
 
 ### Gráficos
