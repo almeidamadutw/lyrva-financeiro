@@ -383,7 +383,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         setReconciliationError(error instanceof Error ? error.message : "Não foi possível conferir o total.");
       }
     } catch (error) {
-      if (!current()) return;
+      if (!current() || silent) return;
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
       if (current()) { loadingRef.current = null; setLoading(false); }
@@ -961,8 +961,10 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
     if (!verified) return;
     if (performance.now() >= verified.expiresAt) { retryVerification(); return; }
     if (!patient || !note.trim()) { toast.info("Conte o que foi negociado antes de registrar."); return; }
+    if (note.trim().length < 2) { toast.info("Descreva o que aconteceu no contato."); return; }
     if (outcome === "promise" && !nextDate) { toast.info("Escolha a data combinada para o pagamento."); return; }
     setSaving(true);
+    const unconfirmedDescription = "Sua observação continua aqui. Confira a conexão e o histórico antes de tentar novamente.";
     try {
       const nextActionAt = nextDate ? new Date(`${nextDate}T09:00:00-03:00`).toISOString() : null;
       const { error } = await (getSupabaseBrowserClient() as any).rpc("register_collection_interaction", {
@@ -977,22 +979,32 @@ function NegotiationSheet({ patient, onClose, onRegistered }: { patient: Collect
         toast.info("Conferindo o boleto novamente", { description: "Sua observação continua aqui." });
         return;
       }
-      if (error) throw error;
-      const formattedDate = nextDate ? dateOnly(nextDate) : "";
-      const successDescription = outcome === "promise"
-        ? `Retorno criado para ${formattedDate}.`
-        : outcome === "payment"
-          ? "Pagamento informado. Em títulos do Clinicorp, a baixa acontece somente após a confirmação da integração."
-          : outcome === "renegotiated"
-            ? "Renegociação concluída. O título antigo foi encerrado na régua do LYVRA."
-            : "O histórico real do paciente foi atualizado.";
-      toast.success("Atualização registrada", { description: successDescription });
-      setNote(""); setNextDate(""); setOutcome("contact"); stopListening();
-      await onRegistered(patient);
-      onClose();
-    } catch (error) {
-      toast.error("Não foi possível registrar a negociação", { description: error instanceof Error ? error.message : "Tente novamente." });
+      if (error) {
+        const description = error.code === "22023" || error.code === "42501"
+          ? error.message
+          : unconfirmedDescription;
+        toast.error("Não foi possível confirmar o registro da negociação", { description });
+        return;
+      }
+    } catch {
+      toast.error("Não foi possível confirmar o registro da negociação", {
+        description: unconfirmedDescription,
+      });
+      return;
     } finally { setSaving(false); }
+
+    const formattedDate = nextDate ? dateOnly(nextDate) : "";
+    const successDescription = outcome === "promise"
+      ? `Retorno criado para ${formattedDate}.`
+      : outcome === "payment"
+        ? "Pagamento informado. Em títulos do Clinicorp, a baixa acontece somente após a confirmação da integração."
+        : outcome === "renegotiated"
+          ? "Renegociação concluída. O título antigo foi encerrado na régua do LYVRA."
+          : "O histórico real do paciente foi atualizado.";
+    toast.success("Atualização registrada", { description: successDescription });
+    setNote(""); setNextDate(""); setOutcome("contact"); stopListening();
+    onClose();
+    void onRegistered(patient);
   };
 
   return <Sheet open={Boolean(patient)} onOpenChange={(open) => { if (!open && !saving) { stopListening(); onClose(); } }}><SheetContent className="w-full gap-0 border-l-[#dfe5df] p-0 sm:max-w-[640px]">{patient && <><SheetHeader className="border-b border-[#e6ebe6] px-5 py-5 pr-12 md:px-6"><div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#e4f8ee] text-sm font-bold text-[#16734a]">{patient.initials}</div><div className="min-w-0"><SheetTitle className="font-display text-xl text-[#192820]">{patient.name}</SheetTitle><SheetDescription>{patient.unit} • {patient.phone}</SheetDescription></div></div></SheetHeader><ScrollArea className="min-h-0 flex-1"><div className="space-y-6 px-5 py-5 md:px-6"><section className="grid grid-cols-3 gap-3"><MiniDetail label="Em aberto" value={verified ? brl(verified.amount) : verification.state === "closed" ? "—" : "Em conferência"} /><MiniDetail label="Vencimento" value={verified ? dateOnly(verified.dueDate) : patient.dueDate} /><MiniDetail label="Atraso" value={verified ? daysLate(verified.dueDate) : patient.delay} danger /></section><section><div className="flex items-center justify-between"><div><p className="eyebrow">HISTÓRICO DA NEGOCIAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Tudo que já foi conversado</h3></div><History className="size-5 text-[#829087]" /></div><div className="mt-5 space-y-5">{patient.history.map((entry, index) => <div key={entry.id} className="relative flex gap-3">{index < patient.history.length - 1 && <span className="absolute left-[15px] top-8 h-[calc(100%+4px)] w-px bg-[#dfe6df]" />}<span className={`relative z-10 grid size-8 shrink-0 place-items-center rounded-full ${entry.author === "LYVRA" ? "bg-[#edf2ed] text-[#627169]" : "bg-[#e4f8ee] text-[#00884a]"}`}>{entry.author === "LYVRA" ? <Clock3 className="size-3.5" /> : <UserRoundCheck className="size-3.5" />}</span><div className="min-w-0 flex-1 rounded-2xl border border-[#e6ebe6] bg-[#fbfcfa] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#405148]">{entry.author} • {entry.channel}</p><span className="text-[10px] text-[#929c96]">{entry.date}</span></div><p className="mt-2 text-sm leading-6 text-[#65736b]">{entry.text}</p></div></div>)}</div></section><section className="rounded-[22px] border border-[#dfe6df] bg-white p-4 md:p-5"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">NOVA ATUALIZAÇÃO</p><h3 className="font-display mt-1 text-lg font-semibold text-[#23342b]">Registrar negociação</h3>{verification.state !== "ready" && (

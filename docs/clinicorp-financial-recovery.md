@@ -29,6 +29,8 @@ A régua inicia no mês atual e aplica mês, ano e intervalo de vencimento no se
 
 `get_collection_queue_filtered` seleciona os vínculos ativos nas unidades acessíveis e os casos já elegíveis. A consulta localiza a parcela de cada caso pela chave e aplica os filtros de vencimento. O banco consulta o nome, o responsável e a confirmação do Clinicorp para os casos da página retornada. A confirmação de boletos em planos com outra forma de pagamento faz parte da seleção da página.
 
+Ao registrar uma negociação, a tela confirma o salvamento e fecha o formulário assim que `register_collection_interaction` retorna com sucesso. A releitura do caso acontece em segundo plano. Se a recarga automática falhar, a lista conserva os últimos dados recebidos. Se o salvamento falhar, o formulário mantém a observação e os campos preenchidos.
+
 Pacientes e notas têm leitura paginada e ordenação estável, evitando totais ou listas cortados silenciosamente. Respostas de uma consulta anterior não substituem a unidade/período atual da régua. O aviso global informa a cobertura inicial e as tentativas pendentes.
 
 ## Acompanhamento

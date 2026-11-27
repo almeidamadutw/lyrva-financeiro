@@ -1,5 +1,11 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-27 — Confirmação de registro na Régua de cobrança
+
+- O formulário fecha após a confirmação do registro e a tela atualiza a lista em segundo plano. Se a recarga automática atingir o tempo limite, a lista mantém os últimos dados recebidos. Código em `components/collections-journey-real.tsx`.
+- Erros de gravação preservam a observação e os campos do formulário. A conferência do Clinicorp continua obrigatória e é renovada quando expira.
+- Validados build Vinext, TypeScript, os 49 testes da aplicação e seis cenários de interface com dados sintéticos, incluindo falha da recarga após o salvamento e nova conferência do Clinicorp com o texto preservado.
+
 ## 2026-11-24 — Filtro de exatamente dois boletos vencidos
 
 - A Régua de cobrança oferece **Exatamente 2 vencidos** no filtro **Boletos vencidos**, ao lado das carteiras existentes. Usa a contagem completa de boletos vencidos e abertos do paciente na unidade, independente do período da lista. Código em `components/collections-journey-real.tsx`.
