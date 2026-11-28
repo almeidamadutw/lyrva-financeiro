@@ -37,3 +37,7 @@ A publicação real e integridade financeira de toda a carteira não foram testa
 
 ## Controle de Entrada de Vendas
 Consulte [o fluxo e a integração](entrada-de-vendas.md) para conferir os testes e os requisitos da publicação.
+
+## Conferência dos relatórios em PDF
+
+Use dados fictícios de duas unidades. Na Régua, abra cada aba e baixe o PDF com uma busca e um período definidos. Confira o primeiro e o último título de uma fila maior que 200 registros, o total conferido e os títulos em conferência. Troque a unidade e confirme que o arquivo só traz a seleção atual. Em Diárias, confira uma folha mensal individual, o resumo de todos os profissionais e a opção Arquivados com a mesma competência.

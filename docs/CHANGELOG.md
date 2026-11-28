@@ -1,5 +1,11 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-28 — Relatórios PDF da Régua de cobrança e de Diárias
+
+- A Régua exporta a aba e todos os registros dos filtros carregados, com saldo conferido, títulos em conferência e última interação em Negociações. Diárias exporta a folha da competência ou o resumo dos profissionais ativos ou arquivados.
+- Geração local em `lib/finance-report-pdf.ts`, acionada por `components/collections-journey-real.tsx` e `components/professional-pay.tsx`. O botão reaproveita as leituras autorizadas da sessão.
+- Build Vinext, TypeScript e 49 testes aprovados. Sete PDFs fictícios gerados pela interface foram lidos e conferidos, incluindo 310 títulos em 16 páginas, filtros de unidade e carteira, Promessas, Negociações, folha individual, resumo mensal e arquivados.
+
 ## 2026-11-27 — Confirmação de registro na Régua de cobrança
 
 - O formulário fecha após a confirmação do registro e a tela atualiza a lista em segundo plano. Se a recarga automática atingir o tempo limite, a lista mantém os últimos dados recebidos. Código em `components/collections-journey-real.tsx`.

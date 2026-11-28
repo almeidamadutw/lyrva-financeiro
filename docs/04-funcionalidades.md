@@ -53,3 +53,10 @@ Em **Valor fixo por serviço do dia**, selecione o serviço realizado no lançam
 
 ## Controle de Entrada de Vendas
 Consulte [a tela e seus indicadores](entrada-de-vendas.md).
+
+
+## Baixar relatórios financeiros
+
+Em **Régua de cobrança**, selecione a unidade, o período, a quantidade de boletos e a aba desejada. Use a busca de paciente se precisar e clique em **Baixar PDF** junto à lista. O arquivo inclui todos os títulos daquela seleção, inclusive os que aparecem ao pedir mais resultados. A aba **Todos** corresponde aos primeiros contatos. Em **Negociações**, a última interação apresenta a data, o resultado e a autoria quando disponíveis. O total soma os saldos conferidos e informa quantos títulos aguardam conferência.
+
+Em **Diárias**, escolha a unidade e a competência. Selecione um profissional para baixar a folha do mês com os dias, as assinaturas, a situação e os valores. A opção **Todos** gera o resumo por profissional e distingue os valores que aguardam aprovação. **Arquivados** permite exportar o grupo arquivado. O PDF é gerado no navegador a partir dos registros carregados com as permissões da sessão.

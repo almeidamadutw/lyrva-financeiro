@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FinanceReportButton } from "@/components/finance-report-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -298,8 +299,10 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const [patientQuery, setPatientQuery] = useState("");
   const [collectionTab, setCollectionTab] = useState("all");
 
+  const loadKey = JSON.stringify([unit, quickPeriod, dateFrom, dateTo, monthFilter, yearFilter]);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+
   const load = useCallback(async (silent = false, force = false) => {
-    const loadKey = JSON.stringify([unit,quickPeriod,dateFrom,dateTo,monthFilter,yearFilter]);
     if (!force && loadingRef.current === loadKey) return;
     loadingRef.current = loadKey;
     const generation = ++loadGeneration.current;
@@ -357,6 +360,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
       const profileResult = await supabase.from("profiles").select("user_id,full_name").eq("is_active", true);
       if (profileResult.error) throw profileResult.error;
       if (!current()) return;
+      setLoadedKey(loadKey);
       setQueue(queueRows);
       setContactContexts(contactRows);
       setOverdueBoletoCounts((overdueResult.data ?? []) as unknown as OverdueBoletoCountRow[]);
@@ -383,12 +387,14 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
         setReconciliationError(error instanceof Error ? error.message : "Não foi possível conferir o total.");
       }
     } catch (error) {
-      if (!current() || silent) return;
+      if (!current()) return;
+      setLoadedKey(null);
+      if (silent) return;
       toast.error("Não foi possível carregar a régua de cobrança", { description: error instanceof Error ? error.message : "Tente novamente." });
     } finally {
       if (current()) { loadingRef.current = null; setLoading(false); }
     }
-  }, [unit, quickPeriod, dateFrom, dateTo, monthFilter, yearFilter]);
+  }, [unit, quickPeriod, dateFrom, dateTo, monthFilter, yearFilter, loadKey]);
 
   const activeLoad = useRef<typeof load | null>(null);
   useEffect(() => {
@@ -643,6 +649,35 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
   const unverifiedCount=searched.filter(patient=>!patient.sourceVerifiedAt).length;
 
 
+  const queueTabs: Record<string, { title: string; rows: CollectionPatient[] }> = {
+    all: { title: "Primeiro contato", rows: firstContact },
+    today: { title: "Aguardando resposta", rows: waitingForReply },
+    promises: { title: "Promessas", rows: promises },
+    negotiating: { title: "Negociações", rows: negotiating },
+    protested: { title: "Protestados", rows: protested },
+  };
+  const activeQueue = queueTabs[collectionTab] ?? queueTabs.all;
+  function queueReport() {
+    const unitLabel = unit === "todas" ? "Todas as unidades autorizadas" : unit === "salto" ? "Salto de Pirapora" : "Sorocaba";
+    const overdueLabel = { one: "1 boleto vencido", two: "Exatamente 2 vencidos", multiple: "2 ou mais vencidos" }[overdueFilter];
+    const filters = [unitLabel, quickPeriod !== "all" && `Últimos ${quickPeriod} dias`,
+      dateFrom && `De ${dateOnly(dateFrom)}`, dateTo && `Até ${dateOnly(dateTo)}`,
+      monthFilter !== "all" && `Mês ${monthFilter}`, yearFilter !== "all" && `Ano ${yearFilter}`,
+      overdueLabel, patientQuery.trim() && `Busca: ${patientQuery.trim()}`].filter(Boolean);
+    const verified = activeQueue.rows.filter(row => row.sourceVerifiedAt);
+    const total = verified.reduce((sum, row) => sum + row.amountValue, 0);
+    return {
+      title: `Régua de cobrança · ${activeQueue.title}`,
+      subtitle: `${filters.join(" · ")}\nSaldo conferido: ${brl(total)} · ${activeQueue.rows.length - verified.length} título(s) em conferência`,
+      columns: ["Paciente", "Unidade", "Parcela", "Vencimento", "Saldo", "Situação", "Próxima ação",
+        ...(collectionTab === "negotiating" ? ["Última interação"] : [])],
+      rows: activeQueue.rows.map(row => [row.name, row.unit, String(row.installmentNumber ?? "—"), row.dueDate,
+        row.amount, row.status, row.nextAction, ...(collectionTab === "negotiating"
+          ? [row.lastInteraction ? [row.lastInteraction.date, row.lastInteraction.label, row.lastInteraction.author].join(" · ") : "Sem registro"] : [])]),
+      filename: `LYVRA-cobranca-${collectionTab}-${unit}-${todayKey}.pdf`,
+    };
+  }
+
   return <div className="space-y-5">
     <section className="surface-card flex flex-col justify-between gap-5 rounded-[24px] p-5 md:flex-row md:items-center md:p-6">
       <div className="flex items-start gap-4"><div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#e4f8ee] text-[#00884a]"><WalletCards className="size-5" /></div><div><div className="flex flex-wrap items-center gap-2"><p className="eyebrow">REGRA DE ENTRADA</p><Badge className="bg-[#183b32] text-white hover:bg-[#183b32]">Separação automática</Badge></div><h2 className="font-display mt-2 text-2xl font-semibold text-[#192820]">1 boleto vencido para Duda, 2 ou mais para Daiane</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#718078]">O período filtra os títulos exibidos, mas a classificação considera todos os boletos vencidos e ainda abertos do paciente na unidade.</p></div></div>
@@ -763,6 +798,7 @@ export function CollectionsJourney({ unit, openPatientId, onPatientOpened }: { u
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div><h3 className="font-display text-xl font-semibold text-[#192820]">Jornada de cobrança</h3><p className="mt-1 text-sm text-[#718078]">Ligações, acordos e protestos no mesmo fluxo.</p></div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <FinanceReportButton report={queueReport} disabled={loading || loadedKey !== loadKey} />
                 <div className="relative sm:w-64"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8b9690]" /><Input value={patientQuery} onChange={(event) => setPatientQuery(event.target.value)} placeholder="Buscar paciente" className="h-10 rounded-xl pl-9" /></div>
                 <TabsList className="h-10 w-full justify-start overflow-x-auto rounded-xl bg-[#f1f4f0] p-1 sm:w-auto">
                   <TabsTrigger value="all" title="Pacientes sem primeiro contato" className="rounded-lg px-3">Todos <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">{firstContact.length}</Badge></TabsTrigger>
