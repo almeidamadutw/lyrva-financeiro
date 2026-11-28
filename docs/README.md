@@ -5,7 +5,7 @@ Repositório: `lyrva-financeiro`. Referência do código e migrações: `main` i
 1. [Objetivo e escopo](01-visao-geral.md)
 2. [Arquitetura](02-arquitetura.md)
 3. [Banco, Clinicorp e integrações](03-dados-integracoes.md)
-4. [Módulos e telas](04-funcionalidades.md)
+4. [Módulos e telas](04-funcionalidades.md), incluindo [relatórios em PDF da Régua e de Diárias](04-funcionalidades.md#baixar-relatórios-financeiros)
 5. [Fluxos operacionais](05-fluxos.md)
 6. [Regras e permissões](06-regras-permissoes.md)
 7. [Instalação, testes e publicação](07-operacao-testes.md)

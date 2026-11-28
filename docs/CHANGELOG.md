@@ -4,6 +4,11 @@
 
 O Supabase passou a usar limiares menores de autovacuum e autoanalyze para tarefas e casos de cobrança. A política de leitura de registros de integração reutiliza a identidade da sessão sem modificar seu escopo. O teste isolado conferiu quatro cenários de RLS: membro autorizado, outra unidade, autoria e perfil sem acesso financeiro. A migração foi aplicada no Supabase e os parâmetros foram conferidos no catálogo.
 
+## 2026-11-28 — Relatórios PDF da Régua de cobrança e de Diárias
+
+- A Régua exporta a aba e todos os registros dos filtros carregados, com saldo conferido, títulos em conferência e última interação em Negociações. Diárias exporta a folha da competência ou o resumo dos profissionais ativos ou arquivados.
+- Geração local em `lib/finance-report-pdf.ts`, acionada por `components/collections-journey-real.tsx` e `components/professional-pay.tsx`. O botão reaproveita as leituras autorizadas da sessão.
+- Build Vinext, TypeScript e 49 testes aprovados. Sete PDFs fictícios gerados pela interface foram lidos e conferidos, incluindo 310 títulos em 16 páginas, filtros de unidade e carteira, Promessas, Negociações, folha individual, resumo mensal e arquivados.
 
 ## 2026-11-27 — Confirmação de registro na Régua de cobrança
 

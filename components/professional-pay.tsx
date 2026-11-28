@@ -5,6 +5,7 @@ import { LoaderCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { AttendancePriceCalculator, FixedPriceFields, normalizePayItemName } from "@/components/professional-pay-calculator";
+import { FinanceReportButton } from "@/components/finance-report-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -194,6 +195,37 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
   ];
   const today = payToday();
 
+  function attendanceReport() {
+    const scope = showArchived ? "Profissionais arquivados" : "Profissionais ativos";
+    const range = `${unit.name} · Competência ${month.split("-").reverse().join("/")} · ${scope}`;
+    if (professional) {
+      return {
+        title: "Folha de ponto mensal",
+        subtitle: `${range} · ${professional.name}`,
+        columns: ["Dia", "Serviço", "Assinaturas", "Situação", "Valor"],
+        rows: payMonthDays(month).map(date => {
+          const row = rowsByDate.get(date);
+          return [dateLabel(date), row ? serviceLabels[row.service_kind] : "—",
+            row ? `${Number(row.professional_signed) + Number(row.finance_signed)} de 2` : "—",
+            row ? awaitsApproval(row) ? "Aguardando aprovação" : attendanceLabels[row.status] : "Em branco",
+            row?.amount_cents != null ? formatPayAmount(row.amount_cents) : "—"];
+        }),
+        filename: `LYVRA-ponto-${unit.id}-${professional.id}-${month}.pdf`,
+      };
+    }
+    return {
+      title: "Diárias por profissional",
+      subtitle: range,
+      columns: ["Profissional", "Dias pendentes", "A pagar", "Aguardando aprovação (incluído em A pagar)", "Pago"],
+      rows: visibleProfiles.map(person => {
+        const subtotal = totalsByProfessional.get(person.id) ?? emptyTotals;
+        return [person.name, String(subtotal.pending), formatPayAmount(subtotal.validated),
+          formatPayAmount(subtotal.awaitingApproval), formatPayAmount(subtotal.paid)];
+      }),
+      filename: `LYVRA-diarias-${unit.id}-${month}.pdf`,
+    };
+  }
+
   return (
     <>
       <dl aria-label="Totais de diárias na competência" className={"grid gap-3 " + (professional ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3")}>
@@ -225,6 +257,7 @@ function MonthlyAttendance({ unit, month, showAll, setShowAll }: {
             </div>
           ) : <p className="text-sm text-muted-foreground">{showArchived ? "Nenhum profissional arquivado nesta unidade." : "Nenhum profissional ativo nesta unidade."}</p>}
           <div className="flex flex-wrap gap-2">
+            <FinanceReportButton report={attendanceReport} />
             {(hasArchived || showArchived) && <Button variant="outline" onClick={() => {
               setShowArchived(!showArchived);
               setProfessionalId(undefined);
