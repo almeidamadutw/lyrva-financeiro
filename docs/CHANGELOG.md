@@ -1,5 +1,10 @@
 # Histórico da documentação | LYVRA
 
+## 2026-11-28 — Manutenção de dados da régua
+
+O Supabase passou a usar limiares menores de autovacuum e autoanalyze para tarefas e casos de cobrança. A política de leitura de registros de integração reutiliza a identidade da sessão sem modificar seu escopo. O teste isolado conferiu quatro cenários de RLS: membro autorizado, outra unidade, autoria e perfil sem acesso financeiro. A migração foi aplicada no Supabase e os parâmetros foram conferidos no catálogo.
+
+
 ## 2026-11-27 — Confirmação de registro na Régua de cobrança
 
 - O formulário fecha após a confirmação do registro e a tela atualiza a lista em segundo plano. Se a recarga automática atingir o tempo limite, a lista mantém os últimos dados recebidos. Código em `components/collections-journey-real.tsx`.

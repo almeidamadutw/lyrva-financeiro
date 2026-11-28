@@ -35,3 +35,7 @@ CPF, telefone, valores, tokens e payloads de API são dados sensíveis. Não inc
 
 ## Controle de Entrada de Vendas
 Consulte [o modelo de dados, os indicadores e a integração por unidade](entrada-de-vendas.md).
+
+## Manutenção das tabelas de cobrança
+
+`financial_tasks` e `collection_cases` iniciam a limpeza automática com um fator de 10% e a atualização automática de estatísticas com 5%. Os limites absolutos do serviço continuam valendo. O histórico de integração mantém autorização por equipe financeira, acesso à unidade ou autoria, com identidade avaliada uma vez por consulta.

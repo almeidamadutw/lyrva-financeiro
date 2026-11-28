@@ -6,6 +6,7 @@ A aba cobre folha mensal por unidade e profissional, regras versionadas, cálcul
 
 | Item | Estado |
 | --- | --- |
+| Desempenho da régua e da conciliação | Manutenção automática ajustada para tarefas e casos de cobrança | Medir a fila por unidade após o autovacuum e investigar a conciliação e o filtro de vencimento com planos de execução. |
 | Cadastro da tabela aprovada por unidade e vigência | A configurar no ambiente da clínica |
 | Agenda ou cadastro de profissionais do Clinicorp como referência | Evolução futura |
 | Anexar folha digitalizada ou comprovante | Evolução futura. A interface guarda referência textual do comprovante |
